@@ -60,14 +60,15 @@ AssemblyNode read_node(const TDF_Label& label,const Handle(XCAFDoc_ShapeTool)& t
 }
 }
 
-StepImportResult StepImporter::import_file(const std::filesystem::path& path,double deflection) const {
+StepImportResult StepImporter::import_file(const std::filesystem::path& path,double deflection,bool compute_interferences) const {
   if(path.extension() != ".step" && path.extension() != ".stp" && path.extension() != ".STEP" && path.extension() != ".STP") throw std::invalid_argument("only STEP files are supported");
   STEPCAFControl_Reader reader; reader.SetNameMode(true); reader.SetColorMode(true); reader.SetLayerMode(true);
   if(reader.ReadFile(path.string().c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP parser rejected the file");
   Handle(TDocStd_Document) doc; XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc); if(!reader.Transfer(doc)) throw std::runtime_error("STEP transfer failed");
   const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main()); TDF_LabelSequence roots; tool->GetFreeShapes(roots); StepImportResult result; result.source_name=path.filename().string();
   std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i) result.roots.push_back(read_node(roots.Value(i),tool,deflection,leaves));
-  for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.interferences.push_back({leaves[i].id,leaves[j].id,volume});}
+  if(compute_interferences)for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.interferences.push_back({leaves[i].id,leaves[j].id,volume});}
+  else result.warnings.push_back("Static interference was deferred for this large assembly");
   if(result.roots.empty()) result.warnings.push_back("No free shapes were found in the STEP document"); return result;
 }
 

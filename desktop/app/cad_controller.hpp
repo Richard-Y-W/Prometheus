@@ -48,6 +48,7 @@ class CadController final : public QObject {
   Q_PROPERTY(QVariantList parts READ parts NOTIFY partsChanged)
   Q_PROPERTY(QString sourceName READ sourceName NOTIFY partsChanged)
   Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+  Q_PROPERTY(QStringList warnings READ warnings NOTIFY partsChanged)
   Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
   Q_PROPERTY(double centerX READ centerX NOTIFY partsChanged)
   Q_PROPERTY(double centerY READ centerY NOTIFY partsChanged)
@@ -61,7 +62,7 @@ class CadController final : public QObject {
   Q_PROPERTY(bool geometryBusy READ geometryBusy NOTIFY geometryBusyChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged) Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
 public:
-  explicit CadController(QObject* parent=nullptr); QVariantList parts()const{return parts_;} QString sourceName()const{return source_name_;} QString error()const{return error_;} bool busy()const{return busy_;}
+  explicit CadController(QObject* parent=nullptr); QVariantList parts()const{return parts_;} QString sourceName()const{return source_name_;} QString error()const{return error_;}QStringList warnings()const{return warnings_;} bool busy()const{return busy_;}
   double centerX()const{return center_x_;}double centerY()const{return center_y_;}double centerZ()const{return center_z_;}double sceneDiameter()const{return scene_diameter_;}
   QVariantMap engineeringState()const{return engineering_state_;}
   QVariantList interferences()const{return interferences_;}
@@ -84,5 +85,5 @@ public:
   Q_INVOKABLE bool confirmAnchorConnection(int source_index,const QString& source_anchor,int target_index,const QString& target_anchor,const QString& connection_type);Q_INVOKABLE void removeConnection(int index);
   Q_INVOKABLE void setEngineeringState(const QVariantMap& state){engineering_state_=state;emit engineeringStateChanged();}
 signals: void partsChanged(); void connectionsChanged();void errorChanged(); void busyChanged(); void sweepBusyChanged();void geometryBusyChanged();void historyChanged();void sweepFinished();void geometryFinished();void engineeringStateChanged();void importFinished(bool success);
-private: QVariantList parts_,interferences_,connections_,sweep_results_,undo_stack_,redo_stack_;QString source_name_,source_path_,error_;QVariantList pending_bindings_,pending_interference_classifications_,pending_placements_,pending_connections_;QVariantMap engineering_state_,active_placement_preview_;bool busy_{},sweep_busy_{},geometry_busy_{};double center_x_{},center_y_{},center_z_{},scene_diameter_{1};QFutureWatcher<prometheus::cad::StepImportResult> watcher_;QFutureWatcher<std::vector<prometheus::cad::SweepInterference>> sweep_watcher_;QFutureWatcher<std::vector<prometheus::cad::StaticInterference>> geometry_watcher_;void clearParts();void applyResult(const prometheus::cad::StepImportResult& result);void setBusy(bool value);void applyBindings();void applyInterferenceClassifications();void applyPlacements();void applyConnections();void refreshInterferencesAsync();std::vector<prometheus::cad::PartPlacement> placements()const;QVariantMap placementState(int index)const;void applyPlacementState(const QVariantMap& state);
+private: QVariantList parts_,interferences_,connections_,sweep_results_,undo_stack_,redo_stack_;QString source_name_,source_path_,error_;QStringList warnings_;QVariantList pending_bindings_,pending_interference_classifications_,pending_placements_,pending_connections_;QVariantMap engineering_state_,active_placement_preview_;bool busy_{},sweep_busy_{},geometry_busy_{};double center_x_{},center_y_{},center_z_{},scene_diameter_{1};QFutureWatcher<prometheus::cad::StepImportResult> watcher_;QFutureWatcher<std::vector<prometheus::cad::SweepInterference>> sweep_watcher_;QFutureWatcher<std::vector<prometheus::cad::StaticInterference>> geometry_watcher_;void clearParts();void applyResult(const prometheus::cad::StepImportResult& result);void setBusy(bool value);void applyBindings();void applyInterferenceClassifications();void applyPlacements();void applyConnections();void refreshInterferencesAsync();std::vector<prometheus::cad::PartPlacement> placements()const;QVariantMap placementState(int index)const;void applyPlacementState(const QVariantMap& state);
 };

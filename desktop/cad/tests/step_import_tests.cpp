@@ -17,6 +17,9 @@
 #include <algorithm>
 
 int main(int argc,char** argv){
+  if(argc==3&&std::string(argv[1])=="--import-only"){
+    try{const auto result=prometheus::cad::StepImporter{}.import_file(argv[2],0.0015,false);std::size_t leaves=0,triangles=0;const auto visit=[&](const auto& self,const auto& node)->void{if(node.children.empty()){++leaves;triangles+=node.mesh.indices.size()/3;}for(const auto& child:node.children)self(self,child);};for(const auto& root:result.roots)visit(visit,root);if(leaves<2||triangles==0){std::cerr<<"external assembly import insufficient: leaves="<<leaves<<" triangles="<<triangles<<"\n";return 10;}std::cout<<"Imported roots="<<result.roots.size()<<" leaves="<<leaves<<" triangles="<<triangles<<" interferences=deferred\n";return 0;}catch(const std::exception& e){std::cerr<<"external import failed: "<<e.what()<<"\n";return 11;}
+  }
   const bool keep_fixture=argc>1; const auto path=keep_fixture?std::filesystem::path(argv[1]):std::filesystem::temp_directory_path()/"prometheus-motor-arm.step";
   Handle(TDocStd_Document) doc; XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc); const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());
   const auto base=tool->AddShape(BRepPrimAPI_MakeBox(160,20,100).Shape(),false); TDataStd_Name::Set(base,"Base plate");

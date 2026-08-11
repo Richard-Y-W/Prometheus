@@ -20,6 +20,8 @@ Qt and Open Cascade are installed through the documented MSYS2 UCRT64 bootstrap 
 
 The exact implemented, mocked, partial, and unsupported boundaries are tracked in [Rough V1 release status](docs/rough-v1-release-status.md).
 
+For a high-detail external demo, see the licensed [OpenArm 2.0 stress-test workflow](docs/external-openarm-demo.md).
+
 ## Windows 11 prerequisites
 
 - MSYS2 UCRT64 with GCC, Qt 6, and Open Cascade (current verified path), or a future pinned MSVC-equivalent toolchain

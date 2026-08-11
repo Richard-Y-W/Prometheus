@@ -22,6 +22,8 @@ Mocked: public manufacturer search, live PDF parsing, chart digitization, and li
 
 Implemented: STEP/XDE import, hierarchy extraction, persistent IDs, transforms, tessellation, topology/volume/bounds metadata, selection, hide/isolate, standard cameras, world/local move and rotate, snapping increments, transient dimensions, undo/redo, bounds-derived snap-to-mate, measurement, and project round-tripping.
 
+An optional OpenArm 2.0 stress-test workflow validates import of a 47.8 MB, 596,190-triangle external assembly. Large files use coarser display tessellation and defer eager all-pairs exact interference so geometry becomes inspectable first; that deferral is reported in the desktop status bar.
+
 Partial: bounds anchors are placement aids, not authoritative mounting ports. Rotation rings, box/multi-selection, section planes, production drafting, sketches, and parametric feature history remain unsupported.
 
 ## 5. Constraints and assembly semantics

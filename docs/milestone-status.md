@@ -101,3 +101,9 @@ A dedicated Connections inspector lists these graph edges and permits removal wi
 The repository now includes a release-status matrix that distinguishes implemented, partial, fixture-backed, and unsupported behavior across physics, electrical compatibility, component intelligence, CAD usability, assembly semantics, and product hardening. Representative verified screenshots are checked into `docs/images` and presented in the README.
 
 The deterministic physics library now includes a rectangular support-polygon tipping primitive. It projects the center of gravity along effective gravity under declared planar acceleration and reports signed boundary margin, limiting edge, and stable/unstable state. Unit tests cover static stability, acceleration-induced tipping, and invalid support geometry. Complete desktop per-part mass and support-polygon authoring remains explicitly partial.
+
+## Milestone 16 — high-detail external CAD stress test
+
+The OpenArm 2.0 full STEP assembly is available through an on-demand, hash-verified demo launcher with upstream CERN-OHL-S-2.0 attribution. Prometheus imported the 47.8 MB source as one XDE root, four compound leaf bodies, and 596,190 tessellated triangles. The upstream grouping preserves substantial visual detail but exposes limited semantic tree depth.
+
+STEP files larger than 20 MB now use a coarser 1.5 mm display deflection and defer eager all-pairs Boolean interference. The desktop reports that deferral rather than implying collision was evaluated. An import-only native smoke mode validates external assemblies independently of the fixture-specific collision assertions. Automated Qt capture still fails to emit a post-import image on this Windows runner and remains an explicit hardening issue.
