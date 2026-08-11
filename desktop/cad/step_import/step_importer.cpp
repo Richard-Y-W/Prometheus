@@ -52,11 +52,29 @@ DisplayMesh tessellate(const TopoDS_Shape& shape,double deflection) {
     for(Standard_Integer i=1;i<=tri->NbTriangles();++i){Standard_Integer a,b,c;tri->Triangle(i).Get(a,b,c);if(face.Orientation()==TopAbs_REVERSED)std::swap(b,c);out.indices.insert(out.indices.end(),{offset+static_cast<std::uint32_t>(a-1),offset+static_cast<std::uint32_t>(b-1),offset+static_cast<std::uint32_t>(c-1)});}
   } return out;
 }
+void populate_geometry(AssemblyNode& node,const TopoDS_Shape& shape,double deflection) {
+  if(shape.IsNull())return;
+  Bnd_Box box;BRepBndLib::Add(shape,box);
+  if(!box.IsVoid()){box.Get(node.bounds.min_x,node.bounds.min_y,node.bounds.min_z,node.bounds.max_x,node.bounds.max_y,node.bounds.max_z);node.bounds={node.bounds.min_x/1000,node.bounds.min_y/1000,node.bounds.min_z/1000,node.bounds.max_x/1000,node.bounds.max_y/1000,node.bounds.max_z/1000};}
+  GProp_GProps props;BRepGProp::VolumeProperties(shape,props);node.volume_m3=props.Mass()/1e9;
+  GProp_GProps surface;BRepGProp::SurfaceProperties(shape,surface);node.surface_area_m2=surface.Mass()/1e6;
+  TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);node.face_count=faces.Extent();node.edge_count=edges.Extent();
+  node.mesh=tessellate(shape,deflection*1000.0);
+}
 AssemblyNode read_node(const TDF_Label& label,const Handle(XCAFDoc_ShapeTool)& tool,double deflection,std::vector<LeafShape>& leaves) {
   TDF_Label geometry_label=label; if(tool->IsReference(label)) tool->GetReferredShape(label,geometry_label);
   const auto shape=tool->GetShape(label); AssemblyNode node; node.persistent_id=label_id(label); const auto referenced_name=label_name(geometry_label,"Unnamed part");node.name=label_name(label,referenced_name);if(node.name.starts_with("=>"))node.name=referenced_name;node.transform=matrix(shape.Location());
-  if(!shape.IsNull()) { Bnd_Box box; BRepBndLib::Add(shape,box); if(!box.IsVoid()){box.Get(node.bounds.min_x,node.bounds.min_y,node.bounds.min_z,node.bounds.max_x,node.bounds.max_y,node.bounds.max_z);node.bounds={node.bounds.min_x/1000,node.bounds.min_y/1000,node.bounds.min_z/1000,node.bounds.max_x/1000,node.bounds.max_y/1000,node.bounds.max_z/1000};} GProp_GProps props; BRepGProp::VolumeProperties(shape,props);node.volume_m3=props.Mass()/1e9;GProp_GProps surface;BRepGProp::SurfaceProperties(shape,surface);node.surface_area_m2=surface.Mass()/1e6;TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);node.face_count=faces.Extent();node.edge_count=edges.Extent();node.mesh=tessellate(shape,deflection*1000.0); }
-  TDF_LabelSequence children; tool->GetComponents(label,children,false); for(Standard_Integer i=1;i<=children.Length();++i) node.children.push_back(read_node(children.Value(i),tool,deflection,leaves));if(children.IsEmpty()&&!shape.IsNull()){Bnd_Box bounds;BRepBndLib::Add(shape,bounds);leaves.push_back({node.persistent_id,shape,bounds});} return node;
+  populate_geometry(node,shape,deflection);
+  TDF_LabelSequence children;tool->GetComponents(label,children,false);
+  for(Standard_Integer i=1;i<=children.Length();++i)node.children.push_back(read_node(children.Value(i),tool,deflection,leaves));
+  if(children.IsEmpty()&&!shape.IsNull()){
+    std::vector<TopoDS_Shape> solids;for(TopExp_Explorer ex(shape,TopAbs_SOLID);ex.More();ex.Next())solids.push_back(ex.Current());
+    if(solids.size()>1){
+      node.mesh={};
+      for(std::size_t i=0;i<solids.size();++i){AssemblyNode detail;detail.persistent_id=node.persistent_id+"/solid/"+std::to_string(i+1);detail.name="Solid "+std::to_string(i+1);detail.transform=matrix(solids[i].Location());populate_geometry(detail,solids[i],deflection);Bnd_Box bounds;BRepBndLib::Add(solids[i],bounds);leaves.push_back({detail.persistent_id,solids[i],bounds});node.children.push_back(std::move(detail));}
+    }else{Bnd_Box bounds;BRepBndLib::Add(shape,bounds);leaves.push_back({node.persistent_id,shape,bounds});}
+  }
+  return node;
 }
 }
 

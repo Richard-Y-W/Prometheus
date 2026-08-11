@@ -2,6 +2,8 @@
 
 Prometheus can use the OpenArm 2.0 full STEP assembly as a higher-complexity import and rendering stress test. Run `./scripts/run-openarm-demo.ps1` on a Windows native-development installation. The script downloads the approximately 48 MB assembly into the ignored `out/external-demo` directory, verifies its SHA-256 hash, builds Prometheus, and opens the assembly at startup.
 
+The verified import contains 607 selectable solids and 596,190 rendered triangles. Exact all-pairs interference is deliberately deferred for this stress-test assembly; this limitation is visible in the application rather than silently treated as a collision-free result.
+
 Source: [Enactic OpenArm Hardware](https://github.com/enactic/openarm_hardware), file `v2.0/Hardware/OpenArm 2.0/OpenArm_2.0.STEP`.
 
 License: CERN Open Hardware Licence Version 2 — Strongly Reciprocal (`CERN-OHL-S-2.0`), copyright 2025 Enactic, Inc. The upstream license and source remain authoritative. Prometheus does not republish or relicense the STEP file; it is downloaded directly from the upstream project's published Google Drive identifier.
