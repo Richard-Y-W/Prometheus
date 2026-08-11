@@ -1,0 +1,8 @@
+add_library(prometheus_core INTERFACE)
+target_include_directories(prometheus_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(prometheus_core INTERFACE cxx_std_20)
+if(BUILD_TESTING)
+  add_executable(prometheus_core_tests tests/core_tests.cpp)
+  target_link_libraries(prometheus_core_tests PRIVATE prometheus_core)
+  add_test(NAME prometheus_core_tests COMMAND prometheus_core_tests)
+endif()
