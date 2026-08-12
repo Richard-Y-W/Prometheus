@@ -163,6 +163,19 @@ def test_fixture_builds_one_complete_unreviewed_v2_draft_graph(db):
     assert result.revision.published_object_hash is None
     assert result.revision.content_hash is None
     assert result.revision.published_at is None
+    assert result.revision.supported_recipes == [
+        fixture_pipeline_v2.CAPABILITY_ID
+    ]
+    assert len(result.revision.missing_information) == 1
+    assert len(result.revision.limitations) == 2
+    for record in (
+        *result.revision.missing_information,
+        *result.revision.limitations,
+    ):
+        identity = record.get("missing_information_id") or record.get(
+            "limitation_id"
+        )
+        _assert_uuid4(identity)
 
     assert len(result.slots) == len(result.claims) == len(result.selections) == 17
     assert [slot.name for slot in result.slots] == sorted(

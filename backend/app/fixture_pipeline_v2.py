@@ -23,6 +23,7 @@ from .contracts_v2 import (
     ContractV2,
     EngineeringValueV2,
 )
+from .models import uid
 from .models_v1 import Component, ComponentRevision, Manufacturer
 from .models_v2 import (
     CandidateClaimV2,
@@ -342,12 +343,9 @@ def _create_graph(
         contract_schema_version=SCHEMA_VERSION,
         publication_integrity="v2_draft",
         published_object_hash=None,
-        supported_recipes=[],
-        missing_information=[
-            {"field_name": parameter.name, "reason": parameter.unknown_reason}
-            for parameter in unknown_parameters
-        ],
-        limitations=list(fixture.limitations),
+        supported_recipes=[CAPABILITY_ID],
+        missing_information=[],
+        limitations=[],
     )
     db.add(revision)
     db.flush()
@@ -364,6 +362,25 @@ def _create_graph(
         for parameter in ordered_parameters
     ]
     db.add_all(slots)
+    db.flush()
+    slot_by_name = {slot.name: slot for slot in slots}
+    revision.missing_information = [
+        {
+            "missing_information_id": uid(),
+            "slot_id": slot_by_name[parameter.name].id,
+            "reason": parameter.unknown_reason,
+            "unlocks_capability_ids": [],
+        }
+        for parameter in unknown_parameters
+    ]
+    revision.limitations = [
+        {"limitation_id": uid(), "statement": statement}
+        for statement in (
+            *fixture.limitations,
+            "Program 01A validates reviewed input identity; it does not execute "
+            "an engineering solver.",
+        )
+    ]
     db.flush()
 
     claims: list[CandidateClaimV2] = []
