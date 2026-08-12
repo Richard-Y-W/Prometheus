@@ -349,6 +349,7 @@ git commit -m "feat: define strict RFC 8785 package identity"
 **Files:**
 
 - Create: `backend/app/contracts_v2.py`
+- Create: `backend/scripts/export_contract_fixture.py`
 - Create: `backend/scripts/export_contract_schemas.py`
 - Create: `backend/tests/test_contracts_v2.py`
 - Create: `schemas/engineering-value-v2.schema.json`
@@ -545,6 +546,7 @@ Run:
 
 ```bash
 uv run python scripts/export_contract_schemas.py
+uv run python scripts/export_contract_fixture.py
 uv run pytest -q tests/test_contracts_v2.py
 ```
 
@@ -553,7 +555,7 @@ Expected: schemas self-validate, regeneration is byte-stable, and the `.json`, `
 - [ ] **Step 6: Commit the v2 contracts**
 
 ```bash
-git add backend/app/contracts_v2.py backend/scripts/export_contract_schemas.py backend/tests/test_contracts_v2.py
+git add backend/app/contracts_v2.py backend/scripts/export_contract_fixture.py backend/scripts/export_contract_schemas.py backend/tests/test_contracts_v2.py
 git add schemas/*-v2.schema.json fixtures/contracts/execution-component-v2.pm-36-gm.*
 git commit -m "feat: define Program 01A v2 contracts"
 ```

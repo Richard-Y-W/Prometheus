@@ -1,0 +1,266 @@
+{
+  "$defs": {
+    "CurvePointV2": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Y"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "CurvePointV2",
+      "type": "object"
+    },
+    "CurveValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "independent_quantity": {
+          "pattern": "^[a-z][a-z0-9_]{0,127}$",
+          "title": "Independent Quantity",
+          "type": "string"
+        },
+        "independent_unit": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Independent Unit",
+          "type": "string"
+        },
+        "interpolation": {
+          "enum": [
+            "linear",
+            "step",
+            "cubic"
+          ],
+          "title": "Interpolation",
+          "type": "string"
+        },
+        "kind": {
+          "const": "curve",
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/CurvePointV2"
+          },
+          "maxItems": 10000,
+          "minItems": 2,
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "independent_quantity",
+        "independent_unit",
+        "interpolation",
+        "points"
+      ],
+      "title": "CurveValueV2",
+      "type": "object"
+    },
+    "EnumerationValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "enumeration",
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "values"
+      ],
+      "title": "EnumerationValueV2",
+      "type": "object"
+    },
+    "ExactDecimalStringValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "exact_decimal_string",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 4096,
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ExactDecimalStringValueV2",
+      "type": "object"
+    },
+    "RangeValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "range",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Maximum"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Minimum"
+        }
+      },
+      "required": [
+        "kind",
+        "minimum",
+        "maximum"
+      ],
+      "title": "RangeValueV2",
+      "type": "object"
+    },
+    "ScalarValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "scalar",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ScalarValueV2",
+      "type": "object"
+    },
+    "UnknownValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "unknown",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "UnknownValueV2",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:engineering-value:2.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "curve": "#/$defs/CurveValueV2",
+      "enumeration": "#/$defs/EnumerationValueV2",
+      "exact_decimal_string": "#/$defs/ExactDecimalStringValueV2",
+      "range": "#/$defs/RangeValueV2",
+      "scalar": "#/$defs/ScalarValueV2",
+      "unknown": "#/$defs/UnknownValueV2"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ScalarValueV2"
+    },
+    {
+      "$ref": "#/$defs/RangeValueV2"
+    },
+    {
+      "$ref": "#/$defs/EnumerationValueV2"
+    },
+    {
+      "$ref": "#/$defs/CurveValueV2"
+    },
+    {
+      "$ref": "#/$defs/ExactDecimalStringValueV2"
+    },
+    {
+      "$ref": "#/$defs/UnknownValueV2"
+    }
+  ]
+}
