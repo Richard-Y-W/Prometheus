@@ -63,7 +63,28 @@ def execution_package_validation_error(error: ValidationError) -> HTTPException:
     )
 
 
+def verify_published_revision_integrity(
+    revision: ComponentRevision, db: Session
+) -> None:
+    if revision.status != "published":
+        return
+    if revision.content_hash is None:
+        raise api_error(
+            409,
+            "execution_package_hash_mismatch",
+            "The published revision has no content hash.",
+        )
+    try:
+        payload = build_execution_component_payload(revision, db)
+        finalize_execution_component(payload, expected_hash=revision.content_hash)
+    except ExecutionPackageError as error:
+        raise api_error(409, error.code, str(error)) from error
+    except ValidationError as error:
+        raise execution_package_validation_error(error) from error
+
+
 def revision_detail(revision: ComponentRevision, db: Session) -> dict:
+    verify_published_revision_integrity(revision, db)
     component = db.get(Component, revision.component_id)
     manufacturer = db.get(Manufacturer, component.manufacturer_id)
     parameters = []
@@ -223,6 +244,7 @@ def create_research_job(
         )
     )
     if cached_revision:
+        verify_published_revision_integrity(cached_revision, db)
         status = "published" if cached_revision.status == "published" else "ready_for_review"
         job = ResearchJob(
             idempotency_key=idempotency_key,

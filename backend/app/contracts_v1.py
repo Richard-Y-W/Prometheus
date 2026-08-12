@@ -8,6 +8,7 @@ from pydantic import (
     ConfigDict,
     Field,
     FiniteFloat,
+    field_validator,
     model_validator,
 )
 
@@ -42,6 +43,14 @@ class ReviewDecision(ContractModel):
 class ReviewRequest(ContractModel):
     reviewed_by: str = Field(min_length=1)
     decisions: list[ReviewDecision]
+
+    @field_validator("reviewed_by")
+    @classmethod
+    def require_named_reviewer(cls, value: str) -> str:
+        reviewer = value.strip()
+        if not reviewer:
+            raise ValueError("reviewed_by must contain a non-whitespace name")
+        return reviewer
 
 
 class ScalarValue(ContractModel):
@@ -127,9 +136,15 @@ class EvidenceReview(ContractModel):
                 for value in (self.reviewed_by, self.reviewed_at, self.note)
             ):
                 raise ValueError("pending evidence cannot contain review metadata")
-        elif not self.reviewed_by or self.reviewed_at is None:
+        elif (
+            not self.reviewed_by
+            or not self.reviewed_by.strip()
+            or self.reviewed_at is None
+        ):
             raise ValueError("reviewed evidence requires reviewer and timestamp")
-        elif self.status in {"rejected", "ambiguous"} and not self.note:
+        elif self.status in {"rejected", "ambiguous"} and (
+            not self.note or not self.note.strip()
+        ):
             raise ValueError("rejected and ambiguous evidence requires a note")
         return self
 

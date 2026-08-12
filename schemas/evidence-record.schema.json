@@ -54,7 +54,7 @@
       "required": ["status", "reviewed_by", "reviewed_at", "note"],
       "properties": {
         "status": {"enum": ["pending", "accepted", "rejected", "ambiguous"]},
-        "reviewed_by": {"type": ["string", "null"]},
+        "reviewed_by": {"type": ["string", "null"], "pattern": "\\S"},
         "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
         "note": {"type": ["string", "null"]}
       },

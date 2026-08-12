@@ -295,6 +295,24 @@ def test_review_requires_one_decision_for_every_field_and_is_atomic():
         assert_all_evidence_pending(current["candidate"])
 
 
+def test_review_rejects_a_whitespace_only_reviewer_without_mutation():
+    with TestClient(app) as client:
+        created, candidate = create_fixture_candidate(client)
+
+        response = client.post(
+            f"/v1/research-jobs/{created['id']}/review",
+            json={
+                "reviewed_by": "   ",
+                "decisions": accepted_decisions(candidate),
+            },
+        )
+
+        assert response.status_code == 422
+        current = client.get(f"/v1/research-jobs/{created['id']}").json()
+        assert current["status"] == "ready_for_review"
+        assert_all_evidence_pending(current["candidate"])
+
+
 @pytest.mark.parametrize(
     ("status", "note"),
     [
@@ -464,6 +482,62 @@ def test_execution_package_detects_persisted_parameter_tampering():
 
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "execution_package_hash_mismatch"
+
+
+def test_repeated_publish_detects_persisted_parameter_tampering():
+    with TestClient(app) as client:
+        created, candidate = create_fixture_candidate(client)
+        review = client.post(
+            f"/v1/research-jobs/{created['id']}/review",
+            json={
+                "reviewed_by": "repeat-publish-reviewer",
+                "decisions": accepted_decisions(candidate),
+            },
+        )
+        assert review.status_code == 200
+        first_publish = client.post(
+            f"/v1/research-jobs/{created['id']}/publish",
+            headers={"Idempotency-Key": uuid4().hex},
+        )
+        assert first_publish.status_code == 200
+
+        with SessionLocal() as db:
+            parameter = db.scalar(
+                select(ComponentParameter).where(
+                    ComponentParameter.revision_id == candidate["id"],
+                    ComponentParameter.field_name == "nominal_voltage_v",
+                )
+            )
+            parameter.value = {"kind": "scalar", "value": 48.0}
+            db.commit()
+
+        repeated = client.post(
+            f"/v1/research-jobs/{created['id']}/publish",
+            headers={"Idempotency-Key": uuid4().hex},
+        )
+
+        assert repeated.status_code == 409
+        assert repeated.json()["detail"]["code"] == "execution_package_hash_mismatch"
+
+        job_detail_response = client.get(f"/v1/research-jobs/{created['id']}")
+        assert job_detail_response.status_code == 409
+        assert (
+            job_detail_response.json()["detail"]["code"]
+            == "execution_package_hash_mismatch"
+        )
+
+        before_cached_request = v1_record_counts()
+        cached = client.post(
+            "/v1/research-jobs",
+            headers={"Idempotency-Key": uuid4().hex},
+            json={
+                "manufacturer": "Prometheus Fixture Works",
+                "part_number": "PM-36-GM",
+            },
+        )
+        assert cached.status_code == 409
+        assert cached.json()["detail"]["code"] == "execution_package_hash_mismatch"
+        assert v1_record_counts() == before_cached_request
 
 
 def test_invalid_execution_package_rolls_back_publication_state():

@@ -117,6 +117,9 @@ def test_execution_fixture_content_hash_is_canonical():
         lambda package: package["evidence"][0].update(
             {"source_uri": "not a URI"}
         ),
+        lambda package: package["evidence"][0]["review"].update(
+            {"reviewed_by": "   "}
+        ),
         lambda package: package["parameters"][0].update(
             {"validity_conditions": [""]}
         ),
@@ -128,6 +131,14 @@ def test_execution_model_rejects_noncanonical_or_unsafe_inputs(mutate):
 
     with pytest.raises(PydanticValidationError):
         ExecutionComponentPackage.model_validate(package)
+
+
+def test_execution_schema_rejects_a_whitespace_only_reviewer():
+    package = load_json(FIXTURE_DIR / "execution-component.pm-36-gm.json")
+    package["evidence"][0]["review"]["reviewed_by"] = "   "
+
+    with pytest.raises(ValidationError):
+        validate("execution-component.schema.json", package)
 
 
 def test_execution_fixture_evidence_hashes_exact_source_bytes():
