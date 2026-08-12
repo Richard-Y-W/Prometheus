@@ -69,6 +69,49 @@
       }
     },
     {
+      "name": "windows-msvc-no-occt-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
+    },
+    {
+      "name": "windows-headless-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Headless Core Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-headless-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "OFF"
+      }
+    },
+    {
+      "name": "windows-integrity-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Independent Integrity Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-integrity-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON"
+      }
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Desktop Without Open Cascade Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-desktop-no-occt-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "ON",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON"
+      }
+    },
+    {
       "name": "windows-release",
       "inherits": "windows-ucrt-base",
       "displayName": "Windows UCRT64 Release",
@@ -90,6 +133,21 @@
     {
       "name": "desktop-no-occt-debug",
       "configurePreset": "desktop-no-occt-debug"
+    },
+    {
+      "name": "windows-headless-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-integrity-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug"
     },
     {
       "name": "windows-debug",
@@ -118,6 +176,30 @@
     {
       "name": "desktop-no-occt-debug",
       "configurePreset": "desktop-no-occt-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-headless-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-integrity-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
