@@ -6,18 +6,20 @@ The earlier numbered milestones record how the rough electromechanical vertical 
 
 - **Real CAD:** the native path imports real STEP/XDE with Open Cascade. The checked-in motor arm is a separate synthetic fixture used for conformance tests.
 - **Synthetic research only:** component intake is exact lookup of `Prometheus Fixture Works / PM-36-GM`. Public research, remote datasheet acquisition, PDF parsing, and LLM extraction are not implemented.
-- **Explicit publication gate:** every parameter requires an explicit review decision. Publication is a separate request and produces canonical hash-verifiable input.
+- **Stable review and immutable publication:** v2 review identifies finalized revision-scoped claims and fingerprints, appends versioned events, and keeps publication separate. Publication stores exact RFC 8785 input bytes under an external SHA-256 identity; byte integrity is not an engineering result.
 - **Execution gap:** the published execution-component package is not consumed by `EngineeringController`. Program 01B must remove fixed PM-36 values and close this loop.
 - **Conformance calculations:** the current C++ motor-arm calculations exercise narrow deterministic paths. They do not provide arbitrary mechanical analysis or general engineering coverage.
 - **No Python verdicts:** the unversioned Python research-confirm-plan-run path is retired. Python persists and packages evidence but is not an engineering decision authority.
 - **No external solver:** no structural, thermal, electrical, CFD, or controls solver adapter exists.
 - **No certification claim:** the repository does not claim physical validation, safety, certification, or project-wide correctness.
 
-## Program 01A — former gate complete; amended gate reopened
+## Program 01A — amended implementation present; verification pending
 
-The former Program 01A implementation added exact fixture provenance, typed values, atomic per-field review, canonicalized execution packages, hash mismatch detection, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. That work passed its former `contract_tested` gate and remains recorded as historical evidence.
+The former Program 01A implementation added exact fixture provenance, typed values, atomic per-field review, reconstructed canonical packages, hash mismatch detection, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. That work passed its superseded `contract_tested` gate and remains recorded as historical evidence.
 
-Program 01A is reopened under the [amended trust-boundary gate](superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md). The former v1 boundary reconstructs packages from relational rows, uses Python-specific canonicalization, reviews mutable field names, and lacks durable publication replay and cross-language verification. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved; the [amended plan](program/01-trust-kernel/01a-amended-implementation-plan.md) is current. Program 01B has not started.
+The amended v2 implementation now provides bounded source ingestion, revision-scoped finalized claims, append-only review events, capability-specific publication and execution gates, immutable stored RFC 8785 objects, exact verified export, durable success/failure replay, SQLite/PostgreSQL backstops, and an independent C++ canonical-byte/hash verifier. The Qt flow uses claim IDs and visible draft versions, and the OCCT-disabled desktop path fails explicitly instead of synthesizing geometry.
+
+Program 01A nevertheless remains in progress. The [pending amended completion record](program/01-trust-kernel/01a-amended-completion.md) may close only after the complete release matrix is observed. A sealed package is reviewed input only: it contains no engineering verdict, remains execution-blocked until Program 01B, and supplies no physical-validation or arbitrary-project claim. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved, and the [v1-to-v2 migration guide](migration/program-01a-v1-to-v2.md) documents the breaking retirement. Program 01B has not started.
 
 ## Historical rough-V1 increments
 
@@ -27,7 +29,7 @@ The repository introduced the C++20 core, Qt shell, versioned service boundary, 
 
 ### Milestone 2 — component persistence prototype
 
-Normalized manufacturer, component, revision, parameter, source, evidence, job/event, and binding entities were added with Alembic migrations. Program 01A later corrected this path so the provider is explicitly synthetic, values are typed, review is complete and per-field, and publication produces a canonical execution package.
+Normalized manufacturer, component, revision, parameter, source, evidence, job/event, and binding entities were added with Alembic migrations. Program 01A v2 later added the stable claim graph, evidence classes, append-only review, immutable objects, and explicit legacy classification. The provider remains exactly one synthetic fixture.
 
 ### Milestone 3 — fixed motor-arm conformance path
 

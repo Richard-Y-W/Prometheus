@@ -13,9 +13,12 @@ The present codebase provides:
 - real Open Cascade STEP/XDE import and assembly inspection;
 - a separate synthetic motor-arm conformance fixture;
 - exact lookup of one synthetic component source, not public component research;
-- explicit per-field evidence review and canonical published component input;
+- revision-scoped candidate claims, typed evidence, append-only claim-ID review, and capability gates;
+- exact RFC 8785 published component-input bytes with external SHA-256 identity, verified stored-byte export, durable publication replay, and independent C++ integrity verification;
 - fixed C++ motor-arm conformance calculations that do not yet consume the published package;
 - no production Python engineering-decision path.
+
+The publication claim is limited to reviewed-input provenance and byte identity. The package contains no requirement verdict or solver result, and its current execution gate is blocked because no consumer exists.
 
 The repository cannot determine whether an arbitrary engineering project works. It has no general artifact store, cross-file semantic graph, requirement compiler, capability planner, isolated solver runtime, coverage engine, or external numerical solver adapter.
 
@@ -25,4 +28,4 @@ Prometheus may eventually report `no_violations_detected_within_scope` only when
 
 Prometheus does not claim certification, regulatory approval, safety assurance, unrestricted rigid-body dynamics, nonlinear FEA, fatigue or fracture analysis, general CFD, electromagnetic simulation, or project-wide correctness. Physical tests and qualified engineering review remain distinct evidence.
 
-The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Amended Program 01A is current: it must establish immutable RFC 8785 publication and independent C++ verification before Program 01B makes reviewed package values drive C++ outcomes and reproduce offline.
+The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Amended Program 01A implementation is present but remains pending final verification. Program 01B will make reviewed package values drive C++ outcomes and reproduce offline; that execution claim does not follow from Program 01A package integrity.
