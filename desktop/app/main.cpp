@@ -31,6 +31,6 @@ int main(int argc, char* argv[]) {
   if (engine.rootObjects().isEmpty()) return -1;
   const auto screenshot_path=qEnvironmentVariable("PROMETHEUS_SCREENSHOT_PATH");
   if(!screenshot_path.isEmpty()){const auto capture=[&engine,&app,screenshot_path]{bool saved=false;if(auto* window=qobject_cast<QQuickWindow*>(engine.rootObjects().front()))saved=window->grabWindow().save(screenshot_path);if(!saved)qWarning()<<"Unable to save verification screenshot to"<<screenshot_path;app.quit();};if(startup_step_path.isEmpty())QTimer::singleShot(2500,&app,capture);else QObject::connect(&cad,&CadController::importFinished,&app,[capture](bool ok){if(ok)QTimer::singleShot(1500,capture);});}
-  if(demo_research)QTimer::singleShot(400,&service,[&service]{service.research("Prometheus Fixture Works","PM-36-GM");});
+  if(demo_research)QTimer::singleShot(400,&service,[&service]{service.loadFixture();});
   return app.exec();
 }

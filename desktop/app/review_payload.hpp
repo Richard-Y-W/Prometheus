@@ -15,6 +15,7 @@ struct ReviewPayloadResult {
 [[nodiscard]] ReviewPayloadResult buildReviewPayload(
     const QVariantList& parameters,
     const QVariantList& decisions,
-    const QString& reviewer);
+    const QString& reviewer,
+    qint64 expectedDraftVersion);
 
 } // namespace prometheus

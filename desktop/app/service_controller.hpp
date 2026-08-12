@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QObject>
@@ -20,6 +21,10 @@ class ServiceController final : public QObject {
     Q_PROPERTY(QVariantMap candidate READ candidate NOTIFY changed)
     Q_PROPERTY(QVariantList parameters READ parameters NOTIFY changed)
     Q_PROPERTY(QVariantList events READ events NOTIFY changed)
+    Q_PROPERTY(qint64 draftVersion READ draftVersion NOTIFY changed)
+    Q_PROPERTY(QString executionReadiness READ executionReadiness NOTIFY changed)
+    Q_PROPERTY(QString objectHash READ objectHash NOTIFY changed)
+    Q_PROPERTY(QString publicationIntegrity READ publicationIntegrity NOTIFY changed)
 
 public:
     explicit ServiceController(QObject* parent = nullptr);
@@ -33,10 +38,13 @@ public:
     QVariantMap candidate() const { return candidate_; }
     QVariantList parameters() const { return parameters_; }
     QVariantList events() const { return events_; }
+    qint64 draftVersion() const { return draft_version_; }
+    QString executionReadiness() const { return execution_readiness_; }
+    QString objectHash() const { return object_hash_; }
+    QString publicationIntegrity() const { return publication_integrity_; }
 
     Q_INVOKABLE void checkHealth();
-    Q_INVOKABLE void research(
-        const QString& manufacturer, const QString& partNumber);
+    Q_INVOKABLE void loadFixture();
     Q_INVOKABLE void submitReview(
         const QVariantList& decisions, const QString& reviewer);
     Q_INVOKABLE void publish();
@@ -59,11 +67,17 @@ private:
     QVariantMap candidate_;
     QVariantList parameters_;
     QVariantList events_;
+    qint64 draft_version_{-1};
+    QString execution_readiness_;
+    QString object_hash_;
+    QString publication_integrity_;
+    QString publication_idempotency_key_;
 
     void setBusy(bool value);
     void clearError();
     void setError(const QString& message, const QString& code);
     QNetworkRequest request(const QString& path) const;
-    void consumeJob(const QByteArray& data);
+    void consumeRevision(const QJsonObject& revision);
+    void consumeFixtureIngestion(const QByteArray& data);
     void fail(QNetworkReply* reply, const QString& fallbackMessage);
 };

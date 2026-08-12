@@ -10,6 +10,15 @@
 #include <QUuid>
 #include <QUrl>
 
+namespace {
+
+constexpr auto fixtureId = "prometheus.pm-36-gm.fixture-2";
+constexpr auto schemaId =
+    "urn:prometheus:schema:execution-component:2.0.0";
+constexpr auto schemaVersion = "2.0.0";
+
+} // namespace
+
 ServiceController::ServiceController(QObject* parent)
     : QObject(parent)
 {
@@ -23,7 +32,7 @@ QNetworkRequest ServiceController::request(const QString& path) const
     return value;
 }
 
-void ServiceController::setBusy(bool value)
+void ServiceController::setBusy(const bool value)
 {
     if (busy_ == value) {
         return;
@@ -38,7 +47,8 @@ void ServiceController::clearError()
     error_code_.clear();
 }
 
-void ServiceController::setError(const QString& message, const QString& code)
+void ServiceController::setError(
+    const QString& message, const QString& code)
 {
     error_ = message;
     error_code_ = code;
@@ -63,7 +73,7 @@ void ServiceController::fail(
     if (message.isEmpty()) {
         message = fallbackMessage + ": " + reply->errorString();
     }
-    if (status_ == "researching") {
+    if (status_ == "loading_fixture") {
         status_ = "error";
     }
     setError(message, code);
@@ -71,12 +81,18 @@ void ServiceController::fail(
 
 void ServiceController::reset()
 {
+    setBusy(false);
     status_.clear();
     clearError();
     job_id_.clear();
     candidate_.clear();
     parameters_.clear();
     events_.clear();
+    draft_version_ = -1;
+    execution_readiness_.clear();
+    object_hash_.clear();
+    publication_integrity_.clear();
+    publication_idempotency_key_.clear();
     emit changed();
 }
 
@@ -93,43 +109,75 @@ void ServiceController::checkHealth()
     });
 }
 
-void ServiceController::research(
-    const QString& manufacturer, const QString& partNumber)
+void ServiceController::loadFixture()
 {
     reset();
     setBusy(true);
-    status_ = "researching";
+    status_ = "loading_fixture";
     emit changed();
+
     const QJsonObject body{
-        {"manufacturer", manufacturer},
-        {"part_number", partNumber},
+        {"fixture_id", fixtureId},
+        {"schema_version", schemaVersion},
     };
-    auto researchRequest = request("/v1/research-jobs");
-    researchRequest.setRawHeader(
+    auto ingestionRequest = request("/api/v2/fixture-ingestions");
+    ingestionRequest.setRawHeader(
         "Idempotency-Key",
         QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8());
     auto* reply = network_.post(
-        researchRequest, QJsonDocument(body).toJson(QJsonDocument::Compact));
+        ingestionRequest,
+        QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         if (reply->error() != QNetworkReply::NoError) {
-            fail(reply, "Research service unavailable");
+            fail(reply, "Fixture ingestion service unavailable");
             reply->deleteLater();
             return;
         }
-        consumeJob(reply->readAll());
+        consumeFixtureIngestion(reply->readAll());
         reply->deleteLater();
     });
 }
 
-void ServiceController::consumeJob(const QByteArray& data)
+void ServiceController::consumeRevision(const QJsonObject& revision)
+{
+    const auto previousRevisionId = candidate_.value("id").toString();
+    const auto revisionId = revision.value("id").toString();
+    if (!previousRevisionId.isEmpty() && revisionId != previousRevisionId) {
+        publication_idempotency_key_.clear();
+    }
+
+    candidate_ = revision.toVariantMap();
+    const auto component = revision.value("component").toObject().toVariantMap();
+    candidate_.insert("manufacturer", component.value("manufacturer"));
+    candidate_.insert("part_number", component.value("part_number"));
+    candidate_.insert("revision", component.value("revision"));
+    parameters_ = revision.value("parameters").toArray().toVariantList();
+    draft_version_ = revision.value("draft_version").toInteger(-1);
+    publication_integrity_ =
+        revision.value("publication_integrity").toString();
+    object_hash_ = revision.value("object_hash").toString();
+    execution_readiness_.clear();
+
+    status_ = revision.value("status").toString();
+    if (status_ == "draft") {
+        const auto gates = revision.value("capability_gates").toArray();
+        for (const auto& gateValue : gates) {
+            const auto gate = gateValue.toObject();
+            if (gate.value("required_review_type") == "claim_review"
+                && gate.value("state") == "satisfied") {
+                status_ = "reviewed";
+                break;
+            }
+        }
+    }
+}
+
+void ServiceController::consumeFixtureIngestion(const QByteArray& data)
 {
     const auto object = QJsonDocument::fromJson(data).object();
     job_id_ = object.value("id").toString();
-    status_ = object.value("status").toString();
-    candidate_ = object.value("candidate").toObject().toVariantMap();
-    parameters_ =
-        object.value("candidate").toObject().value("parameters").toArray().toVariantList();
-    events_ = object.value("events").toArray().toVariantList();
+    consumeRevision(object.value("revision").toObject());
+    events_.clear();
     clearError();
     setBusy(false);
     emit changed();
@@ -138,12 +186,15 @@ void ServiceController::consumeJob(const QByteArray& data)
 void ServiceController::submitReview(
     const QVariantList& decisions, const QString& reviewer)
 {
-    if (job_id_.isEmpty()) {
-        setError("Research a component before submitting a review.", "review_job_missing");
+    const auto revisionId = candidate_.value("id").toString();
+    if (revisionId.isEmpty() || draft_version_ < 0) {
+        setError(
+            "Load the conformance fixture before submitting a review.",
+            "review_revision_missing");
         return;
     }
-    const auto result =
-        prometheus::buildReviewPayload(parameters_, decisions, reviewer);
+    const auto result = prometheus::buildReviewPayload(
+        parameters_, decisions, reviewer, draft_version_);
     if (!result.ok) {
         setError(result.error, "invalid_review_payload");
         return;
@@ -151,7 +202,8 @@ void ServiceController::submitReview(
 
     clearError();
     setBusy(true);
-    const auto reviewRequest = request("/v1/research-jobs/" + job_id_ + "/review");
+    const auto reviewRequest =
+        request("/api/v2/revisions/" + revisionId + "/reviews");
     auto* reply = network_.post(
         reviewRequest,
         QJsonDocument(result.payload).toJson(QJsonDocument::Compact));
@@ -161,27 +213,47 @@ void ServiceController::submitReview(
             reply->deleteLater();
             return;
         }
-        consumeJob(reply->readAll());
+        const auto previousDraftVersion = draft_version_;
+        consumeRevision(QJsonDocument::fromJson(reply->readAll()).object());
+        if (draft_version_ > previousDraftVersion) {
+            publication_idempotency_key_.clear();
+        }
+        clearError();
+        setBusy(false);
+        emit changed();
         reply->deleteLater();
     });
 }
 
 void ServiceController::publish()
 {
-    if (job_id_.isEmpty() || status_ != "reviewed") {
+    const auto revisionId = candidate_.value("id").toString();
+    if (revisionId.isEmpty() || draft_version_ < 0 || status_ != "reviewed"
+        || publication_integrity_ != "v2_draft") {
         setError(
-            "Publication requires an accepted review for every parameter.",
+            "Publication requires an accepted review for every selected claim.",
             "publication_state_invalid");
         return;
     }
 
+    if (publication_idempotency_key_.isEmpty()) {
+        publication_idempotency_key_ =
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
     clearError();
     setBusy(true);
-    auto publishRequest = request("/v1/research-jobs/" + job_id_ + "/publish");
-    publishRequest.setRawHeader(
-        "Idempotency-Key",
-        QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8());
-    auto* reply = network_.post(publishRequest, QByteArray("{}"));
+    auto publicationRequest =
+        request("/api/v2/revisions/" + revisionId + "/publication");
+    publicationRequest.setRawHeader(
+        "Idempotency-Key", publication_idempotency_key_.toUtf8());
+    const QJsonObject body{
+        {"expected_draft_version", draft_version_},
+        {"schema_id", schemaId},
+        {"schema_version", schemaVersion},
+    };
+    auto* reply = network_.post(
+        publicationRequest,
+        QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         if (reply->error() != QNetworkReply::NoError) {
             fail(reply, "Publishing failed");
@@ -189,9 +261,16 @@ void ServiceController::publish()
             return;
         }
         const auto object = QJsonDocument::fromJson(reply->readAll()).object();
-        candidate_ = object.toVariantMap();
-        parameters_ = object.value("parameters").toArray().toVariantList();
         status_ = object.value("status").toString();
+        execution_readiness_ =
+            object.value("execution_readiness").toString();
+        object_hash_ = object.value("object_hash").toString();
+        publication_integrity_ =
+            object.value("publication_integrity").toString();
+        candidate_.insert("status", status_);
+        candidate_.insert("execution_readiness", execution_readiness_);
+        candidate_.insert("object_hash", object_hash_);
+        candidate_.insert("publication_integrity", publication_integrity_);
         clearError();
         setBusy(false);
         emit changed();
