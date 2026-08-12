@@ -177,7 +177,9 @@ git commit -m "build: define Program 01A runtime matrix"
 
 - [ ] **Step 1: Check in the corpus manifest and exact case inventory**
 
-Use this manifest structure:
+Use this manifest structure. Ordinary cases name checked-in files; malformed-byte
+and resource-limit cases use deterministic `hex` or `generated` input recipes
+that both language harnesses implement identically:
 
 ```json
 {
@@ -187,7 +189,9 @@ Use this manifest structure:
     {"id": "empty-object", "input": "input/empty-object.json", "canonical": "canonical/empty-object.jcs", "sha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}
   ],
   "failure_cases": [
-    {"id": "negative-zero", "input": "input/negative-zero.json", "error_code": "negative_zero"}
+    {"id": "negative-zero", "input": "input/negative-zero.json", "error_code": "negative_zero"},
+    {"id": "invalid-utf8", "input": {"kind": "hex", "data": "ff"}, "error_code": "invalid_utf8"},
+    {"id": "depth-65", "input": {"kind": "generated", "generator": "nested_arrays", "depth": 65}, "error_code": "max_depth_exceeded"}
   ]
 }
 ```
@@ -209,7 +213,11 @@ failure:
   members-10001, array-10001, string-1048577, bytes-8388609
 ```
 
-`README.md` must identify which successful number cases came from RFC 8785 Appendix B and identify all Prometheus-only failure policies. Raw invalid UTF-8 cases are stored as byte fixtures despite their `.json` suffix.
+Also include `utf8-bom` and `unescaped-control-character` failure vectors. `README.md`
+must identify which successful number cases came from RFC 8785 Appendix B and
+identify all Prometheus-only failure policies. Generated inputs are corpus
+contracts, not optional tests; the Python and C++ harnesses must construct the
+same bytes and may not skip them.
 
 - [ ] **Step 2: Write tests against the not-yet-existing API**
 
@@ -313,6 +321,9 @@ The implementation rules are exact:
 - walk programmatic and parsed values iteratively, counting the root as one node and enforcing depth, member, element, and UTF-8 string-byte limits;
 - reject Python `Decimal`, arbitrary objects, surrogate-containing strings, and non-string object keys;
 - call `rfc8785.dumps` only after preflight;
+- require emitted canonical bytes to pass the same strict parser, so an
+  exponent-form binary64 value cannot serialize into a disallowed unsafe-integer
+  token;
 - in `verify_canonical_bytes`, canonicalize the parsed bytes and require exact byte equality;
 - hash only already-verified byte strings with `hashlib.sha256`.
 

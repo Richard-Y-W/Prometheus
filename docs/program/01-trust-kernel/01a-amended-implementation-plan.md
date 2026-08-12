@@ -150,11 +150,11 @@ Existing v1 rows keep their original event and status vocabulary. Existing publi
 | `fixtures/contracts/execution-component-v2.pm-36-gm.json` | Human-readable semantic package vector. |
 | `fixtures/contracts/execution-component-v2.pm-36-gm.jcs` | Exact expected RFC 8785 package bytes. |
 | `fixtures/contracts/execution-component-v2.pm-36-gm.sha256` | Expected object identity for both languages. |
-| `fixtures/conformance/rfc8785/manifest.json` | Case names, source files, expected canonical files/hashes, and expected failure codes. |
+| `fixtures/conformance/rfc8785/manifest.json` | Case names, source files or deterministic byte recipes, expected canonical files/hashes, and expected failure codes. |
 | `fixtures/conformance/rfc8785/input/` | Official/reference and Prometheus raw JSON inputs. |
 | `fixtures/conformance/rfc8785/canonical/` | Exact canonical bytes for successful cases. |
 
-The corpus covers decoded duplicate keys, invalid Unicode, lone surrogates, NFC/NFD distinction, control escapes, UTF-16 key order, nested arrays/objects, safe-integer limits, binary64 boundaries, fixed/scientific thresholds, exponent spelling, negative zero, non-finite values, underflow/overflow, and every configured resource limit.
+The corpus covers decoded duplicate keys, invalid Unicode, lone surrogates, NFC/NFD distinction, control escapes, UTF-16 key order, nested arrays/objects, safe-integer limits, binary64 boundaries, fixed/scientific thresholds, exponent spelling, negative zero, non-finite values, underflow/overflow, and every configured resource limit. Invalid byte sequences and oversized cases use manifest-defined deterministic recipes consumed without skips by both language harnesses.
 
 ### C++ and Qt
 

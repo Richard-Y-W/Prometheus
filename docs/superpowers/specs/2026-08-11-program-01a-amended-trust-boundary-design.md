@@ -173,6 +173,12 @@ JSON numbers in hashed packages must parse to finite IEEE-754 binary64 values un
 
 The parser rejects overflow to infinity, nonzero underflow to zero, NaN, positive or negative infinity, and negative zero. RFC 8785 itself serializes positive and negative zero as `0`; [verified erratum 7920](https://www.rfc-editor.org/errata/rfc8785) recommends rejecting parsed negative zero to prevent distinct inputs from collapsing to one representation. Prometheus adopts that fail-closed recommendation. The conformance corpus records the base RFC result and separately asserts the Prometheus rejection policy.
 
+The serializer must not emit bytes outside that parser domain. In particular,
+RFC 8785 can render an exponent-form binary64 value such as `1e20` as an
+integer-looking token outside the safe-integer range. Prometheus rejects that
+value or requires an exact-decimal string; it never publishes canonical bytes
+that its own independent verifier would reject.
+
 ### Python implementation
 
 Python package compilation uses `rfc8785==0.1.4`, pinned in repository dependency metadata and the lockfile. A Prometheus preflight walker applies the size, depth, duplicate-key, Unicode, numeric, and negative-zero policy before `rfc8785.dumps` produces bytes. Raw JSON test inputs use a duplicate-preserving parser path so duplicate keys cannot disappear before validation.
@@ -200,7 +206,7 @@ The verifier accepts stored package bytes and an expected object ID, then:
 
 ### Shared conformance corpus
 
-Python and C++ read the same checked-in manifest, input documents, expected canonical bytes, expected hashes, and expected failures. The corpus includes the official RFC/reference cases plus Prometheus cases for:
+Python and C++ read the same checked-in manifest, input byte documents or deterministic generation recipes, expected canonical bytes, expected hashes, and expected failures. Generated recipes cover malformed UTF-8 and resource boundaries without committing invalid text or redundant multi-megabyte blobs; both harnesses must construct the same bytes and no case may be skipped. The corpus includes the official RFC/reference cases plus Prometheus cases for:
 
 - Unicode property names and values;
 - raw control characters and required escapes;
