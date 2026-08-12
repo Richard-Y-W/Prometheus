@@ -10,7 +10,7 @@ from app.main import app  # noqa: E402
 
 
 ROOT = BACKEND_ROOT.parent
-OUTPUT = ROOT / "docs" / "openapi-v1.json"
+OUTPUT = ROOT / "docs" / "openapi-v2.json"
 OUTPUT.write_text(
     json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n",
     encoding="utf-8",

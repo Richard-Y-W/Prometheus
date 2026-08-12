@@ -1,3 +1,5 @@
+"""Historical v1 transport contracts; not valid for Program 01A v2 writes."""
+
 from typing import Annotated, Literal
 from uuid import UUID
 

@@ -1,6 +1,7 @@
 import hashlib, json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,6 +10,11 @@ from .models import Project, Assembly, ComponentPackage, EvidenceClaim, Connecti
 from .schemas import ProjectCreate, ConnectionCreate, ScenarioCreate
 from .config import settings
 from .api_v1 import router as v1_router
+from .api_v2 import (
+    router as v2_router,
+    v2_request_validation_exception_handler,
+)
+from .http_policy import StrictV2JsonMiddleware
 from . import models_v1
 
 @asynccontextmanager
@@ -18,7 +24,12 @@ async def lifespan(_: FastAPI):
 
 app=FastAPI(title="Prometheus API",version="0.1.0",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173"],allow_methods=["*"],allow_headers=["*"])
+app.add_middleware(StrictV2JsonMiddleware)
+app.add_exception_handler(
+    RequestValidationError, v2_request_validation_exception_handler
+)
 app.include_router(v1_router)
+app.include_router(v2_router)
 
 def row(obj, *json_fields):
     value={c.name:getattr(obj,c.name) for c in obj.__table__.columns}

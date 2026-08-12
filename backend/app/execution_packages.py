@@ -1,3 +1,5 @@
+"""Historical v1 package reconstruction; v2 production code must not import it."""
+
 import hashlib
 import json
 from typing import Any
