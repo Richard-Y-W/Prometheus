@@ -1,3 +1,5 @@
+import sqlite3
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -8,12 +10,28 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(
-    settings.database_url,
-    connect_args={"check_same_thread": False}
-    if settings.database_url.startswith("sqlite")
-    else {},
-)
+MINIMUM_SQLITE_VERSION = (3, 35, 0)
+
+
+def require_supported_sqlite(
+    version: tuple[int, ...] = sqlite3.sqlite_version_info,
+) -> None:
+    if version < MINIMUM_SQLITE_VERSION:
+        required = ".".join(str(part) for part in MINIMUM_SQLITE_VERSION)
+        actual = ".".join(str(part) for part in version)
+        raise RuntimeError(
+            f"Prometheus requires SQLite {required} or newer; found {actual}"
+        )
+
+
+engine_options: dict[str, object] = {}
+if settings.database_url.startswith("sqlite"):
+    require_supported_sqlite()
+    engine_options["connect_args"] = {"check_same_thread": False}
+elif settings.database_url.startswith("postgresql"):
+    engine_options["isolation_level"] = "READ COMMITTED"
+
+engine = create_engine(settings.database_url, **engine_options)
 
 if settings.database_url.startswith("sqlite"):
 

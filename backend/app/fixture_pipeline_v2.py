@@ -14,10 +14,9 @@ from sqlalchemy.orm import Session
 from .artifact_store import ingest_local_artifact
 from .canonical_json import (
     CanonicalJsonError,
-    canonicalize_value,
-    object_hash,
     parse_strict_json,
 )
+from .claim_identity_v2 import fingerprint_claim_fields
 from .contracts_v2 import (
     SCHEMA_ID,
     SCHEMA_VERSION,
@@ -158,24 +157,18 @@ def _claim_fingerprint(
     original_value: str | None,
     original_unit: str | None,
 ) -> str:
-    semantic: dict[str, object] = {
-        "revision_id": revision_id,
-        "slot_id": slot_id,
-        "value_state": value_state,
-        "value": value,
-        "provenance": provenance,
-        "evidence_ids": sorted(evidence_ids),
-        "validity_conditions": validity_conditions,
-    }
-    if value_state == "known":
-        semantic.update(
-            {
-                "unit": unit,
-                "original_value": original_value,
-                "original_unit": original_unit,
-            }
-        )
-    return object_hash(canonicalize_value(semantic))
+    return fingerprint_claim_fields(
+        revision_id=revision_id,
+        slot_id=slot_id,
+        value_state=value_state,
+        value=value,
+        provenance=provenance,
+        evidence_ids=evidence_ids,
+        validity_conditions=validity_conditions,
+        unit=unit,
+        original_value=original_value,
+        original_unit=original_unit,
+    )
 
 
 def _ordered_graph(
