@@ -178,10 +178,13 @@ def _ordered_graph(
     revision: ComponentRevision,
 ) -> FixtureDraftResult:
     slots = tuple(
-        db.scalars(
-            sa.select(ParameterSlotV2)
-            .where(ParameterSlotV2.revision_id == revision.id)
-            .order_by(ParameterSlotV2.name, ParameterSlotV2.id)
+        sorted(
+            db.scalars(
+                sa.select(ParameterSlotV2).where(
+                    ParameterSlotV2.revision_id == revision.id
+                )
+            ),
+            key=lambda slot: (slot.name, slot.id),
         )
     )
     slot_order = {slot.id: index for index, slot in enumerate(slots)}

@@ -218,12 +218,12 @@ def _revision_value(db: Session, revision_id: str) -> dict[str, object]:
             "The component references a missing manufacturer.",
         )
 
-    slots = list(
+    slots = sorted(
         db.scalars(
             sa.select(ParameterSlotV2)
             .where(ParameterSlotV2.revision_id == revision_id)
-            .order_by(ParameterSlotV2.name, ParameterSlotV2.id)
-        )
+        ),
+        key=lambda slot: (slot.name, slot.id),
     )
     selections = {
         selection.slot_id: selection.claim_id

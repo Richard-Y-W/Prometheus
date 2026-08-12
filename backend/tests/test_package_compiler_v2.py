@@ -183,6 +183,33 @@ def test_compiler_returns_validated_canonical_bytes_without_mutating_draft():
     ]
 
 
+def test_compiler_uses_contract_order_when_database_returns_locale_order(
+    monkeypatch,
+):
+    revision_id = _create_reviewed("fixture-compile-locale-order-01")
+    with SessionLocal() as db:
+        original_scalars = db.scalars
+
+        def locale_ordered_scalars(statement, *args, **kwargs):
+            result = original_scalars(statement, *args, **kwargs)
+            entity = statement.column_descriptions[0].get("entity")
+            if entity is not ParameterSlotV2:
+                return result
+            return iter(
+                sorted(
+                    result,
+                    key=lambda slot: (slot.name.replace("_", ""), slot.id),
+                )
+            )
+
+        monkeypatch.setattr(db, "scalars", locale_ordered_scalars)
+        compiled = compile_execution_component(db, revision_id)
+
+    names = [slot["name"] for slot in compiled.value["parameter_slots"]]
+    assert names == sorted(names)
+    assert names.index("gear_ratio") < names.index("gearbox_efficiency_nominal")
+
+
 def test_repeated_compilation_of_unchanged_draft_is_byte_identical():
     revision_id = _create_reviewed()
     with SessionLocal() as db:

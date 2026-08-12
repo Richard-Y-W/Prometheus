@@ -103,12 +103,12 @@ def _load_revision_identity(
 def _load_selected_claims(
     db: Session, revision_id: str
 ) -> tuple[list[ParameterSlotV2], list[CandidateClaimV2], dict[str, str]]:
-    slots = list(
+    slots = sorted(
         db.scalars(
             sa.select(ParameterSlotV2)
             .where(ParameterSlotV2.revision_id == revision_id)
-            .order_by(ParameterSlotV2.name, ParameterSlotV2.id)
-        )
+        ),
+        key=lambda slot: (slot.name, slot.id),
     )
     if not slots:
         _fail("no_parameter_slots", "reviewed draft contains no parameter slots")
