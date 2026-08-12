@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .models import Project, Assembly, ComponentPackage, EvidenceClaim, Connection, Scenario, CheckRun, Finding, Job
 from .schemas import ProjectCreate, ResearchRequest, ConnectionCreate, ScenarioCreate
-from .research import mock_research
+from .fixture_catalog import FixtureRequestError, fixture_error_detail, get_fixture
 from .physics import analyze_motor_arm, center_of_gravity, severity
 from .config import settings
 from .api_v1 import router as v1_router
@@ -72,16 +72,28 @@ async def import_cad(project_id: str, fixture: bool=True, file: UploadFile|None=
 
 @app.post("/component-research",status_code=202)
 def research_component(body: ResearchRequest, db: Session=Depends(get_db)):
-    existing=db.scalar(select(ComponentPackage).where(ComponentPackage.manufacturer==body.manufacturer,ComponentPackage.part_number==body.part_number,ComponentPackage.validation_status=="confirmed"))
+    try:
+        fixture=get_fixture(body.manufacturer,body.part_number,body.source_url)
+    except FixtureRequestError as error:
+        raise HTTPException(status_code=422,detail=fixture_error_detail(error)) from error
+    existing=db.scalar(select(ComponentPackage).where(ComponentPackage.manufacturer==fixture.manufacturer,ComponentPackage.part_number==fixture.part_number,ComponentPackage.validation_status=="confirmed"))
     job=Job(kind="component_research",status="completed",progress="Ready for confirmation")
     if existing:
         job.result_reference=existing.id; db.add(job); db.commit(); return {**row(job),"cached":True,"component_package":package_response(existing,db)}
-    result=mock_research(body.manufacturer,body.part_number)
-    package=ComponentPackage(manufacturer=result["manufacturer"],part_number=result["part_number"],model_level=result["model_level"],model_class=result["model_class"],parameters=json.dumps(result["parameters"]))
+    parameters={};claims=[]
+    for parameter in fixture.parameters:
+        kind=parameter.value["kind"]
+        if kind=="scalar":normalized=parameter.value["value"]
+        elif kind=="range":normalized=[parameter.value["minimum"],parameter.value["maximum"]]
+        elif kind=="enumeration":normalized=parameter.value["values"]
+        else:continue
+        parameters[parameter.name]=normalized
+        claims.append({"field_name":parameter.name,"original_value":parameter.original_value,"normalized_value":json.dumps(normalized,separators=(",",":")),"unit":parameter.unit,"source_url":fixture.source.uri,"source_document":fixture.source.title,"page_or_figure":f"parameters.{parameter.name}","source_authority":"synthetic_fixture","extraction_status":"fixture"})
+    package=ComponentPackage(manufacturer=fixture.manufacturer,part_number=fixture.part_number,model_level="behavioral",model_class=fixture.component_class,parameters=json.dumps(parameters))
     db.add(package); db.flush()
-    for claim in result["claims"]: db.add(EvidenceClaim(component_package_id=package.id,**claim))
+    for claim in claims: db.add(EvidenceClaim(component_package_id=package.id,**claim))
     job.result_reference=package.id; db.add(job); db.commit()
-    return {**row(job),"cached":False,"component_package":package_response(package,db),"pipeline":result["pipeline"],"missing_fields":result["missing_fields"],"permitted_checks":result["permitted_checks"],"unsupported_checks":result["unsupported_checks"]}
+    return {**row(job),"cached":False,"component_package":package_response(package,db),"pipeline":["exact synthetic fixture identity resolved","checked-in fixture hash verified","typed fixture values read","legacy preview representation built","missing information preserved"],"missing_fields":[item["field_name"] for item in fixture.missing_information],"permitted_checks":list(fixture.supported_recipes),"unsupported_checks":[item["field_name"] for item in fixture.missing_information]}
 
 def package_response(package,db):
     claims=db.scalars(select(EvidenceClaim).where(EvidenceClaim.component_package_id==package.id)).all()
