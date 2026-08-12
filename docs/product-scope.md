@@ -25,4 +25,4 @@ Prometheus may eventually report `no_violations_detected_within_scope` only when
 
 Prometheus does not claim certification, regulatory approval, safety assurance, unrestricted rigid-body dynamics, nonlinear FEA, fatigue or fracture analysis, general CFD, electromagnetic simulation, or project-wide correctness. Physical tests and qualified engineering review remain distinct evidence.
 
-The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Program 01B is next: reviewed package values must drive C++ outcomes and reproduce offline before broader evidence acquisition or solver work begins.
+The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Amended Program 01A is current: it must establish immutable RFC 8785 publication and independent C++ verification before Program 01B makes reviewed package values drive C++ outcomes and reproduce offline.

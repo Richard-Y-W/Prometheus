@@ -2,6 +2,8 @@
 
 ## Current Program 01A boundary
 
+Program 01A is reopened under the amended gate. The controls below describe the former v1 implementation that remains in the worktree; they do not yet provide immutable stored package bytes, stable claim-ID review, durable publication replay, or independent C++ canonical verification.
+
 The checked-in PM-36 source artifact is project-controlled synthetic JSON. Fixture mode accepts one exact identity, rejects caller-supplied source URLs, verifies the source-byte hash, and creates no records for unsupported requests. Typed validation rejects non-finite values, invalid ranges, invalid curves, duplicate identities, and absent evidence references. Canonical hashing detects drift between a published revision and its exported execution package.
 
 These controls do not provide signatures, user authorization, process isolation, or protection against an attacker who can replace both persisted data and hashes. The local development API uses HTTP. The current research provider does not fetch remote URLs, so it has no production SSRF surface; a future acquisition worker must not inherit that conclusion.

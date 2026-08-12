@@ -1,5 +1,7 @@
 # Program 01A: Integrity and Generic Contracts Implementation Plan
 
+> **Historical plan — superseded 2026-08-11.** This plan was implemented under the former Program 01A gate. The approved [amended design](../specs/2026-08-11-program-01a-amended-trust-boundary-design.md) and [durable amended plan](../../program/01-trust-kernel/01a-amended-implementation-plan.md) now govern Program 01A. Keep this file as implementation history; do not execute it as the current plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the current Prometheus repository truthful and safe at its trust boundary: fixture data cannot impersonate arbitrary research, evidence cannot be accepted implicitly, published component inputs are typed, canonical, and hash-verifiable, and failed or unavailable analysis cannot be represented as engineering success.

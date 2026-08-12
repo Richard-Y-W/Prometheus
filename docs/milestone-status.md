@@ -13,11 +13,11 @@ The earlier numbered milestones record how the rough electromechanical vertical 
 - **No external solver:** no structural, thermal, electrical, CFD, or controls solver adapter exists.
 - **No certification claim:** the repository does not claim physical validation, safety, certification, or project-wide correctness.
 
-## Program 01A — contract-tested trust boundary complete
+## Program 01A — former gate complete; amended gate reopened
 
-Program 01A adds exact fixture provenance, typed values, complete atomic review, immutable review metadata, canonical execution packages, hash mismatch detection on every published success path, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. Its validation level is `contract_tested`; unavailable native Windows/OCCT checks remain explicit in the program record.
+The former Program 01A implementation added exact fixture provenance, typed values, atomic per-field review, canonicalized execution packages, hash mismatch detection, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. That work passed its former `contract_tested` gate and remains recorded as historical evidence.
 
-This program establishes trustworthy reviewed input. It does not establish package-to-C++ execution. The exact commands, results, unavailable native checks, known error risks, and Program 01B entry gate are maintained in [the Program 01A record](program/01-trust-kernel/01a-integrity-and-contracts.md).
+Program 01A is reopened under the [amended trust-boundary gate](superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md). The former v1 boundary reconstructs packages from relational rows, uses Python-specific canonicalization, reviews mutable field names, and lacks durable publication replay and cross-language verification. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved; the [amended plan](program/01-trust-kernel/01a-amended-implementation-plan.md) is current. Program 01B has not started.
 
 ## Historical rough-V1 increments
 

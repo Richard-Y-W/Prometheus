@@ -23,12 +23,12 @@ Program 00, repository truth and benchmark-corpus maintenance, runs continuously
 
 Program 01 prevents candidate evidence, stale state, or failed computation from becoming an engineering finding.
 
-- [01A — Integrity and contracts](01-trust-kernel/01a-integrity-and-contracts.md) — complete at `contract_tested`: fail-closed fixture provenance, explicit per-field review, typed persistence, canonical execution packages, legacy-path retirement, and truthful claims.
+- **[01A — Integrity and contracts](01-trust-kernel/01a-amended-implementation-plan.md) — reopened:** the former fixture-backed v1 boundary remains [historical evidence](01-trust-kernel/01a-integrity-and-contracts.md), but it does not satisfy the amended immutable-byte, stable-claim, cross-language, database, and replay gate.
 - **01B — Package-to-C++ execution:** remove fixed production PM-36 values, parse the bound package in C++, persist package and run manifests, and prove Motor A/Motor B sensitivity plus offline reproduction.
 - **01C — Safe evidence acquisition:** preserve source bytes, add sandboxed deterministic parsers and optional candidate extraction, and retain explicit licensing and review state.
 - **01D — End-to-end review and reproduction:** complete portable project manifests, native Windows CI, and reopen/reproduction acceptance tests.
 
-01B is the next gate. 01C cannot begin until the repository proves that reviewed values, rather than fixture constants, drive the C++ result.
+Amended 01A is the current gate. Program 01B has not started and begins only after 01A publishes immutable RFC 8785 bytes that C++ independently verifies. 01C cannot begin until the repository proves that reviewed values, rather than fixture constants, drive the C++ result.
 
 ## Program 02 — Universal project intake
 

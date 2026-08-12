@@ -1,6 +1,6 @@
 # Rough-V1 release status
 
-The rough V1 is an electromechanical conformance demonstrator plus CAD interaction work. Program 01A adds a trustworthy component-input boundary. The repository does not implement the complete Prometheus architecture and cannot determine whether an arbitrary engineering project works.
+The rough V1 is an electromechanical conformance demonstrator plus CAD interaction work. The former Program 01A gate added a fixture-backed component-input boundary, but the amended gate is reopened because that boundary is not yet immutable or independently verifiable across Python and C++. The repository does not implement the complete Prometheus architecture and cannot determine whether an arbitrary engineering project works.
 
 ## Status matrix
 
@@ -9,11 +9,11 @@ The rough V1 is an electromechanical conformance demonstrator plus CAD interacti
 | CAD | Real STEP/XDE import, B-Rep metadata, tessellation, persistent entity IDs, placement, exact static common-volume checks, and sampled revolute collision | The synthetic motor-arm fixture is a separate artifact. Sampled motion is not continuous-clearance proof; bounds anchors are not authoritative interfaces. |
 | Component intake | Exact lookup of checked-in `Prometheus Fixture Works / PM-36-GM` synthetic JSON with source-byte hashing | No public search, remote acquisition, datasheet/PDF parsing, OCR, chart digitization, or LLM research provider exists. |
 | Evidence review | Typed values, source-linked evidence, one explicit review decision per field, review notes for ambiguous/rejected fields, and separate publication | Human acceptance records a decision; it does not physically validate the value. |
-| Published input | Canonical JSON execution-component package, SHA-256 content hash, stable export, reference checks, and persisted-tamper detection | The package is reviewed input and contains no finding or requirement verdict. |
+| Published input | Former v1 Python-canonicalized execution-component package, SHA-256 content hash, stable reconstructed export, reference checks, and persisted-tamper detection | Amended Program 01A must store exact RFC 8785 bytes and add independent C++ verification. The package is reviewed input and contains no finding or requirement verdict. |
 | C++ checks | Fixed-input motor-arm torque, current, one-node thermal, selected COG primitives, and geometry conformance checks | The checker does not consume the published package until Program 01B. These recipes are not general mechanical or arbitrary engineering support. |
 | Python | Fixture acquisition, candidate persistence, review API, package construction, and OpenAPI | The old confirm/plan/run endpoints are retired. Python is not an engineering decision authority and no production route imports the historical physics module. |
 | Numerical solvers | None | No CalculiX, Elmer, ngspice, OpenFOAM, Modelica, MuJoCo, or other external analysis adapter is installed or implemented as a Prometheus capability. |
-| Product claims | Contract-tested trust boundary and CAD/conformance demonstrations | No certification, safety assurance, physical validation, or project-wide correctness claim is made. |
+| Product claims | Historical former-gate contract tests and CAD/conformance demonstrations | Amended Program 01A remains in progress. No certification, safety assurance, physical validation, or project-wide correctness claim is made. |
 
 ## Geometry and assembly detail
 

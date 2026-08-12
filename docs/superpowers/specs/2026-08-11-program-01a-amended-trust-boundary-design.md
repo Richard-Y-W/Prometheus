@@ -6,6 +6,8 @@
 - Reopens milestone commit: `e827440`
 - Replaces as the implementation authority: `docs/superpowers/plans/2026-08-11-program-01a-integrity-and-contracts.md`
 - Preserves as historical evidence: `docs/program/01-trust-kernel/01a-integrity-and-contracts.md`
+- Durable implementation plan: `docs/program/01-trust-kernel/01a-amended-implementation-plan.md`
+- Inline execution runbook: `docs/superpowers/plans/2026-08-11-program-01a-amended-trust-boundary-execution.md`
 
 ## Decision
 

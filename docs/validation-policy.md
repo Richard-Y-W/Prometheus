@@ -10,7 +10,7 @@ A parser failure, missing critical input, unresolved assumption, unsupported reg
 
 ## Evidence and review
 
-Critical inputs require source provenance, units, applicability conditions, and explicit review. Program 01A requires a per-field decision before publication, but human acceptance is not physical validation. LLM confidence and extraction probability are not engineering confidence.
+Critical inputs require source provenance, units, applicability conditions, and explicit review. The former Program 01A path requires a per-field decision; the amended gate replaces field labels with stable revision-scoped claim IDs and append-only review events. Human acceptance is not physical validation. Extraction confidence is not engineering confidence.
 
 Synthetic fixtures test contracts and failure behavior. They cannot support a claim about a real manufacturer's component. Real STEP import tests geometry handling; it does not establish material, mass, interface, or load-path truth.
 

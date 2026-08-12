@@ -2,6 +2,8 @@
 
 ## Current automated coverage
 
+This section records the former Program 01A implementation. The amended release gate is in progress and additionally requires shared Python/C++ RFC 8785 vectors, stable claims, immutable objects, SQLite/PostgreSQL concurrency and restart tests, the supported Python matrix, and a full OCCT-disabled desktop build.
+
 The backend suite covers isolated database state, exact fixture identity and source attribution, typed values, Alembic upgrade/downgrade behavior, atomic per-field review, publication rollback, canonical hashing, schema references, persisted-input tamper detection, retired legacy routes, and checked-in OpenAPI equality.
 
 The frontend suite checks historical-finding presentation and the explicit disabled-state explanations; its production build type-checks the archived viewer. C++ core tests cover the historical motor equations and selected geometry/project behavior in environments with CMake. The Program 01A Qt review-payload target covers exact decision-set validation when built with Qt.

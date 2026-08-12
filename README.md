@@ -11,7 +11,7 @@ Current repository: this codebase is a fixture-backed electromechanical vertical
 - The Windows Qt/C++ desktop imports real STEP/XDE through Open Cascade, preserves hierarchy and persistent entity IDs, renders tessellation, supports inspected part placement, and performs exact static or sampled collision operations where explicitly labeled.
 - A separate synthetic motor-arm assembly remains available for deterministic conformance tests. Real STEP import and the synthetic motor fixture are different paths.
 - The versioned Python service performs exact lookup of one checked-in synthetic component, `Prometheus Fixture Works / PM-36-GM`. It does not search the web, parse public datasheets, or run an LLM research provider.
-- Component parameters have typed values and source-linked evidence. Publication requires one explicit human decision per field and produces a canonical, hash-verifiable execution-component package.
+- Component parameters have typed values and source-linked evidence. The former v1 path requires one explicit human decision per field and produces a Python-canonicalized, reconstructed execution-component package. That implementation remains present while amended Program 01A replaces it with stable claim review and immutable RFC 8785 bytes.
 - The package declares `prometheus_cpp` as the engineering decision authority, but the current C++ motor-arm checker does not consume it. Connecting reviewed package values to C++ is the Program 01B exit gate.
 - The fixed C++ motor-arm calculations are a conformance demonstrator for torque, current, a one-node thermal model, and selected geometry checks. They are not evidence of arbitrary mechanical or cross-domain engineering support.
 - The old Python research-confirm-plan-run path is retired. Its trust-sensitive endpoints return structured `410` or `501` errors, and no production route imports the historical Python physics module.
@@ -21,9 +21,11 @@ No external structural, thermal, electrical, CFD, or controls solver adapter exi
 
 The [master roadmap](docs/program/00-master-roadmap.md) defines the gates from this trust kernel to general project intake, a semantic engineering graph, proof-obligation planning, a local solver SDK, six bounded domain slices, validation, and product hardening.
 
-## Program 01A status
+## Program 01A status — reopened
 
-[Program 01A: integrity and contracts](docs/program/01-trust-kernel/01a-integrity-and-contracts.md) records the implemented behavior, verification evidence, and remaining limits. Its main artifacts are:
+Program 01A is reopened under the [amended trust-boundary design](docs/superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md). The [former completion record](docs/program/01-trust-kernel/01a-integrity-and-contracts.md) preserves what was implemented and tested under the old gate; the [amended implementation plan](docs/program/01-trust-kernel/01a-amended-implementation-plan.md) now governs the work. Program 01B has not started.
+
+The former v1 artifacts are:
 
 - exact fixture provenance and no caller-controlled source attribution;
 - typed engineering-value, evidence, execution-component, and finding contracts;
@@ -33,7 +35,7 @@ The [master roadmap](docs/program/00-master-roadmap.md) defines the gates from t
 - retired non-authoritative Python verdict routes;
 - checked-in OpenAPI that must exactly match the application.
 
-Program 01A creates a trustworthy input boundary. Program 01B must prove that two reviewed packages drive different expected C++ results and reproduce after offline reopen.
+The former boundary is fixture-backed but insufficient for the amended claim because it reconstructs published content, uses a Python-specific canonical form, reviews field labels, and has no durable publication replay. Amended Program 01A must close those gaps before Program 01B can prove that two reviewed packages drive different expected C++ results and reproduce after offline reopen.
 
 ## Prerequisites
 
