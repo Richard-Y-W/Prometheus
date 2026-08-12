@@ -15,7 +15,6 @@ int main(int argc, char* argv[]) {
   ServiceController service;
   EngineeringController engineering;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
-  const bool demo_auto_publish=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_AUTO_PUBLISH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");
   const bool demo_cad_inspect=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_CAD_INSPECT");
   const bool demo_placement=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_PLACEMENT");
@@ -24,7 +23,6 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("serviceController",&service);
   engine.rootContext()->setContextProperty("engineeringController",&engineering);
   engine.rootContext()->setContextProperty("demoResearch",demo_research);
-  engine.rootContext()->setContextProperty("demoAutoPublish",demo_auto_publish);
   engine.rootContext()->setContextProperty("demoEngineering",demo_engineering);
   engine.rootContext()->setContextProperty("demoCadInspect",demo_cad_inspect);
   engine.rootContext()->setContextProperty("demoPlacement",demo_placement);
