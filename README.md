@@ -25,13 +25,13 @@ No external structural, thermal, electrical, CFD, or controls solver adapter exi
 
 The [master roadmap](docs/program/00-master-roadmap.md) defines the gates from this trust kernel to general project intake, a semantic engineering graph, proof-obligation planning, a local solver SDK, six bounded domain slices, validation, and product hardening.
 
-## Program 01A status — implementation present, verification pending
+## Program 01A status — complete under the amended contract-tested gate
 
-The amended v2 implementation is present, but Program 01A remains in progress until the complete release gate is observed and recorded. See the [pending amended completion record](docs/program/01-trust-kernel/01a-amended-completion.md), [amended design](docs/superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md), and [v1-to-v2 migration guide](docs/migration/program-01a-v1-to-v2.md).
+Program 01A closed on 2026-08-12 at verified implementation commit `2491df33ad6ae9032ea71f7994a3f137599e2dba`. The [amended completion record](docs/program/01-trust-kernel/01a-amended-completion.md) cites the successful nine-job GitHub release run, exact local and CI test counts, platform versions, manual byte audit, and residual risks. The [amended design](docs/superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md) and [v1-to-v2 migration guide](docs/migration/program-01a-v1-to-v2.md) remain the design and client-transition authorities.
 
-The [former completion record](docs/program/01-trust-kernel/01a-integrity-and-contracts.md) is retained as historical evidence for the superseded v1 gate. Its reconstructed package and field-name review claims do not satisfy the amended boundary. Program 01B has not started.
+The [former completion record](docs/program/01-trust-kernel/01a-integrity-and-contracts.md) is retained as historical evidence for the superseded v1 gate. Its reconstructed package and field-name review claims do not satisfy the amended boundary. Program 01B is now the next gate; no Program 01B execution claim is present in this repository.
 
-The amended gate requires all of the following before status can change:
+The amended closure run verified:
 
 - the full SQLite suite on CPython 3.11, 3.12, 3.13, and 3.14;
 - the full semantic suite on PostgreSQL 17;
@@ -39,7 +39,7 @@ The amended gate requires all of the following before status can change:
 - headless decision-core, integrity, and OCCT-disabled Qt desktop builds on Linux, macOS, and Windows MSVC;
 - vendored-source, frontend, migration, concurrency, restart, failure-injection, and documentation checks.
 
-Passing this gate would establish only the bounded synthetic-fixture, review, immutable-byte, and cross-language integrity claim. It would not establish package-driven engineering execution, physical-model validation, or arbitrary-project analysis.
+This gate establishes only the bounded synthetic-fixture, review, immutable-byte, and cross-language integrity claim. It does not establish package-driven engineering execution, physical-model validation, or arbitrary-project analysis.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ On Windows PowerShell with the required toolchains available:
 
 The script verifies locked backend and frontend dependencies, the backend and frontend suites, the headless C++ core, the independent integrity library, and the Qt desktop with Open Cascade disabled. If the UCRT64 Qt and Open Cascade packages are installed, it also runs the optional OCCT-enabled target.
 
-The GitHub Actions workflow defines the cross-platform and Python-version release matrix. A local run on one machine is useful evidence but does not by itself close the pending amended gate.
+The GitHub Actions workflow defines the cross-platform and Python-version release matrix. A local run on one machine remains useful evidence but does not replace the successful matrix recorded in the amended completion record.
 
 ## Run the native desktop
 

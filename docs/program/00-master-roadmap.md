@@ -23,12 +23,12 @@ Program 00, repository truth and benchmark-corpus maintenance, runs continuously
 
 Program 01 prevents candidate evidence, stale state, or failed computation from becoming an engineering finding.
 
-- **[01A — Integrity and contracts](01-trust-kernel/01a-amended-implementation-plan.md) — implementation present, verification pending:** the v2 code now provides stable claims, append-only review, immutable RFC 8785 objects, durable publication replay, database backstops, and independent C++ byte verification. The [amended completion record](01-trust-kernel/01a-amended-completion.md) remains pending until the complete release matrix is observed. These controls establish reviewed-input integrity only; the package is not an engineering result.
+- **[01A — Integrity and contracts](01-trust-kernel/01a-amended-implementation-plan.md) — complete under the amended `contract_tested` gate:** the v2 code provides stable claims, append-only review, immutable RFC 8785 objects, durable publication replay, database backstops, and independent C++ byte verification. The [amended completion record](01-trust-kernel/01a-amended-completion.md) cites the successful database, Python, frontend, and native release matrix. These controls establish reviewed-input integrity only; the package is not an engineering result.
 - **01B — Package-to-C++ execution:** remove fixed production PM-36 values, parse the bound package in C++, persist package and run manifests, and prove Motor A/Motor B sensitivity plus offline reproduction.
 - **01C — Safe evidence acquisition:** preserve source bytes, add sandboxed deterministic parsers and optional candidate extraction, and retain explicit licensing and review state.
 - **01D — End-to-end review and reproduction:** complete portable project manifests, native Windows CI, and reopen/reproduction acceptance tests.
 
-Amended 01A is the current gate. The former v1 record remains [historical evidence](01-trust-kernel/01a-integrity-and-contracts.md), and its mutation/export endpoints are retired under the [migration guide](../migration/program-01a-v1-to-v2.md). Program 01B has not started and begins only after the amended release matrix verifies the v2 input boundary. 01C cannot begin until the repository proves that reviewed values, rather than fixture constants, drive the C++ result.
+Program 01B is the current gate. The former v1 record remains [historical evidence](01-trust-kernel/01a-integrity-and-contracts.md), and its mutation/export endpoints are retired under the [migration guide](../migration/program-01a-v1-to-v2.md). The amended 01A release matrix verified the v2 input boundary, but no 01B package-driven execution claim exists yet. 01C cannot begin until the repository proves that reviewed values, rather than fixture constants, drive the C++ result.
 
 ## Program 02 — Universal project intake
 

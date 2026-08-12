@@ -28,4 +28,4 @@ Prometheus may eventually report `no_violations_detected_within_scope` only when
 
 Prometheus does not claim certification, regulatory approval, safety assurance, unrestricted rigid-body dynamics, nonlinear FEA, fatigue or fracture analysis, general CFD, electromagnetic simulation, or project-wide correctness. Physical tests and qualified engineering review remain distinct evidence.
 
-The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Amended Program 01A implementation is present but remains pending final verification. Program 01B will make reviewed package values drive C++ outcomes and reproduce offline; that execution claim does not follow from Program 01A package integrity.
+The [master roadmap](program/00-master-roadmap.md) defines the capability gates. Amended Program 01A is complete under its bounded `contract_tested` gate. Program 01B will make reviewed package values drive C++ outcomes and reproduce offline; that execution claim does not follow from Program 01A package integrity.

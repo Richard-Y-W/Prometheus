@@ -13,13 +13,13 @@ The earlier numbered milestones record how the rough electromechanical vertical 
 - **No external solver:** no structural, thermal, electrical, CFD, or controls solver adapter exists.
 - **No certification claim:** the repository does not claim physical validation, safety, certification, or project-wide correctness.
 
-## Program 01A — amended implementation present; verification pending
+## Program 01A — complete under the amended contract-tested gate
 
 The former Program 01A implementation added exact fixture provenance, typed values, atomic per-field review, reconstructed canonical packages, hash mismatch detection, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. That work passed its superseded `contract_tested` gate and remains recorded as historical evidence.
 
 The amended v2 implementation now provides bounded source ingestion, revision-scoped finalized claims, append-only review events, capability-specific publication and execution gates, immutable stored RFC 8785 objects, exact verified export, durable success/failure replay, SQLite/PostgreSQL backstops, and an independent C++ canonical-byte/hash verifier. The Qt flow uses claim IDs and visible draft versions, and the OCCT-disabled desktop path fails explicitly instead of synthesizing geometry.
 
-Program 01A nevertheless remains in progress. The [pending amended completion record](program/01-trust-kernel/01a-amended-completion.md) may close only after the complete release matrix is observed. A sealed package is reviewed input only: it contains no engineering verdict, remains execution-blocked until Program 01B, and supplies no physical-validation or arbitrary-project claim. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved, and the [v1-to-v2 migration guide](migration/program-01a-v1-to-v2.md) documents the breaking retirement. Program 01B has not started.
+Program 01A closed on 2026-08-12 after the [amended completion record](program/01-trust-kernel/01a-amended-completion.md) captured a successful nine-job release matrix, exact local verification, and a restart-based exact-byte audit. A sealed package is still reviewed input only: it contains no engineering verdict, remains execution-blocked until Program 01B, and supplies no physical-validation or arbitrary-project claim. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved, and the [v1-to-v2 migration guide](migration/program-01a-v1-to-v2.md) documents the breaking retirement. Program 01B is the next gate, but its package-driven execution work has not started.
 
 ## Historical rough-V1 increments
 

@@ -1,6 +1,7 @@
 # Program 01A Amended Implementation Plan
 
-- Status: ready for implementation review
+- Status: complete under the amended `contract_tested` gate (2026-08-12)
+- Completion evidence: [Program 01A amended completion record](01a-amended-completion.md)
 - Design authority: [Program 01A amended trust-boundary design](../../superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md)
 - Supersedes: [the original Program 01A implementation plan](../../superpowers/plans/2026-08-11-program-01a-integrity-and-contracts.md)
 - Preserves as historical evidence: [the original completion record](01a-integrity-and-contracts.md)

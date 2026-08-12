@@ -1,6 +1,6 @@
 # Validation plan
 
-Program 01A amended implementation is present, but its completion record remains pending until the entire matrix below is observed in one release-gate run. This plan names software-verification evidence only. It does not convert a synthetic fixture, canonical byte match, or passing test into physical-model validation or an engineering result.
+Program 01A is complete under the amended `contract_tested` gate. The [completion record](program/01-trust-kernel/01a-amended-completion.md) cites one successful release run containing the entire matrix below. This plan names software-verification evidence only. It does not convert a synthetic fixture, canonical byte match, or passing test into physical-model validation or an engineering result.
 
 ## Required release matrix
 
@@ -12,7 +12,9 @@ Program 01A amended implementation is present, but its completion record remains
 | Archived frontend | Linux, Node 20 | tests, production build/type-check, and high-severity dependency audit |
 | Vendored native sources | Backend jobs and offline native build | `scripts/verify-vendored-dependencies.py` plus its adversarial test module |
 
-The native CI configures three independent presets on every platform: headless core, integrity verifier, and desktop without Open Cascade. Desktop configuration requires the declared Qt components; missing Qt cannot silently omit the application or its tests. Windows uses the Visual Studio 17 2022 generator and Qt's MSVC 2022 ABI.
+The closing evidence is [GitHub Actions run 31636414152](https://github.com/Richard-Y-W/Prometheus/actions/runs/31636414152). All nine required jobs completed successfully: four SQLite/Python jobs, PostgreSQL 17, the archived frontend, and three native platforms.
+
+The native CI configures three independent presets on every platform: headless core, integrity verifier, and desktop without Open Cascade. Desktop configuration requires the declared Qt components; missing Qt cannot silently omit the application or its tests. The closing run used Qt 6.8.3 on Linux and Windows, Qt 6.11.1 on `macos-latest`, and the Visual Studio 17 2022 generator with Qt's MSVC 2022 ABI on Windows.
 
 The optional `windows-debug` UCRT64 target exercises the real Open Cascade adapter when those separately installed dependencies exist. That geometry path remains valuable, but it is not a substitute for the required OCCT-disabled desktop seam and is not evidence that arbitrary CAD semantics or mechanics are understood.
 

@@ -1,6 +1,6 @@
 # Rough-V1 release status
 
-The rough V1 is an electromechanical conformance demonstrator plus CAD interaction work. Its original Program 01A boundary is historical: amended v2 implementation now adds immutable stored input bytes and independent C++ integrity verification, while the amended completion record remains pending the full release matrix. The repository does not implement the complete Prometheus architecture and cannot determine whether an arbitrary engineering project works.
+The rough V1 is an electromechanical conformance demonstrator plus CAD interaction work. Its original Program 01A boundary is historical; the amended v2 boundary closed under its bounded `contract_tested` gate after immutable stored input bytes and independent C++ integrity verification passed the required matrix. The repository does not implement the complete Prometheus architecture and cannot determine whether an arbitrary engineering project works.
 
 ## Status matrix
 
@@ -13,7 +13,7 @@ The rough V1 is an electromechanical conformance demonstrator plus CAD interacti
 | C++ checks | Fixed-input motor-arm torque, current, one-node thermal, selected COG primitives, and geometry conformance checks | The checker does not consume the published package until Program 01B. These recipes are not general mechanical or arbitrary engineering support. |
 | Python | Fixture acquisition, candidate persistence, review API, package construction, and OpenAPI | The old confirm/plan/run endpoints are retired. Python is not an engineering decision authority and no production route imports the historical physics module. |
 | Numerical solvers | None | No CalculiX, Elmer, ngspice, OpenFOAM, Modelica, MuJoCo, or other external analysis adapter is installed or implemented as a Prometheus capability. |
-| Product claims | Historical former-gate evidence, current v2 implementation, and CAD/conformance demonstrations | Amended Program 01A remains pending final verification. No certification, safety assurance, physical validation, or project-wide correctness claim is made. |
+| Product claims | Historical former-gate evidence, completed amended v2 input boundary, and CAD/conformance demonstrations | Program 01A completion establishes reviewed-input integrity only. No certification, safety assurance, physical validation, package-driven execution, or project-wide correctness claim is made. |
 
 ## Geometry and assembly detail
 
@@ -35,4 +35,4 @@ Unsupported identity, incomplete review, invalid value shape, package validation
 
 ## Verification entry points
 
-`scripts/verify.ps1` runs backend tests, frontend tests/build/audit, headless C++ tests, the independent integrity target, and the Qt desktop with Open Cascade disabled. The optional native Open Cascade path requires the Windows UCRT64 toolchain. Amended results are not final until they are recorded in the [pending completion record](program/01-trust-kernel/01a-amended-completion.md); the [former record](program/01-trust-kernel/01a-integrity-and-contracts.md) remains historical.
+`scripts/verify.ps1` runs backend tests, frontend tests/build/audit, headless C++ tests, the independent integrity target, and the Qt desktop with Open Cascade disabled. The optional native Open Cascade path requires the Windows UCRT64 toolchain. The [amended completion record](program/01-trust-kernel/01a-amended-completion.md) contains the closing release evidence; the [former record](program/01-trust-kernel/01a-integrity-and-contracts.md) remains historical.

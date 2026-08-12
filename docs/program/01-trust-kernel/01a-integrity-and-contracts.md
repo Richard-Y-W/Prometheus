@@ -1,14 +1,15 @@
 # Program 01A: integrity and contracts
 
-- Status: historical completion under the former gate; superseded and reopened 2026-08-11
+- Status: historical completion under the former gate; superseded by the amended completion on 2026-08-12
 - Originally closed: 2026-08-11
 - Former validation level: `contract_tested`
 - Verified former implementation commit: `a89ce37fb6e43f97d4df22ad6d1231f3a6bf20c7`
 - Milestone-record commit: the commit containing this file with subject `chore: close Program 01A trust kernel`
 - Reopening authority: [Program 01A amended trust-boundary design](../../superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md)
 - Current plan: [Program 01A amended implementation plan](01a-amended-implementation-plan.md)
+- Current completion record: [Program 01A amended completion](01a-amended-completion.md)
 
-This document preserves what the repository implemented and tested at the time. Its former completion claim is superseded because publication reconstructed mutable rows, used a Python-specific canonical form, reviewed field labels rather than stable claims, and lacked durable concurrency and replay semantics. Those findings reopen Program 01A; they do not erase the recorded tests.
+This document preserves what the repository implemented and tested at the time. Its former completion claim was superseded because publication reconstructed mutable rows, used a Python-specific canonical form, reviewed field labels rather than stable claims, and lacked durable concurrency and replay semantics. The amended gate later closed those specified gaps without erasing the tests recorded here.
 
 ## What this milestone establishes
 
