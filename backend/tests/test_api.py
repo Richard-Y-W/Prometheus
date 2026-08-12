@@ -1,5 +1,3 @@
-import os
-os.environ["PROMETHEUS_DATABASE_URL"]="sqlite:///./test_prometheus.db"
 from fastapi.testclient import TestClient
 from app.main import app
 
