@@ -23,7 +23,7 @@ Program 00, repository truth and benchmark-corpus maintenance, runs continuously
 
 Program 01 prevents candidate evidence, stale state, or failed computation from becoming an engineering finding.
 
-- [01A — Integrity and contracts](01-trust-kernel/01a-integrity-and-contracts.md): fail-closed fixture provenance, explicit per-field review, typed persistence, canonical execution packages, legacy-path retirement, and truthful claims.
+- [01A — Integrity and contracts](01-trust-kernel/01a-integrity-and-contracts.md) — complete at `contract_tested`: fail-closed fixture provenance, explicit per-field review, typed persistence, canonical execution packages, legacy-path retirement, and truthful claims.
 - **01B — Package-to-C++ execution:** remove fixed production PM-36 values, parse the bound package in C++, persist package and run manifests, and prove Motor A/Motor B sensitivity plus offline reproduction.
 - **01C — Safe evidence acquisition:** preserve source bytes, add sandboxed deterministic parsers and optional candidate extraction, and retain explicit licensing and review state.
 - **01D — End-to-end review and reproduction:** complete portable project manifests, native Windows CI, and reopen/reproduction acceptance tests.

@@ -13,9 +13,9 @@ The earlier numbered milestones record how the rough electromechanical vertical 
 - **No external solver:** no structural, thermal, electrical, CFD, or controls solver adapter exists.
 - **No certification claim:** the repository does not claim physical validation, safety, certification, or project-wide correctness.
 
-## Program 01A — trust boundary in final verification
+## Program 01A — contract-tested trust boundary complete
 
-Program 01A adds exact fixture provenance, typed values, complete atomic review, immutable review metadata, canonical execution packages, hash mismatch detection, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing.
+Program 01A adds exact fixture provenance, typed values, complete atomic review, immutable review metadata, canonical execution packages, hash mismatch detection on every published success path, structured failure codes, an explicit Qt review/publish flow, retired Python verdict routes, an archived React viewer, and OpenAPI exact-match testing. Its validation level is `contract_tested`; unavailable native Windows/OCCT checks remain explicit in the program record.
 
 This program establishes trustworthy reviewed input. It does not establish package-to-C++ execution. The exact commands, results, unavailable native checks, known error risks, and Program 01B entry gate are maintained in [the Program 01A record](program/01-trust-kernel/01a-integrity-and-contracts.md).
 
