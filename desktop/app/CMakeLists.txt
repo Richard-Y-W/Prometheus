@@ -18,6 +18,24 @@ if(BUILD_TESTING)
   target_link_libraries(prometheus_review_payload_tests PRIVATE Qt6::Core)
   add_test(NAME prometheus_review_payload_tests COMMAND prometheus_review_payload_tests)
 endif()
+if(BUILD_TESTING AND NOT TARGET prometheus_cad)
+  find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+  add_executable(prometheus_cad_controller_no_occt_tests
+    tests/cad_controller_no_occt_tests.cpp
+  )
+  target_link_libraries(prometheus_cad_controller_no_occt_tests PRIVATE
+    Qt6::Gui
+    Qt6::Test
+    prometheus_desktop_support
+  )
+  add_test(
+    NAME prometheus_cad_controller_no_occt_tests
+    COMMAND prometheus_cad_controller_no_occt_tests
+  )
+  set_tests_properties(prometheus_cad_controller_no_occt_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  )
+endif()
 if(BUILD_TESTING AND TARGET prometheus_cad)
   add_executable(prometheus_project_tests tests/project_tests.cpp)
   target_link_libraries(prometheus_project_tests PRIVATE prometheus_desktop_support Qt6::Gui)

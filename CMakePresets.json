@@ -56,6 +56,19 @@
       }
     },
     {
+      "name": "desktop-no-occt-debug",
+      "displayName": "Desktop Without Open Cascade Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/desktop-no-occt-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PROMETHEUS_BUILD_DESKTOP": "ON",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
+    },
+    {
       "name": "windows-release",
       "inherits": "windows-ucrt-base",
       "displayName": "Windows UCRT64 Release",
@@ -73,6 +86,10 @@
     {
       "name": "integrity-debug",
       "configurePreset": "integrity-debug"
+    },
+    {
+      "name": "desktop-no-occt-debug",
+      "configurePreset": "desktop-no-occt-debug"
     },
     {
       "name": "windows-debug",
@@ -94,6 +111,13 @@
     {
       "name": "integrity-debug",
       "configurePreset": "integrity-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-no-occt-debug",
+      "configurePreset": "desktop-no-occt-debug",
       "output": {
         "outputOnFailure": true
       }

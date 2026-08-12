@@ -3,7 +3,7 @@
 #include <QVariantList>
 #include <QtQuick3D/QQuick3DGeometry>
 #include <QFutureWatcher>
-#include "prometheus/cad/step_importer.hpp"
+#include "prometheus/cad/types.hpp"
 #include <memory>
 #include <vector>
 #include <cmath>
