@@ -64,10 +64,13 @@ def revision_detail(revision: ComponentRevision, db: Session) -> dict:
             {
                 "id": parameter.id,
                 "field_name": parameter.field_name,
-                "value_si": parameter.value_si,
-                "unit_si": parameter.unit_si,
+                "quantity": parameter.quantity,
+                "dimension": parameter.dimension,
+                "value": parameter.value,
+                "unit": parameter.unit,
                 "original_value": parameter.original_value,
                 "original_unit": parameter.original_unit,
+                "validity_conditions": parameter.validity_conditions,
                 "evidence": [
                     {column.name: getattr(record, column.name) for column in record.__table__.columns}
                     for record in evidence
@@ -222,7 +225,7 @@ def create_research_job(
                 ResearchJobEvent(
                     job_id=job.id,
                     stage=stage,
-                    sequence=str(sequence),
+                    sequence=sequence,
                     message=message,
                 )
             )
@@ -234,7 +237,10 @@ def create_research_job(
         revision=fixture.revision,
         certification_tier="provisional",
         status="draft",
-        content_hash=fixture.source.document_hash,
+        content_hash=None,
+        supported_recipes=list(fixture.supported_recipes),
+        missing_information=list(fixture.missing_information),
+        limitations=list(fixture.limitations),
     )
     db.add(revision)
     db.flush()
@@ -257,15 +263,16 @@ def create_research_job(
         db.flush()
 
     for fixture_parameter in fixture.parameters:
-        if fixture_parameter.value["kind"] != "scalar":
-            continue
         parameter = ComponentParameter(
             revision_id=revision.id,
             field_name=fixture_parameter.name,
-            value_si=str(fixture_parameter.value["value"]),
-            unit_si=fixture_parameter.unit,
+            quantity=fixture_parameter.quantity,
+            dimension=fixture_parameter.dimension,
+            value=fixture_parameter.value,
+            unit=fixture_parameter.unit,
             original_value=fixture_parameter.original_value,
             original_unit=fixture_parameter.original_unit,
+            validity_conditions=list(fixture_parameter.validity_conditions),
         )
         db.add(parameter)
         db.flush()
@@ -279,7 +286,7 @@ def create_research_job(
                     f"{fixture_parameter.original_unit}"
                 ),
                 evidence_class=fixture_parameter.evidence_class,
-                confidence="0.0",
+                confidence=None,
                 extraction_method="fixture_json_v1",
                 review_status="pending",
             )
@@ -308,7 +315,7 @@ def create_research_job(
             ResearchJobEvent(
                 job_id=job.id,
                 stage=stage,
-                sequence=str(sequence),
+                sequence=sequence,
                 message=stage.replace("_", " ").title(),
             )
         )

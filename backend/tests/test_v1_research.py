@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.database import SessionLocal
+from app.fixture_catalog import get_fixture
 from app.main import app
 from app.models_v1 import (
     Component,
@@ -51,6 +52,7 @@ def test_idempotent_fixture_research_review_publish_and_search():
         ).json()
         assert created["status"] == "ready_for_review"
         assert len(created["events"]) == 8
+        assert [event["sequence"] for event in created["events"]] == list(range(1, 9))
         repeated = client.post(
             "/v1/research-jobs",
             headers={"Idempotency-Key": key},
@@ -66,6 +68,25 @@ def test_idempotent_fixture_research_review_publish_and_search():
         revision = component["revisions"][0]
         assert revision["manufacturer"] == manufacturer
         assert revision["status"] == "draft"
+        assert revision["content_hash"] is None
+        expected_names = {
+            parameter.name for parameter in get_fixture(manufacturer, part, None).parameters
+        }
+        assert {parameter["field_name"] for parameter in revision["parameters"]} == expected_names
+        assert all(
+            {
+                "value",
+                "quantity",
+                "dimension",
+                "unit",
+                "validity_conditions",
+            }.issubset(parameter)
+            for parameter in revision["parameters"]
+        )
+        assert all(
+            "value_si" not in parameter and "unit_si" not in parameter
+            for parameter in revision["parameters"]
+        )
         assert all(
             parameter["evidence"][0]["review_status"] == "pending"
             for parameter in revision["parameters"]
@@ -74,6 +95,10 @@ def test_idempotent_fixture_research_review_publish_and_search():
             parameter["evidence"][0]["evidence_class"]
             for parameter in revision["parameters"]
         } == {"synthetic_fixture"}
+        assert all(
+            parameter["evidence"][0]["confidence"] is None
+            for parameter in revision["parameters"]
+        )
         blocked = client.post(
             f"/v1/research-jobs/{created['id']}/publish",
             headers={"Idempotency-Key": f"publish-{suffix}"},
