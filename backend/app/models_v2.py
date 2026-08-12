@@ -16,7 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .contracts_v2 import SCHEMA_ID, SCHEMA_VERSION
 from .database import Base
@@ -96,6 +96,9 @@ class ParameterSlotV2(V2MutableRecord):
     quantity: Mapped[str] = mapped_column(String)
     dimension: Mapped[str] = mapped_column(String)
     required_for_execution: Mapped[bool] = mapped_column(Boolean)
+    claims: Mapped[list["CandidateClaimV2"]] = relationship(
+        back_populates="slot", order_by="CandidateClaimV2.id"
+    )
     __table_args__ = (
         UniqueConstraint("revision_id", "id", name="uq_slot_revision_id"),
         UniqueConstraint("revision_id", "name", name="uq_slot_revision_name"),
@@ -108,7 +111,9 @@ class CandidateClaimV2(V2MutableRecord):
     revision_id: Mapped[str] = mapped_column(String, nullable=False)
     slot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     value_state: Mapped[str] = mapped_column(String)
-    value: Mapped[dict | None] = mapped_column("value_json", JSON, nullable=True)
+    value: Mapped[dict | None] = mapped_column(
+        "value_json", JSON(none_as_null=True), nullable=True
+    )
     unit: Mapped[str | None] = mapped_column(String, nullable=True)
     original_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     original_unit: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -119,6 +124,7 @@ class CandidateClaimV2(V2MutableRecord):
     provenance: Mapped[str] = mapped_column(Text)
     finalized: Mapped[bool] = mapped_column(Boolean, default=False)
     fingerprint: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    slot: Mapped[ParameterSlotV2] = relationship(back_populates="claims")
     __table_args__ = (
         ForeignKeyConstraint(
             ["revision_id", "slot_id"],
@@ -419,7 +425,7 @@ class PublicationRequestV2(V2MutableRecord):
         ImmutableBytes(), nullable=True
     )
     response_headers: Mapped[dict | None] = mapped_column(
-        "response_headers_json", JSON, nullable=True
+        "response_headers_json", JSON(none_as_null=True), nullable=True
     )
     published_object_hash: Mapped[str | None] = mapped_column(
         ForeignKey("published_objects.object_hash"), nullable=True

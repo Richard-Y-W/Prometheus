@@ -277,9 +277,10 @@ def test_typed_migration_rejects_lossy_downgrade(tmp_path):
         command.downgrade(config, BASE_REVISION)
 
 
-def test_sqlite_foreign_keys_are_enforced():
-    with engine.connect() as connection:
-        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+def test_database_foreign_keys_are_enforced():
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
     with SessionLocal() as db:
         db.add(
             Component(
