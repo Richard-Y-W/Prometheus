@@ -15,7 +15,7 @@ from app.models_v1 import Component
 
 BACKEND_ROOT = Path(__file__).parents[1]
 BASE_REVISION = "cd418805b2c6"
-HEAD_REVISION = "7b6d91e2a4f0"
+HEAD_REVISION = "a41f0c93e2d7"
 STAMP = "2026-08-11T00:00:00+00:00"
 
 

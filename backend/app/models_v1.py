@@ -1,8 +1,10 @@
 from decimal import Decimal
+from datetime import datetime
 
 from sqlalchemy import JSON, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
+from .db_types import UtcTimestamp
 from .models import Record
 
 
@@ -33,8 +35,15 @@ class ComponentRevision(Record):
     )
     certification_tier: Mapped[str] = mapped_column(String, default="provisional")
     status: Mapped[str] = mapped_column(String, default="draft")
-    published_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        UtcTimestamp(), nullable=True
+    )
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    draft_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    contract_schema_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    contract_schema_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    publication_integrity: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_object_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     supported_recipes: Mapped[list] = mapped_column(
         "supported_recipes_json", JSON, default=list
     )
