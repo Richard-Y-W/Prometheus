@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+from collections import Counter
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from .contracts_v1 import ResearchCreate, ReviewRequest
 from .database import get_db
 from .fixture_catalog import (
     FixtureRequestError,
@@ -31,20 +32,11 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class ResearchCreate(BaseModel):
-    manufacturer: str = Field(min_length=1)
-    part_number: str = Field(min_length=1)
-    source_url: str | None = None
-
-
-class ReviewDecision(BaseModel):
-    field_name: str
-    status: str = Field(pattern="^(accepted|rejected)$")
-
-
-class ReviewRequest(BaseModel):
-    reviewed_by: str = Field(min_length=1)
-    decisions: list[ReviewDecision]
+def api_error(status_code: int, code: str, message: str, **context) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": message, **context},
+    )
 
 
 def revision_detail(revision: ComponentRevision, db: Session) -> dict:
@@ -365,7 +357,11 @@ def review(job_id: str, body: ReviewRequest, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(404, "research job not found")
     if db.get(ComponentRevision, job.revision_id).status == "published":
-        raise HTTPException(409, "published revisions are immutable")
+        raise api_error(
+            409,
+            "published_revision_immutable",
+            "Published component revisions are immutable.",
+        )
     parameters = {
         parameter.field_name: parameter
         for parameter in db.scalars(
@@ -374,19 +370,59 @@ def review(job_id: str, body: ReviewRequest, db: Session = Depends(get_db)):
             )
         ).all()
     }
-    for decision in body.decisions:
-        if decision.field_name not in parameters:
-            raise HTTPException(422, f"unknown field {decision.field_name}")
+    decision_fields = [decision.field_name for decision in body.decisions]
+    duplicate_fields = sorted(
+        field_name
+        for field_name, count in Counter(decision_fields).items()
+        if count > 1
+    )
+    if duplicate_fields:
+        raise api_error(
+            422,
+            "duplicate_review_decision",
+            "Each parameter requires exactly one review decision.",
+            duplicate_fields=duplicate_fields,
+        )
+    parameter_fields = set(parameters)
+    decision_field_set = set(decision_fields)
+    unknown_fields = sorted(decision_field_set - parameter_fields)
+    if unknown_fields:
+        raise api_error(
+            422,
+            "unknown_review_field",
+            "Review decisions contain fields that are not in this revision.",
+            unknown_fields=unknown_fields,
+        )
+    missing_fields = sorted(parameter_fields - decision_field_set)
+    if missing_fields:
+        raise api_error(
+            422,
+            "review_decisions_incomplete",
+            "Every parameter requires an explicit review decision.",
+            missing_fields=missing_fields,
+        )
+
+    reviewed_at = now()
+    decisions_by_field = {decision.field_name: decision for decision in body.decisions}
+    for field_name, parameter in parameters.items():
+        decision = decisions_by_field[field_name]
         evidence_records = db.scalars(
             select(EvidenceRecord).where(
-                EvidenceRecord.parameter_id == parameters[decision.field_name].id
+                EvidenceRecord.parameter_id == parameter.id
             )
         ).all()
         for evidence in evidence_records:
             evidence.review_status = decision.status
             evidence.reviewed_by = body.reviewed_by
-            evidence.reviewed_at = now()
-    job.status = "reviewed"
+            evidence.reviewed_at = reviewed_at
+            evidence.review_note = decision.note
+    statuses = {decision.status for decision in body.decisions}
+    if "rejected" in statuses:
+        job.status = "review_rejected"
+    elif "ambiguous" in statuses:
+        job.status = "review_ambiguous"
+    else:
+        job.status = "reviewed"
     db.commit()
     return job_detail(job, db)
 
@@ -404,13 +440,33 @@ def publish(
     revision = db.get(ComponentRevision, job.revision_id)
     if revision.status == "published":
         return revision_detail(revision, db)
+    parameters = db.scalars(
+        select(ComponentParameter).where(ComponentParameter.revision_id == revision.id)
+    ).all()
     evidence = db.scalars(
         select(EvidenceRecord)
         .join(ComponentParameter)
         .where(ComponentParameter.revision_id == revision.id)
     ).all()
-    if not evidence or any(record.review_status != "accepted" for record in evidence):
-        raise HTTPException(409, "all published parameters require accepted evidence")
+    evidence_by_parameter: dict[str, list[EvidenceRecord]] = {
+        parameter.id: [] for parameter in parameters
+    }
+    for record in evidence:
+        evidence_by_parameter.setdefault(record.parameter_id, []).append(record)
+    review_incomplete = not parameters or any(
+        not evidence_by_parameter[parameter.id]
+        or any(
+            record.review_status != "accepted"
+            for record in evidence_by_parameter[parameter.id]
+        )
+        for parameter in parameters
+    )
+    if review_incomplete:
+        raise api_error(
+            409,
+            "publication_review_incomplete",
+            "Every published parameter requires explicitly accepted evidence.",
+        )
     revision.status = "published"
     revision.published_at = now()
     job.status = "published"
