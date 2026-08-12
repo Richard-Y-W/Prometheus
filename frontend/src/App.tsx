@@ -1,13 +1,274 @@
-import{useState}from'react';import{Canvas}from'@react-three/fiber';import{Bounds,Grid,OrbitControls}from'@react-three/drei';import*as THREE from'three';import{api}from'./api';import type{Part,ComponentPackage,Finding}from'./types';
+import {useState} from 'react';
+import {Canvas} from '@react-three/fiber';
+import {Bounds, Grid, OrbitControls} from '@react-three/drei';
 
-const fixture:Part={id:'assembly',name:'Motor-driven arm',type:'assembly',badge:'',shape:'box',position:[0,0,0],scale:[1,1,1],children:[{id:'base',name:'Base plate',type:'part',badge:'Geometry Only',shape:'box',position:[0,0,0],scale:[3.2,.3,2.2]},{id:'motor',name:'Motor placeholder',type:'part',badge:'Geometry Only',shape:'cylinder',position:[0,.55,0],scale:[.65,1,.65]},{id:'arm',name:'Arm',type:'part',badge:'Geometry Only',shape:'box',position:[1.55,.55,0],scale:[2.6,.24,.35]},{id:'payload',name:'8 kg payload',type:'payload',badge:'Envelope Model',shape:'box',position:[3,.55,0],scale:[.65,.8,.65]}]}
-const defaults={payload_kg:8,arm_length_m:.2,rotation_deg:90,movement_s:1.2,hold_s:4,cycle_s:10,ambient_c:35,safety_factor:1.2}
+import {api} from './api';
+import {disabledActionExplanation} from './logic';
+import type {Finding, Part} from './types';
 
-function PartMesh({p,selected,onSelect,problem}:any){return <mesh position={p.position} scale={p.scale} rotation={p.shape==='cylinder'?[Math.PI/2,0,0]:[0,0,0]} onClick={(e)=>{e.stopPropagation();onSelect(p.id)}} castShadow receiveShadow><boxGeometry args={p.shape==='box'?[1,1,1]:undefined}/>{p.shape==='cylinder'&&<cylinderGeometry args={[.5,.5,1,32]}/>}<meshStandardMaterial color={problem?'#c75050':selected?'#54a8e8':p.id==='arm'?'#8997a5':'#596572'} emissive={selected?'#183b56':'#000000'} roughness={.55}/></mesh>}
-function Viewport({selected,setSelected,findings}:any){const problem=findings.some((f:Finding)=>f.severity==='critical')?['motor','arm']:[];return <div className="viewport"><Canvas camera={{position:[6,4,7],fov:42}} shadows onPointerMissed={()=>setSelected('')}><color attach="background" args={['#171b20']}/><ambientLight intensity={1.5}/><directionalLight position={[5,8,5]} intensity={2} castShadow/><Bounds fit clip observe margin={1.4}>{fixture.children!.map(p=><PartMesh key={p.id} p={p} selected={selected===p.id} onSelect={setSelected} problem={problem.includes(p.id)}/>)}</Bounds><Grid args={[20,20]} cellColor="#343b43" sectionColor="#48515a" fadeDistance={16}/><OrbitControls makeDefault/></Canvas><div className="view-cube">TOP<br/><b>FRONT</b></div><div className="view-tools">⌖ Fit &nbsp; ◉ Orbit &nbsp; ⤢ Measure</div></div>}
-function Tree({selected,setSelected,component,connected,hasScenario,findings}:any){return <aside className="left"><h3>PROJECT</h3><div className="tree"><b>▾ Assembly</b>{fixture.children!.map(p=><button key={p.id} className={selected===p.id?'active':''} onClick={()=>setSelected(p.id)}><span>◇ {p.name}</span><small>{p.id==='motor'&&component?'Behavioral Model':p.badge}</small></button>)}<b>▾ Components</b><div className="indent">✓ Identified ({component?1:0})</div><div className="indent">? Unidentified ({component?0:1})</div><b>▾ Connections <em>{connected?1:0}</em></b><b>▾ Tests <em>{hasScenario?1:0}</em></b><b>▾ Previous Runs</b><b>▾ Findings <em className="danger">{findings.length}</em></b></div></aside>}
-function ComponentModal({close,onReady}:any){const[stage,setStage]=useState('input');const[data,setData]=useState<any>();const run=async()=>{setStage('research');const r=await api.research();setData(r);setStage('review')};const confirm=async()=>{const p=await api.confirm(data.component_package.id);onReady(p);close()};return <div className="scrim"><section className="modal"><header><div><small>COMPONENT RESEARCH</small><h2>Add Component</h2></div><button onClick={close}>×</button></header>{stage==='input'&&<><label>Manufacturer or part number<input defaultValue="Prometheus Fixture Works — PM-36-GM"/></label><label>Manufacturer/product link<input placeholder="https://… (remote fetching disabled in fixture mode)"/></label><div className="drop">Drop datasheet or CAD here<br/><small>STEP and PDF • private project data</small></div><button className="primary wide" onClick={run}>Research exact component</button></>}{stage==='research'&&<div className="pipeline"><div className="spinner"/><h3>Compiling evidence…</h3><p>Resolving identity → validating units → building model</p></div>}{stage==='review'&&<><div className="model-head"><div><h3>{data.component_package.manufacturer} {data.component_package.part_number}</h3><span className="badge good">Behavioral Model</span></div><strong>Ready for confirmation</strong></div><div className="claims">{data.component_package.evidence.slice(0,9).map((c:any)=><div key={c.id}><span>{c.field_name.replaceAll('_',' ')}</span><b>{Number(c.normalized_value).toLocaleString()} {c.unit}</b><small>Manufacturer • {c.page_or_figure}</small></div>)}</div><div className="notice warning">Missing: exact gearbox efficiency. Conservative range 55–82% will be used.</div><footer><button onClick={close}>Reject match</button><button className="primary" onClick={confirm}>Confirm component</button></footer></>}</section></div>}
-function ScenarioModal({close,onCreate}:any){const[d,setD]=useState(defaults);const description='This arm rotates 90 degrees in 1.2 seconds while carrying 8 kg. It holds horizontally for four seconds and repeats every ten seconds at 35°C.';return <div className="scrim"><section className="modal scenario"><header><div><small>DEFINE TEST</small><h2>Review interpreted scenario</h2></div><button onClick={close}>×</button></header><p className="quote">“{description}”</p><div className="form-grid">{Object.entries(d).map(([k,v])=><label key={k}>{k.replaceAll('_',' ')}<input type="number" value={v} onChange={e=>setD({...d,[k]:Number(e.target.value)})}/></label>)}</div><div className="notice">Assumptions: horizontal worst-case pose; triangular motion; point payload.</div><footer><button onClick={close}>Cancel</button><button className="primary" onClick={()=>onCreate(d,description)}>Compile scenario</button></footer></section></div>}
-function Findings({items,onFocus}:any){return <div className="results"><div className="results-title"><div><small>CHECK RUN / COMPLETE</small><h2>Engineering findings</h2></div><span>{items.length} results</span></div>{items.map((f:Finding)=><article key={f.id} className={`finding ${f.severity}`} onClick={()=>onFocus('motor')}><div className="severity">{f.severity.replace('_',' ')}</div><div><h3>{f.data.summary||f.failure_mechanism}</h3><p>{f.failure_mechanism}</p>{f.data.required_value!==undefined&&<div className="metrics"><span>Required <b>{Number(f.data.required_value).toFixed(3)} {f.data.unit}</b></span><span>Available <b>{Number(f.data.available_value).toFixed(3)} {f.data.unit}</b></span>{f.data.margin!==undefined&&<span>Margin <b>{(f.data.margin*100).toFixed(1)}%</b></span>}</div>}{f.data.largest_uncertainty&&<small>Largest uncertainty: {f.data.largest_uncertainty} • click to highlight</small>}</div></article>)}</div>}
+const fixture: Part = {
+  id: 'assembly',
+  name: 'Motor-driven arm',
+  type: 'assembly',
+  badge: '',
+  shape: 'box',
+  position: [0, 0, 0],
+  scale: [1, 1, 1],
+  children: [
+    {id: 'base', name: 'Base plate', type: 'part', badge: 'Geometry Only', shape: 'box', position: [0, 0, 0], scale: [3.2, 0.3, 2.2]},
+    {id: 'motor', name: 'Motor placeholder', type: 'part', badge: 'Geometry Only', shape: 'cylinder', position: [0, 0.55, 0], scale: [0.65, 1, 0.65]},
+    {id: 'arm', name: 'Arm', type: 'part', badge: 'Geometry Only', shape: 'box', position: [1.55, 0.55, 0], scale: [2.6, 0.24, 0.35]},
+    {id: 'payload', name: '8 kg payload', type: 'payload', badge: 'Envelope Model', shape: 'box', position: [3, 0.55, 0], scale: [0.65, 0.8, 0.65]},
+  ],
+};
 
-export default function App(){const[project,setProject]=useState<any>();const[assembly,setAssembly]=useState(false);const[selected,setSelected]=useState('');const[component,setComponent]=useState<ComponentPackage>();const[connected,setConnected]=useState(false);const[scenario,setScenario]=useState<any>();const[plan,setPlan]=useState<any>();const[findings,setFindings]=useState<Finding[]>([]);const[modal,setModal]=useState('');const[busy,setBusy]=useState('');const start=async()=>{setBusy('Creating project…');const p=await api.createProject('Motor-driven arm review');setProject(p);const a=await api.importFixture(p.id);setAssembly(!!a.assembly);setBusy('')};const connect=async()=>{await api.connect(project.id);setConnected(true)};const makeScenario=async(d:any,text:string)=>{const s=await api.scenario(project.id,d,text);setScenario(s);setPlan(await api.compile(s.id));setModal('')};const run=async()=>{setBusy('Running deterministic checks…');const r=await api.run(scenario.id);setFindings(r.findings);setBusy('')};if(!project)return <main className="welcome"><div className="brandmark">P</div><h1>Prometheus</h1><p>Catch likely hardware failures before the first build.</p><button className="primary hero" onClick={start}>＋ New Project</button><button className="secondary hero">Open Project</button><section><h3>RECENT PROJECTS</h3><div className="recent"><b>Motor-driven arm example</b><span>Fixture • ready to load</span></div></section>{busy&&<div className="toast">{busy}</div>}</main>;return <div className="app"><nav>{['File','Edit','View','Project','Components','Test','Results','Help'].map(x=><span key={x}>{x}</span>)}</nav><header className="toolbar"><div className="wordmark"><i>P</i><b>Prometheus</b></div><button onClick={()=>setAssembly(true)}>⇧ Import CAD</button><button className="primary" onClick={()=>setModal('component')}>＋ Add Component</button><button disabled={!component} onClick={connect}>⌁ Connect</button><button>⌖ Measure</button><button className="primary" disabled={!connected} onClick={()=>setModal('scenario')}>▣ Define Test</button><button className="run" disabled={!scenario} onClick={run}>▶ Run Checks</button></header><div className="workspace"><Tree {...{selected,setSelected,component,connected,hasScenario:!!scenario,findings}}/><section className="center"><Viewport {...{selected,setSelected,findings}}/>{findings.length>0&&<Findings items={findings} onFocus={setSelected}/>}</section><aside className="right"><div className="tabs"><b>Properties</b><span>Model</span><span>Evidence</span></div>{selected?<><h2>{fixture.children!.find(p=>p.id===selected)?.name}</h2><span className="badge">{selected==='motor'&&component?'Behavioral Model':'Geometry Only'}</span><dl><dt>Instance</dt><dd>{selected}</dd><dt>Selection</dt><dd>1 object</dd><dt>Geometry</dt><dd>Fixture tessellation</dd></dl>{selected==='motor'&&component&&<><h3>COMPONENT MODEL</h3><dl><dt>Part number</dt><dd>{component.part_number}</dd><dt>Evidence claims</dt><dd>{component.evidence.length}</dd><dt>Validation</dt><dd>{component.validation_status}</dd></dl></>}</>:<div className="empty">Select a part to inspect its properties and evidence.</div>}{plan&&<div className="preflight"><h3>CHECK PREFLIGHT</h3><p>✓ {plan.planned_checks.length} checks ready</p><p>— {plan.omitted_checks.length} not evaluated</p><p>External solver: no</p></div>}</aside></div><footer className="status"><span>Selected: {selected||'None'}</span><span>Units: SI</span><span className="grow">{busy||'Ready'}</span><span>{findings.filter(f=>f.severity==='critical').length} critical</span></footer>{modal==='component'&&<ComponentModal close={()=>setModal('')} onReady={(p:ComponentPackage)=>{setComponent(p);setSelected('motor')}}/>}{modal==='scenario'&&<ScenarioModal close={()=>setModal('')} onCreate={makeScenario}/>}</div>}
+function ArchiveBanner() {
+  return (
+    <div className="archive-banner">
+      Archived rough-V1 interface — engineering execution is disabled while the reviewed C++ path is rebuilt.
+    </div>
+  );
+}
+
+type PartMeshProps = {
+  part: Part;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  problem: boolean;
+};
+
+function PartMesh({part, selected, onSelect, problem}: PartMeshProps) {
+  return (
+    <mesh
+      position={part.position as [number, number, number]}
+      scale={part.scale as [number, number, number]}
+      rotation={part.shape === 'cylinder' ? [Math.PI / 2, 0, 0] : [0, 0, 0]}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(part.id);
+      }}
+      castShadow
+      receiveShadow
+    >
+      {part.shape === 'box' ? (
+        <boxGeometry args={[1, 1, 1]} />
+      ) : (
+        <cylinderGeometry args={[0.5, 0.5, 1, 32]} />
+      )}
+      <meshStandardMaterial
+        color={problem ? '#c75050' : selected ? '#54a8e8' : part.id === 'arm' ? '#8997a5' : '#596572'}
+        emissive={selected ? '#183b56' : '#000000'}
+        roughness={0.55}
+      />
+    </mesh>
+  );
+}
+
+type ViewportProps = {
+  selected: string;
+  setSelected: (id: string) => void;
+  findings: Finding[];
+};
+
+function Viewport({selected, setSelected, findings}: ViewportProps) {
+  const problemParts = findings.some((finding) => finding.severity === 'critical')
+    ? ['motor', 'arm']
+    : [];
+  return (
+    <div className="viewport">
+      <Canvas
+        camera={{position: [6, 4, 7], fov: 42}}
+        shadows
+        onPointerMissed={() => setSelected('')}
+      >
+        <color attach="background" args={['#171b20']} />
+        <ambientLight intensity={1.5} />
+        <directionalLight position={[5, 8, 5]} intensity={2} castShadow />
+        <Bounds fit clip observe margin={1.4}>
+          {fixture.children!.map((part) => (
+            <PartMesh
+              key={part.id}
+              part={part}
+              selected={selected === part.id}
+              onSelect={setSelected}
+              problem={problemParts.includes(part.id)}
+            />
+          ))}
+        </Bounds>
+        <Grid
+          args={[20, 20]}
+          cellColor="#343b43"
+          sectionColor="#48515a"
+          fadeDistance={16}
+        />
+        <OrbitControls makeDefault />
+      </Canvas>
+      <div className="view-cube">TOP<br /><b>FRONT</b></div>
+      <div className="view-tools">⌖ Fit &nbsp; ◉ Orbit &nbsp; ⤢ Measure</div>
+    </div>
+  );
+}
+
+type TreeProps = {
+  selected: string;
+  setSelected: (id: string) => void;
+  findings: Finding[];
+};
+
+function Tree({selected, setSelected, findings}: TreeProps) {
+  return (
+    <aside className="left">
+      <h3>ARCHIVED PROJECT</h3>
+      <div className="tree">
+        <b>▾ Assembly</b>
+        {fixture.children!.map((part) => (
+          <button
+            key={part.id}
+            className={selected === part.id ? 'active' : ''}
+            onClick={() => setSelected(part.id)}
+          >
+            <span>◇ {part.name}</span>
+            <small>{part.badge}</small>
+          </button>
+        ))}
+        <b>▾ Components</b>
+        <div className="indent">Disabled — use the Qt review flow</div>
+        <b>▾ Tests</b>
+        <div className="indent">Disabled until Program 01B</div>
+        <b>▾ Historical Findings <em>{findings.length}</em></b>
+      </div>
+    </aside>
+  );
+}
+
+type FindingsProps = {
+  items: Finding[];
+  onFocus: (id: string) => void;
+};
+
+function Findings({items, onFocus}: FindingsProps) {
+  return (
+    <div className="results">
+      <div className="results-title">
+        <div><small>STORED HISTORICAL RESULTS</small><h2>Read-only findings</h2></div>
+        <span>{items.length} results</span>
+      </div>
+      {items.map((finding) => (
+        <article
+          key={finding.id}
+          className={`finding ${finding.severity}`}
+          onClick={() => onFocus('motor')}
+        >
+          <div className="severity">{finding.severity.replace('_', ' ')}</div>
+          <div>
+            <h3>{String(finding.data.summary ?? finding.failure_mechanism)}</h3>
+            <p>{finding.failure_mechanism}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export default function App() {
+  const [project, setProject] = useState<{id: string; name: string} | null>(null);
+  const [assemblyLoaded, setAssemblyLoaded] = useState(false);
+  const [selected, setSelected] = useState('');
+  const [historicalFindings] = useState<Finding[]>([]);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+
+  const start = async () => {
+    setBusy('Creating archived fixture project…');
+    setError('');
+    try {
+      const created = await api.createProject('Motor-driven arm archived viewer');
+      const imported = await api.importFixture(created.id);
+      setAssemblyLoaded(Boolean(imported.assembly));
+      setProject(created);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  if (!project) {
+    return (
+      <main className="welcome archived-welcome">
+        <ArchiveBanner />
+        <div className="brandmark">P</div>
+        <h1>Prometheus</h1>
+        <p>Read-only rough-V1 fixture viewer</p>
+        <button className="primary hero" onClick={start} disabled={busy !== ''}>
+          Load archived fixture
+        </button>
+        <button className="secondary hero" disabled title="Project-package reopen is not implemented in this archived UI.">
+          Open Project
+        </button>
+        <section>
+          <h3>AVAILABLE VIEW</h3>
+          <div className="recent">
+            <b>Motor-driven arm example</b>
+            <span>Geometry only • no execution</span>
+          </div>
+        </section>
+        {busy && <div className="toast">{busy}</div>}
+        {error && <div className="toast error-toast">{error}</div>}
+      </main>
+    );
+  }
+
+  const selectedPart = fixture.children!.find((part) => part.id === selected);
+  const researchDisabled = disabledActionExplanation('research');
+  const runDisabled = disabledActionExplanation('run');
+  return (
+    <div className="app archived-app">
+      <nav>{['File', 'Edit', 'View', 'Project', 'Components', 'Test', 'Results', 'Help'].map((item) => <span key={item}>{item}</span>)}</nav>
+      <header className="toolbar">
+        <div className="wordmark"><i>P</i><b>Prometheus</b></div>
+        <button disabled={assemblyLoaded}>⇧ Import CAD</button>
+        <button className="primary" disabled title={researchDisabled}>＋ Add Component</button>
+        <button disabled title={researchDisabled}>⌁ Connect</button>
+        <button>⌖ Measure</button>
+        <button className="primary" disabled title={runDisabled}>▣ Define Test</button>
+        <button className="run" disabled title={runDisabled}>▶ Run Checks</button>
+      </header>
+      <ArchiveBanner />
+      <div className="workspace">
+        <Tree selected={selected} setSelected={setSelected} findings={historicalFindings} />
+        <section className="center">
+          <Viewport selected={selected} setSelected={setSelected} findings={historicalFindings} />
+          {historicalFindings.length > 0 && (
+            <Findings items={historicalFindings} onFocus={setSelected} />
+          )}
+        </section>
+        <aside className="right">
+          <div className="tabs"><b>Properties</b><span>Model</span><span>Evidence</span></div>
+          {selectedPart ? (
+            <>
+              <h2>{selectedPart.name}</h2>
+              <span className="badge">{selectedPart.badge}</span>
+              <dl>
+                <dt>Instance</dt><dd>{selectedPart.id}</dd>
+                <dt>Selection</dt><dd>1 object</dd>
+                <dt>Geometry</dt><dd>Fixture tessellation</dd>
+              </dl>
+            </>
+          ) : (
+            <div className="empty">Select a part to inspect the archived geometry.</div>
+          )}
+          <div className="notice warning archived-limit">
+            {researchDisabled}<br /><br />{runDisabled}
+          </div>
+        </aside>
+      </div>
+      <footer className="status">
+        <span>Selected: {selected || 'None'}</span>
+        <span>Units: SI</span>
+        <span className="grow">Archived viewer • execution disabled</span>
+        <span>0 new findings</span>
+      </footer>
+    </div>
+  );
+}

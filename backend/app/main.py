@@ -6,9 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .models import Project, Assembly, ComponentPackage, EvidenceClaim, Connection, Scenario, CheckRun, Finding, Job
-from .schemas import ProjectCreate, ResearchRequest, ConnectionCreate, ScenarioCreate
-from .fixture_catalog import FixtureRequestError, fixture_error_detail, get_fixture
-from .physics import analyze_motor_arm, center_of_gravity, severity
+from .schemas import ProjectCreate, ConnectionCreate, ScenarioCreate
 from .config import settings
 from .api_v1 import router as v1_router
 from . import models_v1
@@ -70,30 +68,18 @@ async def import_cad(project_id: str, fixture: bool=True, file: UploadFile|None=
     db.add_all([assembly,job]); db.commit(); job.result_reference=assembly.id; db.commit()
     return {**row(job),"assembly":row(assembly,"hierarchy"),"limitations":["Fixture tessellation; Open Cascade STEP adapter not installed","Neutral CAD mates are unavailable","Material and mass are not inferred from geometry"]}
 
-@app.post("/component-research",status_code=202)
-def research_component(body: ResearchRequest, db: Session=Depends(get_db)):
-    try:
-        fixture=get_fixture(body.manufacturer,body.part_number,body.source_url)
-    except FixtureRequestError as error:
-        raise HTTPException(status_code=422,detail=fixture_error_detail(error)) from error
-    existing=db.scalar(select(ComponentPackage).where(ComponentPackage.manufacturer==fixture.manufacturer,ComponentPackage.part_number==fixture.part_number,ComponentPackage.validation_status=="confirmed"))
-    job=Job(kind="component_research",status="completed",progress="Ready for confirmation")
-    if existing:
-        job.result_reference=existing.id; db.add(job); db.commit(); return {**row(job),"cached":True,"component_package":package_response(existing,db)}
-    parameters={};claims=[]
-    for parameter in fixture.parameters:
-        kind=parameter.value["kind"]
-        if kind=="scalar":normalized=parameter.value["value"]
-        elif kind=="range":normalized=[parameter.value["minimum"],parameter.value["maximum"]]
-        elif kind=="enumeration":normalized=parameter.value["values"]
-        else:continue
-        parameters[parameter.name]=normalized
-        claims.append({"field_name":parameter.name,"original_value":parameter.original_value,"normalized_value":json.dumps(normalized,separators=(",",":")),"unit":parameter.unit,"source_url":fixture.source.uri,"source_document":fixture.source.title,"page_or_figure":f"parameters.{parameter.name}","source_authority":"synthetic_fixture","extraction_status":"fixture"})
-    package=ComponentPackage(manufacturer=fixture.manufacturer,part_number=fixture.part_number,model_level="behavioral",model_class=fixture.component_class,parameters=json.dumps(parameters))
-    db.add(package); db.flush()
-    for claim in claims: db.add(EvidenceClaim(component_package_id=package.id,**claim))
-    job.result_reference=package.id; db.add(job); db.commit()
-    return {**row(job),"cached":False,"component_package":package_response(package,db),"pipeline":["exact synthetic fixture identity resolved","checked-in fixture hash verified","typed fixture values read","legacy preview representation built","missing information preserved"],"missing_fields":[item["field_name"] for item in fixture.missing_information],"permitted_checks":list(fixture.supported_recipes),"unsupported_checks":[item["field_name"] for item in fixture.missing_information]}
+@app.post("/component-research")
+def research_component():
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_evidence_path_retired",
+            "message": (
+                "The legacy component evidence path is retired. Use versioned "
+                "research and explicit evidence review through /v1/research-jobs."
+            ),
+        },
+    )
 
 def package_response(package,db):
     claims=db.scalars(select(EvidenceClaim).where(EvidenceClaim.component_package_id==package.id)).all()
@@ -106,10 +92,18 @@ def get_package(package_id: str,db: Session=Depends(get_db)):
     return package_response(p,db)
 
 @app.post("/component-packages/{package_id}/confirm")
-def confirm_package(package_id: str,db: Session=Depends(get_db)):
-    p=db.get(ComponentPackage,package_id)
-    if not p: raise HTTPException(404,"component package not found")
-    p.validation_status="confirmed"; db.commit(); return package_response(p,db)
+def confirm_package(package_id: str):
+    del package_id
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_evidence_path_retired",
+            "message": (
+                "The legacy component confirmation path is retired. Use versioned "
+                "research and explicit evidence review through /v1/research-jobs."
+            ),
+        },
+    )
 
 @app.post("/projects/{project_id}/connections",status_code=201)
 def create_connection(project_id: str,body: ConnectionCreate,db: Session=Depends(get_db)):
@@ -122,31 +116,33 @@ def create_scenario(project_id: str,body: ScenarioCreate,db: Session=Depends(get
     db.add(s); db.commit(); return row(s,"structured_definition","assumptions")
 
 @app.post("/scenarios/{scenario_id}/compile")
-def compile_scenario(scenario_id: str,db: Session=Depends(get_db)):
-    s=db.get(Scenario,scenario_id)
-    if not s: raise HTTPException(404,"scenario not found")
-    return {"scenario":row(s,"structured_definition","assumptions"),"planned_checks":["torque_speed","current","continuous_hold","thermal_rc","center_of_gravity"],"omitted_checks":[{"check":"tipping_margin","reason":"support polygon unavailable"},{"check":"collision","reason":"fixture geometry adapter has no collision kernel"}],"estimated_runtime_s":1,"external_solver_required":False}
+def compile_scenario(scenario_id: str):
+    del scenario_id
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_analysis_path_retired",
+            "message": (
+                "The legacy Python planning path is retired. Planning will resume "
+                "through the reviewed execution-package path."
+            ),
+        },
+    )
 
-@app.post("/scenarios/{scenario_id}/runs",status_code=201)
-def run_checks(scenario_id: str,db: Session=Depends(get_db)):
-    s=db.get(Scenario,scenario_id)
-    package=db.scalar(select(ComponentPackage).where(ComponentPackage.validation_status=="confirmed").order_by(ComponentPackage.created_at.desc()))
-    if not s or not package: raise HTTPException(422,"confirmed component and scenario required")
-    definition=json.loads(s.structured_definition); params=json.loads(package.parameters); result=analyze_motor_arm(definition,params)
-    cog=center_of_gravity([(4,(0,0,0)),(2,(0,.55,0)),(1.5,(1.55,.55,0)),(definition["payload_kg"],(3,.55,0))])
-    planned=["torque_speed","current","continuous_hold","thermal_rc","center_of_gravity"]
-    omitted=[{"check":"tipping_margin","reason":"support polygon unavailable"},{"check":"collision","reason":"collision kernel unavailable"}]
-    manifest={"engine":"prometheus-native","engine_version":"0.1.0","scenario":definition,"component_package_id":package.id,"component_version":package.version,"claim_ids":[c.id for c in db.scalars(select(EvidenceClaim).where(EvidenceClaim.component_package_id==package.id))],"random_seed":496661,"results":result}
-    run=CheckRun(scenario_id=s.id,status="completed",planned_checks=json.dumps(planned),omitted_checks=json.dumps(omitted),manifest=json.dumps(manifest)); db.add(run); db.flush()
-    findings=[
-      (severity((result["available_move_nm"]-result["move_motor_nm"])/result["move_motor_nm"]),"Torque-speed during short movement",{"required_value":result["move_motor_nm"],"available_value":result["available_move_nm"],"unit":"N*m","summary":"Short movement feasible"}),
-      (severity(result["hold_margin"]),"Continuous motor torque",{"required_value":result["hold_motor_nm"],"available_value":params["continuous_torque_nm"],"unit":"N*m","margin":result["hold_margin"],"uncertainty":{"p05":result["margin_p05"],"p95":result["margin_p95"],"distribution":"uniform gearbox efficiency range"},"summary":"Continuous horizontal holding questionable","largest_uncertainty":"Gearbox efficiency"}),
-      (severity((params["driver_current_limit_a"]-result["move_current_a"])/result["move_current_a"]),"Driver current limit",{"required_value":result["move_current_a"],"available_value":params["driver_current_limit_a"],"unit":"A"}),
-      (severity((params["maximum_temperature_c"]-result["peak_temperature_c"])/params["maximum_temperature_c"]),"Simplified thermal RC",{"required_value":result["peak_temperature_c"],"available_value":params["maximum_temperature_c"],"unit":"degC","summary":"Intermittent thermal behavior depends on duty cycle","model_level":"simplified one-node RC"}),
-      ("information","Assembly center of gravity",{"center_of_gravity_m":cog,"summary":"Center of gravity calculated; tipping not evaluated without support polygon"}),
-      ("not_evaluated","Tipping stability",{"missing_information":["support polygon"],"summary":"Not evaluated"})]
-    for sev,mechanism,data in findings: db.add(Finding(check_run_id=run.id,severity=sev,failure_mechanism=mechanism,affected_entities=json.dumps(["motor","arm-joint"]),data=json.dumps(data)))
-    db.commit(); return run_response(run,db)
+@app.post("/scenarios/{scenario_id}/runs")
+def run_checks(scenario_id: str):
+    del scenario_id
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "code": "authoritative_execution_unavailable",
+            "message": (
+                "Authoritative execution is unavailable. Reviewed execution-package-"
+                "to-C++ analysis is Program 01B work; this endpoint cannot issue "
+                "engineering findings."
+            ),
+        },
+    )
 
 def run_response(run,db):
     findings=db.scalars(select(Finding).where(Finding.check_run_id==run.id)).all()

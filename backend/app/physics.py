@@ -1,3 +1,9 @@
+"""Non-authoritative historical reference retained until the Program 01B parity review.
+
+No production route may import this module or use it to issue an engineering verdict.
+It remains temporarily so the old equations can be compared before deletion.
+"""
+
 from dataclasses import dataclass
 from math import pi
 import random
