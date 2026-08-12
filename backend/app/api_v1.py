@@ -1,12 +1,19 @@
 from datetime import datetime, timezone
 from collections import Counter
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .contracts_v1 import ResearchCreate, ReviewRequest
 from .database import get_db
+from .execution_packages import (
+    ExecutionPackageError,
+    build_execution_component_payload,
+    canonical_json_bytes,
+    finalize_execution_component,
+)
 from .fixture_catalog import (
     FixtureRequestError,
     fixture_error_detail,
@@ -36,6 +43,23 @@ def api_error(status_code: int, code: str, message: str, **context) -> HTTPExcep
     return HTTPException(
         status_code=status_code,
         detail={"code": code, "message": message, **context},
+    )
+
+
+def execution_package_validation_error(error: ValidationError) -> HTTPException:
+    validation_errors = [
+        {
+            "type": item["type"],
+            "location": [str(part) for part in item["loc"]],
+            "message": item["msg"],
+        }
+        for item in error.errors(include_url=False)
+    ]
+    return api_error(
+        409,
+        "execution_package_invalid",
+        "The persisted revision cannot form a valid execution package.",
+        validation_errors=validation_errors,
     )
 
 
@@ -467,8 +491,55 @@ def publish(
             "publication_review_incomplete",
             "Every published parameter requires explicitly accepted evidence.",
         )
-    revision.status = "published"
-    revision.published_at = now()
-    job.status = "published"
-    db.commit()
+    try:
+        revision.status = "published"
+        revision.published_at = now()
+        db.flush()
+
+        payload = build_execution_component_payload(revision, db)
+        package = finalize_execution_component(payload)
+        revision.content_hash = package["content_hash"]
+        db.flush()
+
+        persisted_payload = build_execution_component_payload(revision, db)
+        finalize_execution_component(
+            persisted_payload, expected_hash=revision.content_hash
+        )
+        job.status = "published"
+        db.commit()
+    except ExecutionPackageError as error:
+        db.rollback()
+        raise api_error(409, error.code, str(error)) from error
+    except ValidationError as error:
+        db.rollback()
+        raise execution_package_validation_error(error) from error
     return revision_detail(revision, db)
+
+
+@router.get("/component-revisions/{revision_id}/execution-package")
+def get_execution_package(revision_id: str, db: Session = Depends(get_db)):
+    revision = db.get(ComponentRevision, revision_id)
+    if revision is None:
+        raise HTTPException(404, "revision not found")
+    if revision.status != "published":
+        raise api_error(
+            409,
+            "revision_not_published",
+            "Only published component revisions have execution packages.",
+        )
+    if revision.content_hash is None:
+        raise api_error(
+            409,
+            "execution_package_hash_mismatch",
+            "The published revision has no content hash.",
+        )
+    try:
+        payload = build_execution_component_payload(revision, db)
+        package = finalize_execution_component(
+            payload, expected_hash=revision.content_hash
+        )
+    except ExecutionPackageError as error:
+        raise api_error(409, error.code, str(error)) from error
+    except ValidationError as error:
+        raise execution_package_validation_error(error) from error
+    return Response(content=canonical_json_bytes(package), media_type="application/json")

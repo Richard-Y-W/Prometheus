@@ -1,7 +1,12 @@
+import hashlib
+import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator, FormatChecker
+from referencing import Registry, Resource
 from sqlalchemy import func, select
 
 from app.database import SessionLocal
@@ -29,6 +34,24 @@ V1_MODELS = (
     ResearchJob,
     ResearchJobEvent,
 )
+ROOT = Path(__file__).parents[2]
+
+
+def validate_execution_package_schema(package: dict) -> None:
+    resources = []
+    for path in sorted((ROOT / "schemas").glob("*.schema.json")):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        resources.append((schema["$id"], Resource.from_contents(schema)))
+    schema = json.loads(
+        (ROOT / "schemas" / "execution-component.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    Draft202012Validator(
+        schema,
+        registry=Registry().with_resources(resources),
+        format_checker=FormatChecker(),
+    ).validate(package)
 
 
 def v1_record_counts() -> tuple[int, ...]:
@@ -64,6 +87,24 @@ def assert_all_evidence_pending(candidate: dict) -> None:
         for parameter in candidate["parameters"]
         for evidence in parameter["evidence"]
     )
+
+
+def review_and_publish_fixture(client: TestClient) -> dict:
+    created, candidate = create_fixture_candidate(client)
+    review = client.post(
+        f"/v1/research-jobs/{created['id']}/review",
+        json={
+            "reviewed_by": "execution-package-reviewer",
+            "decisions": accepted_decisions(candidate),
+        },
+    )
+    assert review.status_code == 200
+    publish = client.post(
+        f"/v1/research-jobs/{created['id']}/publish",
+        headers={"Idempotency-Key": uuid4().hex},
+    )
+    assert publish.status_code == 200
+    return publish.json()
 
 
 def test_idempotent_fixture_research_review_publish_and_search():
@@ -351,3 +392,110 @@ def test_publication_rejects_a_parameter_with_no_evidence():
         )
         assert publish.status_code == 409
         assert publish.json()["detail"]["code"] == "publication_review_incomplete"
+
+
+def test_execution_package_requires_a_published_revision():
+    with TestClient(app) as client:
+        _, candidate = create_fixture_candidate(client)
+        assert candidate["content_hash"] is None
+
+        response = client.get(
+            f"/v1/component-revisions/{candidate['id']}/execution-package"
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "revision_not_published"
+
+        missing = client.get(
+            f"/v1/component-revisions/{uuid4()}/execution-package"
+        )
+        assert missing.status_code == 404
+
+
+def test_published_execution_package_is_canonical_and_hash_verifiable():
+    with TestClient(app) as client:
+        published = review_and_publish_fixture(client)
+        assert published["content_hash"].startswith("sha256:")
+
+        endpoint = f"/v1/component-revisions/{published['id']}/execution-package"
+        first = client.get(endpoint)
+        second = client.get(endpoint)
+
+        assert first.status_code == 200
+        assert first.content == second.content
+        package = first.json()
+        validate_execution_package_schema(package)
+        assert first.content == json.dumps(
+            package,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        unhashed = dict(package)
+        expected_hash = unhashed.pop("content_hash")
+        canonical = json.dumps(
+            unhashed,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        assert expected_hash == f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+        assert expected_hash == published["content_hash"]
+
+
+def test_execution_package_detects_persisted_parameter_tampering():
+    with TestClient(app) as client:
+        published = review_and_publish_fixture(client)
+        with SessionLocal() as db:
+            parameter = db.scalar(
+                select(ComponentParameter).where(
+                    ComponentParameter.revision_id == published["id"],
+                    ComponentParameter.field_name == "nominal_voltage_v",
+                )
+            )
+            parameter.value = {"kind": "scalar", "value": 48.0}
+            db.commit()
+
+        response = client.get(
+            f"/v1/component-revisions/{published['id']}/execution-package"
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "execution_package_hash_mismatch"
+
+
+def test_invalid_execution_package_rolls_back_publication_state():
+    with TestClient(app) as client:
+        created, candidate = create_fixture_candidate(client)
+        review = client.post(
+            f"/v1/research-jobs/{created['id']}/review",
+            json={
+                "reviewed_by": "rollback-reviewer",
+                "decisions": accepted_decisions(candidate),
+            },
+        )
+        assert review.status_code == 200
+        with SessionLocal() as db:
+            parameter = db.scalar(
+                select(ComponentParameter).where(
+                    ComponentParameter.revision_id == candidate["id"],
+                    ComponentParameter.field_name == "gearbox_efficiency_range",
+                )
+            )
+            parameter.value = {"kind": "range", "minimum": 0.9, "maximum": 0.2}
+            db.commit()
+
+        publish = client.post(
+            f"/v1/research-jobs/{created['id']}/publish",
+            headers={"Idempotency-Key": uuid4().hex},
+        )
+
+        assert publish.status_code == 409
+        assert publish.json()["detail"]["code"] == "execution_package_invalid"
+        current_job = client.get(f"/v1/research-jobs/{created['id']}").json()
+        assert current_job["status"] == "reviewed"
+        assert current_job["candidate"]["status"] == "draft"
+        assert current_job["candidate"]["published_at"] is None
+        assert current_job["candidate"]["content_hash"] is None

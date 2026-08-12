@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
+from pydantic import ValidationError as PydanticValidationError
 from referencing import Registry, Resource
+
+from app.contracts_v1 import ExecutionComponentPackage
+from app.execution_packages import finalize_execution_component
 
 
 ROOT = Path(__file__).parents[2]
@@ -81,15 +85,49 @@ def test_failed_execution_cannot_satisfy_an_obligation():
 
 def test_execution_fixture_content_hash_is_canonical():
     package = load_json(FIXTURE_DIR / "execution-component.pm-36-gm.json")
-    expected = package.pop("content_hash")
-    canonical = json.dumps(
-        package,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    assert expected == f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+    validated = ExecutionComponentPackage.model_validate(package).model_dump(mode="json")
+    payload = dict(package)
+    expected = payload.pop("content_hash")
+
+    assert finalize_execution_component(payload) == validated
+    assert validated["content_hash"] == expected
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda package: package["parameters"].append(
+            copy.deepcopy(package["parameters"][0])
+        ),
+        lambda package: package["evidence"].append(
+            copy.deepcopy(package["evidence"][0])
+        ),
+        lambda package: package["parameters"][0].update(
+            {"evidence_ids": ["55555555-5555-4555-8555-555555555555"]}
+        ),
+        lambda package: package["parameters"][4].update(
+            {"value": {"kind": "range", "minimum": 0.9, "maximum": 0.2}}
+        ),
+        lambda package: package["parameters"][15]["value"].update(
+            {"points": [{"x": 1.0, "y": 1.0}, {"x": 1.0, "y": 0.0}]}
+        ),
+        lambda package: package["parameters"][0].update(
+            {"value": {"kind": "scalar", "value": float("nan")}}
+        ),
+        lambda package: package["evidence"][0].update(
+            {"source_uri": "not a URI"}
+        ),
+        lambda package: package["parameters"][0].update(
+            {"validity_conditions": [""]}
+        ),
+    ],
+)
+def test_execution_model_rejects_noncanonical_or_unsafe_inputs(mutate):
+    package = load_json(FIXTURE_DIR / "execution-component.pm-36-gm.json")
+    mutate(package)
+
+    with pytest.raises(PydanticValidationError):
+        ExecutionComponentPackage.model_validate(package)
 
 
 def test_execution_fixture_evidence_hashes_exact_source_bytes():
