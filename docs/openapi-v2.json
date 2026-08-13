@@ -230,10 +230,10 @@
         "properties": {
           "fixture_id": {
             "enum": [
+              "prometheus.motor-a.fixture-1",
+              "prometheus.motor-b.fixture-1",
               "prometheus.pm-36-gm.fixture-2"
             ],
-            "maxLength": 128,
-            "minLength": 1,
             "title": "Fixture Id",
             "type": "string"
           },
@@ -258,7 +258,11 @@
         "additionalProperties": false,
         "properties": {
           "fixture_id": {
-            "const": "prometheus.pm-36-gm.fixture-2",
+            "enum": [
+              "prometheus.motor-a.fixture-1",
+              "prometheus.motor-b.fixture-1",
+              "prometheus.pm-36-gm.fixture-2"
+            ],
             "title": "Fixture Id",
             "type": "string"
           },

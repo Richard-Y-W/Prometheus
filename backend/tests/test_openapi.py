@@ -32,6 +32,14 @@ def test_openapi_exposes_complete_v2_boundary_and_v1_retirement():
         parameter["name"] == "Idempotency-Key" and parameter["required"]
         for parameter in fixture_parameters
     )
+    fixture_schema = document["components"]["schemas"][
+        "FixtureIngestionRequestV2"
+    ]["properties"]["fixture_id"]
+    assert fixture_schema["enum"] == [
+        "prometheus.motor-a.fixture-1",
+        "prometheus.motor-b.fixture-1",
+        "prometheus.pm-36-gm.fixture-2",
+    ]
     publication_parameters = paths[
         "/api/v2/revisions/{revision_id}/publication"
     ]["post"]["parameters"]

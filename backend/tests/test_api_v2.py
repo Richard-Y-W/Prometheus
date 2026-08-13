@@ -12,6 +12,7 @@ from app.contracts_v2 import PACKAGE_MEDIA_TYPE, SCHEMA_ID, SCHEMA_VERSION
 from app.database import SessionLocal
 from app.db_types import utc_now
 from app.fixture_pipeline_v2 import FIXTURE_ID
+from app.fixture_catalog_v2 import FIXTURE_IDS, get_fixture_definition
 from app.main import app
 from app.models_v1 import ComponentRevision
 from app.models_v2 import (
@@ -25,11 +26,16 @@ from app.package_compiler_v2 import compile_execution_component
 CREATE_BODY = {"fixture_id": FIXTURE_ID, "schema_version": SCHEMA_VERSION}
 
 
-def _create(client: TestClient, key: str = "api-v2-fixture-create-0001") -> dict:
+def _create(
+    client: TestClient,
+    key: str = "api-v2-fixture-create-0001",
+    *,
+    fixture_id: str = FIXTURE_ID,
+) -> dict:
     response = client.post(
         "/api/v2/fixture-ingestions",
         headers={"Idempotency-Key": key},
-        json=CREATE_BODY,
+        json={"fixture_id": fixture_id, "schema_version": SCHEMA_VERSION},
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -79,12 +85,28 @@ def _error_code(response) -> str:
     return response.json()["detail"]["code"]
 
 
-def test_complete_v2_fixture_review_publication_and_exact_export_path():
+@pytest.mark.parametrize(
+    ("fixture_id", "expected_readiness"),
+    [
+        (FIXTURE_IDS[0], "ready"),
+        (FIXTURE_IDS[1], "ready"),
+        (FIXTURE_IDS[2], "blocked"),
+    ],
+)
+def test_complete_v2_fixture_review_publication_and_exact_export_path(
+    fixture_id, expected_readiness
+):
+    definition = get_fixture_definition(fixture_id)
+    key_suffix = fixture_id.removeprefix("prometheus.").replace(".", "-")
     with TestClient(app) as client:
-        creation = _create(client)
+        creation = _create(
+            client,
+            f"api-v2-fixture-create-{key_suffix}",
+            fixture_id=fixture_id,
+        )
         assert set(creation) == {"id", "state", "fixture_id", "revision"}
         assert creation["state"] == "succeeded"
-        assert creation["fixture_id"] == FIXTURE_ID
+        assert creation["fixture_id"] == fixture_id
 
         revision = creation["revision"]
         assert set(revision) == {
@@ -107,10 +129,10 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path():
         }
         assert revision["component"] == {
             "component_id": revision["component"]["component_id"],
-            "manufacturer": "Prometheus Fixture Works",
-            "part_number": "PM-36-GM",
-            "revision": "fixture-2",
-            "component_class": "gearmotor",
+            "manufacturer": definition.manufacturer,
+            "part_number": definition.part_number,
+            "revision": definition.revision,
+            "component_class": definition.component_class,
         }
         assert revision["publication_integrity"] == "v2_draft"
         assert revision["object_hash"] is None
@@ -168,11 +190,15 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path():
         )
         assert review_gate["state"] == "satisfied"
 
-        published = _publish(client, reviewed)
+        published = _publish(
+            client,
+            reviewed,
+            f"api-v2-publication-{key_suffix}",
+        )
         assert published.status_code == 201, published.text
         publication = published.json()
         assert publication == {
-            "execution_readiness": "blocked",
+            "execution_readiness": expected_readiness,
             "media_type": PACKAGE_MEDIA_TYPE,
             "object_hash": publication["object_hash"],
             "publication_integrity": "sealed_v2",
@@ -181,18 +207,22 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path():
             "schema_version": SCHEMA_VERSION,
             "status": "published",
         }
-        assert published.headers["etag"] == f'"{publication["object_hash"]}"'
+        assert published.headers.get_list("etag") == [
+            f'"{publication["object_hash"]}"'
+        ]
 
         exported = client.get(
             f"/api/v2/revisions/{revision['id']}/execution-package"
         )
         assert exported.status_code == 200, exported.text
         assert exported.headers["content-type"] == PACKAGE_MEDIA_TYPE
-        assert exported.headers["etag"] == f'"{publication["object_hash"]}"'
+        assert exported.headers.get_list("etag") == [
+            f'"{publication["object_hash"]}"'
+        ]
         with SessionLocal() as db:
             stored = db.get(PublishedObject, publication["object_hash"])
             assert exported.content == stored.payload_bytes
-        assert exported.json()["execution_readiness"] == "blocked"
+        assert exported.json()["execution_readiness"] == expected_readiness
 
 
 def test_fixture_creation_replays_and_changed_request_conflicts_without_overwrite():
@@ -209,6 +239,17 @@ def test_fixture_creation_replays_and_changed_request_conflicts_without_overwrit
         )
         assert conflict.status_code == 409
         assert _error_code(conflict) == "idempotency_conflict"
+
+        different_fixture = client.post(
+            "/api/v2/fixture-ingestions",
+            headers={"Idempotency-Key": key},
+            json={
+                "fixture_id": FIXTURE_IDS[0],
+                "schema_version": SCHEMA_VERSION,
+            },
+        )
+        assert different_fixture.status_code == 409
+        assert _error_code(different_fixture) == "idempotency_conflict"
     with SessionLocal() as db:
         assert db.scalar(
             sa.select(sa.func.count()).select_from(FixtureIngestionJobV2)

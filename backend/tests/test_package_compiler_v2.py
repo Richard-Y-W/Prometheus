@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -16,9 +18,11 @@ from app.contracts_v2 import (
 )
 from app.database import SessionLocal
 from app.fixture_pipeline_v2 import CAPABILITY_ID, FIXTURE_ID, create_fixture_draft
+from app.fixture_catalog_v2 import FIXTURE_IDS, get_fixture_definition
 from app.models import uid
 from app.models_v1 import Component, ComponentRevision, Manufacturer
 from app.models_v2 import (
+    ArtifactObjectV2,
     CandidateClaimV2,
     CapabilityGateV2,
     ClaimSelectionV2,
@@ -35,10 +39,12 @@ from app.review_service_v2 import review_claims
 HASH_MISSING = "sha256:" + "f" * 64
 
 
-def _create_draft(key: str = "fixture-compile-0001") -> str:
+def _create_draft(
+    key: str = "fixture-compile-0001", *, fixture_id: str = FIXTURE_ID
+) -> str:
     with SessionLocal() as db:
         return create_fixture_draft(
-            db, fixture_id=FIXTURE_ID, idempotency_key=key
+            db, fixture_id=fixture_id, idempotency_key=key
         ).revision.id
 
 
@@ -81,8 +87,10 @@ def _review_all(revision_id: str) -> None:
     )
 
 
-def _create_reviewed(key: str = "fixture-compile-0001") -> str:
-    revision_id = _create_draft(key)
+def _create_reviewed(
+    key: str = "fixture-compile-0001", *, fixture_id: str = FIXTURE_ID
+) -> str:
+    revision_id = _create_draft(key, fixture_id=fixture_id)
     _review_all(revision_id)
     return revision_id
 
@@ -92,6 +100,26 @@ def _assert_code(code: str, operation) -> PackageCompilationError:
         operation()
     assert captured.value.code == code
     return captured.value
+
+
+def _publication_state(db, revision_id: str) -> tuple[object, ...]:
+    revision = db.get(ComponentRevision, revision_id)
+    return (
+        revision.status,
+        revision.draft_version,
+        revision.content_hash,
+        revision.published_object_hash,
+        revision.published_at,
+        db.scalar(sa.select(sa.func.count()).select_from(PublishedObject)),
+    )
+
+
+def _assert_compile_failure_without_publication_mutation(
+    db, revision_id: str, code: str
+) -> None:
+    before = _publication_state(db, revision_id)
+    _assert_code(code, lambda: compile_execution_component(db, revision_id))
+    assert _publication_state(db, revision_id) == before
 
 
 def _minimal_revision(db) -> ComponentRevision:
@@ -181,6 +209,171 @@ def test_compiler_returns_validated_canonical_bytes_without_mutating_draft():
         "after_hash_computation",
         "after_byte_verification",
     ]
+
+
+@pytest.mark.parametrize("fixture_id", FIXTURE_IDS[:2])
+def test_compiler_derives_source_and_supporting_roles_for_ready_motor_packages(
+    fixture_id,
+):
+    revision_id = _create_reviewed(
+        f"fixture-compile-role-{fixture_id[-10:]}-01", fixture_id=fixture_id
+    )
+    definition = get_fixture_definition(fixture_id)
+    with SessionLocal() as db:
+        compiled = compile_execution_component(db, revision_id)
+
+    assert package_compiler_v2.PACKAGE_COMPILER_VERSION == "0.2.0"
+    assert compiled.execution_readiness == "ready"
+    assert compiled.value["execution_readiness"] == "ready"
+    assert {
+        artifact["artifact_hash"]: artifact["artifact_role"]
+        for artifact in compiled.value["artifacts"]
+    } == {
+        definition.source_hash: "source_evidence",
+        definition.consumer_hash: "supporting_input",
+    }
+
+
+def test_missing_consumer_object_fails_without_publication_mutation(monkeypatch):
+    fixture_id = FIXTURE_IDS[0]
+    definition = get_fixture_definition(fixture_id)
+    revision_id = _create_reviewed(
+        "fixture-compile-missing-consumer-01", fixture_id=fixture_id
+    )
+    with SessionLocal() as db:
+        original_get = db.get
+
+        def missing_consumer(model, identity, *args, **kwargs):
+            if model is ArtifactObjectV2 and identity == definition.consumer_hash:
+                return None
+            return original_get(model, identity, *args, **kwargs)
+
+        monkeypatch.setattr(db, "get", missing_consumer)
+        _assert_compile_failure_without_publication_mutation(
+            db, revision_id, "artifact_missing"
+        )
+
+
+def test_consumer_byte_corruption_fails_without_publication_mutation(monkeypatch):
+    fixture_id = FIXTURE_IDS[0]
+    definition = get_fixture_definition(fixture_id)
+    revision_id = _create_reviewed(
+        "fixture-compile-corrupt-consumer-01", fixture_id=fixture_id
+    )
+    with SessionLocal() as db:
+        original_get = db.get
+
+        def corrupt_consumer(model, identity, *args, **kwargs):
+            artifact = original_get(model, identity, *args, **kwargs)
+            if model is ArtifactObjectV2 and identity == definition.consumer_hash:
+                return SimpleNamespace(
+                    object_hash=artifact.object_hash,
+                    payload_bytes=b'{"corrupt":true}',
+                    byte_length=len(b'{"corrupt":true}'),
+                    media_type=artifact.media_type,
+                    original_filename=artifact.original_filename,
+                )
+            return artifact
+
+        monkeypatch.setattr(db, "get", corrupt_consumer)
+        _assert_compile_failure_without_publication_mutation(
+            db, revision_id, "artifact_integrity_failure"
+        )
+
+
+def test_consumer_gate_non_artifact_reference_fails_without_publication_mutation():
+    fixture_id = FIXTURE_IDS[0]
+    definition = get_fixture_definition(fixture_id)
+    revision_id = _create_reviewed(
+        "fixture-compile-non-artifact-consumer-01", fixture_id=fixture_id
+    )
+    with SessionLocal.begin() as db:
+        gate = db.scalar(
+            sa.select(CapabilityGateV2).where(
+                CapabilityGateV2.revision_id == revision_id,
+                CapabilityGateV2.required_review_type == "package_consumer",
+            )
+        )
+        gate.satisfying_references = [str(uuid4())]
+        gate.reason = None
+        assert definition.consumer_hash not in gate.satisfying_references
+    with SessionLocal() as db:
+        _assert_compile_failure_without_publication_mutation(
+            db, revision_id, "artifact_reference_invalid"
+        )
+
+
+def test_same_artifact_cannot_be_source_and_supporting_input():
+    fixture_id = FIXTURE_IDS[0]
+    definition = get_fixture_definition(fixture_id)
+    revision_id = _create_reviewed(
+        "fixture-compile-role-conflict-01", fixture_id=fixture_id
+    )
+    with SessionLocal.begin() as db:
+        gate = db.scalar(
+            sa.select(CapabilityGateV2).where(
+                CapabilityGateV2.revision_id == revision_id,
+                CapabilityGateV2.required_review_type == "package_consumer",
+            )
+        )
+        gate.satisfying_references = [definition.source_hash]
+    with SessionLocal() as db:
+        _assert_compile_failure_without_publication_mutation(
+            db, revision_id, "artifact_role_conflict"
+        )
+
+
+def test_supporting_input_media_type_is_exact(monkeypatch):
+    fixture_id = FIXTURE_IDS[0]
+    definition = get_fixture_definition(fixture_id)
+    revision_id = _create_reviewed(
+        "fixture-compile-consumer-media-01", fixture_id=fixture_id
+    )
+    with SessionLocal() as db:
+        original_get = db.get
+
+        def wrong_media(model, identity, *args, **kwargs):
+            artifact = original_get(model, identity, *args, **kwargs)
+            if model is ArtifactObjectV2 and identity == definition.consumer_hash:
+                return SimpleNamespace(
+                    object_hash=artifact.object_hash,
+                    payload_bytes=artifact.payload_bytes,
+                    byte_length=artifact.byte_length,
+                    media_type="application/octet-stream",
+                    original_filename=artifact.original_filename,
+                )
+            return artifact
+
+        monkeypatch.setattr(db, "get", wrong_media)
+        _assert_compile_failure_without_publication_mutation(
+            db, revision_id, "artifact_media_type_unsupported"
+        )
+
+
+def test_unrelated_artifact_is_not_included_in_compiled_package():
+    fixture_id = FIXTURE_IDS[0]
+    revision_id = _create_reviewed(
+        "fixture-compile-unrelated-artifact-01", fixture_id=fixture_id
+    )
+    unrelated_bytes = b"unrelated exact artifact"
+    unrelated_hash = f"sha256:{hashlib.sha256(unrelated_bytes).hexdigest()}"
+    with SessionLocal.begin() as db:
+        db.add(
+            ArtifactObjectV2(
+                object_hash=unrelated_hash,
+                payload_bytes=unrelated_bytes,
+                byte_length=len(unrelated_bytes),
+                media_type="application/octet-stream",
+                origin_path="fixture-test/unrelated.bin",
+                original_filename="unrelated.bin",
+            )
+        )
+    with SessionLocal() as db:
+        compiled = compile_execution_component(db, revision_id)
+    assert unrelated_hash not in {
+        artifact["artifact_hash"] for artifact in compiled.value["artifacts"]
+    }
+    assert len(compiled.value["artifacts"]) == 2
 
 
 def test_compiler_uses_contract_order_when_database_returns_locale_order(

@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
-from typing import Literal
+import re
+from typing import Literal, TypeAlias
 
 from pydantic import ValidationError
 import sqlalchemy as sa
@@ -23,6 +24,7 @@ from .contracts_v2 import (
     SCHEMA_VERSION,
     ExecutionComponentV2,
 )
+from .execution_contracts_v1 import CONSUMER_MEDIA_TYPE
 from .models_v1 import Component, ComponentRevision, Manufacturer
 from .models_v2 import (
     ArtifactObjectV2,
@@ -39,6 +41,9 @@ from .models_v2 import (
 
 MAX_PACKAGE_BYTES = MAX_RAW_BYTES
 PACKAGE_COMPILER_VERSION = "0.2.0"
+_HASH_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
+ArtifactRole = Literal["source_evidence", "supporting_input"]
+ArtifactRoles: TypeAlias = dict[str, ArtifactRole]
 
 
 class PackageCompilationError(ValueError):
@@ -253,38 +258,70 @@ def _load_gates(
     return gates
 
 
-def _artifact_hashes(
+def _bind_artifact_role(
+    roles: ArtifactRoles, identity: object, role: ArtifactRole
+) -> None:
+    if type(identity) is not str or _HASH_PATTERN.fullmatch(identity) is None:
+        _fail(
+            "artifact_reference_invalid",
+            "artifact gate and evidence references must be lowercase SHA-256 IDs",
+        )
+    existing = roles.get(identity)
+    if existing is not None and existing != role:
+        _fail(
+            "artifact_role_conflict",
+            f"artifact {identity!r} is claimed as both package roles",
+        )
+    roles[identity] = role
+
+
+def _artifact_roles(
     evidence: list[EvidenceRecordV2], gates: list[CapabilityGateV2]
-) -> list[str]:
-    hashes = {
-        record.artifact_hash
-        for record in evidence
-        if record.artifact_hash is not None
-    }
+) -> ArtifactRoles:
+    roles: ArtifactRoles = {}
+    for record in evidence:
+        if record.artifact_hash is not None:
+            _bind_artifact_role(
+                roles, record.artifact_hash, "source_evidence"
+            )
     for gate in gates:
         if gate.required_review_type == "source_artifact":
-            hashes.update(
-                reference
-                for reference in gate.satisfying_references
-                if reference.startswith("sha256:")
-            )
-    return sorted(hashes)
+            for reference in gate.satisfying_references:
+                _bind_artifact_role(roles, reference, "source_evidence")
+        elif (
+            gate.required_review_type == "package_consumer"
+            and gate.state == "satisfied"
+        ):
+            for reference in gate.satisfying_references:
+                _bind_artifact_role(roles, reference, "supporting_input")
+    return dict(sorted(roles.items()))
 
 
 def _load_verified_artifacts(
-    db: Session, hashes: list[str]
+    db: Session, roles: ArtifactRoles
 ) -> list[ArtifactObjectV2]:
     artifacts: list[ArtifactObjectV2] = []
-    for identity in hashes:
+    for identity, role in roles.items():
         artifact = db.get(ArtifactObjectV2, identity)
         if artifact is None:
-            _fail("artifact_missing", f"source artifact {identity!r} is missing")
+            _fail("artifact_missing", f"package artifact {identity!r} is missing")
         payload = bytes(artifact.payload_bytes)
         recomputed = f"sha256:{hashlib.sha256(payload).hexdigest()}"
-        if artifact.byte_length != len(payload) or recomputed != identity:
+        if (
+            artifact.object_hash != identity
+            or artifact.byte_length != len(payload)
+            or recomputed != identity
+        ):
             _fail(
                 "artifact_integrity_failure",
-                f"source artifact {identity!r} failed byte verification",
+                f"package artifact {identity!r} failed byte verification",
+            )
+        if role == "supporting_input" and (
+            artifact.media_type != CONSUMER_MEDIA_TYPE
+        ):
+            _fail(
+                "artifact_media_type_unsupported",
+                f"supporting artifact {identity!r} has an unsupported media type",
             )
         artifacts.append(artifact)
     return artifacts
@@ -420,6 +457,7 @@ def _build_execution_value(
     reviews: dict[str, ClaimReviewEventV2],
     evidence: list[EvidenceRecordV2],
     artifacts: list[ArtifactObjectV2],
+    artifact_roles: ArtifactRoles,
     gates: list[CapabilityGateV2],
 ) -> dict[str, object]:
     execution_gates = [gate for gate in gates if gate.phase == "execution"]
@@ -452,7 +490,7 @@ def _build_execution_value(
                 "media_type": artifact.media_type,
                 "byte_length": artifact.byte_length,
                 "filename": artifact.original_filename,
-                "artifact_role": "source_evidence",
+                "artifact_role": artifact_roles[artifact.object_hash],
             }
             for artifact in artifacts
         ],
@@ -552,7 +590,8 @@ def compile_execution_component(
         )
     gates = _load_gates(db, revision_id, capability_id)
     try:
-        artifacts = _load_verified_artifacts(db, _artifact_hashes(evidence, gates))
+        artifact_roles = _artifact_roles(evidence, gates)
+        artifacts = _load_verified_artifacts(db, artifact_roles)
         raw_value = _build_execution_value(
             db=db,
             revision=revision,
@@ -565,6 +604,7 @@ def compile_execution_component(
             reviews=reviews,
             evidence=evidence,
             artifacts=artifacts,
+            artifact_roles=artifact_roles,
             gates=gates,
         )
     except PackageCompilationError:
@@ -625,6 +665,7 @@ def compile_execution_component(
 
 
 __all__ = [
+    "ArtifactRoles",
     "CompiledExecutionComponentV2",
     "PackageCompilationError",
     "compile_execution_component",

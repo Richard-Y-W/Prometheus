@@ -27,8 +27,8 @@ from .contracts_v2 import (
     UuidV4,
 )
 from .database import SessionLocal, get_db
+from .fixture_catalog_v2 import FIXTURE_IDS, FixtureIdV2
 from .fixture_pipeline_v2 import (
-    FIXTURE_ID,
     FixtureDraftError,
     create_fixture_draft,
 )
@@ -51,10 +51,7 @@ _IDEMPOTENCY_PATTERN = r"^[A-Za-z0-9._:-]{16,128}$"
 
 
 class FixtureIngestionRequestV2(ContractV2):
-    fixture_id: Annotated[
-        StrictStr,
-        Field(min_length=1, max_length=128, json_schema_extra={"enum": [FIXTURE_ID]}),
-    ]
+    fixture_id: FixtureIdV2
     schema_version: Annotated[
         StrictStr,
         Field(
@@ -142,7 +139,7 @@ class RevisionResponseV2(ContractV2):
 class FixtureIngestionResponseV2(ContractV2):
     id: UuidV4
     state: Literal["succeeded"]
-    fixture_id: Literal["prometheus.pm-36-gm.fixture-2"]
+    fixture_id: FixtureIdV2
     revision: RevisionResponseV2
 
 
@@ -409,7 +406,7 @@ def create_fixture_ingestion(
     db: Session = Depends(get_db),
 ):
     key = _validated_key(idempotency_key)
-    if body.fixture_id != FIXTURE_ID or body.schema_version != SCHEMA_VERSION:
+    if body.fixture_id not in FIXTURE_IDS or body.schema_version != SCHEMA_VERSION:
         existing = db.scalar(
             sa.select(FixtureIngestionJobV2).where(
                 FixtureIngestionJobV2.idempotency_key == key
