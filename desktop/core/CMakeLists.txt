@@ -1,6 +1,14 @@
-add_library(prometheus_core STATIC src/project_summary.cpp)
+add_library(prometheus_core STATIC
+  src/motor_arm_builtin_v1.cpp
+  src/project_summary.cpp
+)
 target_include_directories(prometheus_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(prometheus_core PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(prometheus_core PRIVATE /fp:strict)
+else()
+  target_compile_options(prometheus_core PRIVATE -ffp-contract=off -fno-fast-math)
+endif()
 if(BUILD_TESTING)
   add_executable(prometheus_core_tests tests/core_tests.cpp)
   target_link_libraries(prometheus_core_tests PRIVATE prometheus_core)

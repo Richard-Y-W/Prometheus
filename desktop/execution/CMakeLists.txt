@@ -27,8 +27,34 @@ configure_file(
   @ONLY
 )
 
+set(PROMETHEUS_BACKEND_IDENTITY_FILES
+  "${PROJECT_SOURCE_DIR}/desktop/core/include/prometheus/simulation/motor_arm_builtin_v1.hpp"
+  "${PROJECT_SOURCE_DIR}/desktop/core/src/motor_arm_builtin_v1.cpp"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  ${PROMETHEUS_BACKEND_IDENTITY_FILES}
+)
+set(PROMETHEUS_BACKEND_IDENTITY_MATERIAL
+  "motor_arm_builtin_v1|1.0.0|fp_contract=disabled|fast_math=false|rounding=to_nearest"
+)
+foreach(PROMETHEUS_BACKEND_IDENTITY_FILE IN LISTS PROMETHEUS_BACKEND_IDENTITY_FILES)
+  file(SHA256 "${PROMETHEUS_BACKEND_IDENTITY_FILE}" PROMETHEUS_BACKEND_FILE_HASH)
+  string(APPEND PROMETHEUS_BACKEND_IDENTITY_MATERIAL
+    "|${PROMETHEUS_BACKEND_FILE_HASH}"
+  )
+endforeach()
+string(SHA256 PROMETHEUS_BACKEND_BUILD_HASH
+  "${PROMETHEUS_BACKEND_IDENTITY_MATERIAL}"
+)
+set(PROMETHEUS_BACKEND_BUILD_FINGERPRINT
+  "sha256:${PROMETHEUS_BACKEND_BUILD_HASH}"
+)
+
 add_library(prometheus_execution STATIC
   src/contracts.cpp
+  src/finding_compiler.cpp
+  src/numeric_profile.cpp
+  src/numeric_profile_platform.cpp
   src/package_consumer.cpp
 )
 target_compile_features(prometheus_execution PUBLIC cxx_std_20)
@@ -39,9 +65,14 @@ target_include_directories(prometheus_execution
     ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
 )
-target_link_libraries(prometheus_execution PRIVATE
-  prometheus_integrity
-  prometheus_core
+target_link_libraries(prometheus_execution
+  PRIVATE prometheus_integrity
+  PUBLIC prometheus_core
+)
+target_compile_definitions(prometheus_execution PRIVATE
+  PROMETHEUS_BACKEND_BUILD_FINGERPRINT="${PROMETHEUS_BACKEND_BUILD_FINGERPRINT}"
+  PROMETHEUS_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}"
+  PROMETHEUS_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
 )
 
 if(BUILD_TESTING)
@@ -82,5 +113,25 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_package_consumer
     COMMAND prometheus_package_consumer_tests
+  )
+
+  add_executable(prometheus_motor_backend_tests
+    tests/motor_backend_tests.cpp
+  )
+  target_compile_features(prometheus_motor_backend_tests PRIVATE cxx_std_20)
+  target_link_libraries(prometheus_motor_backend_tests PRIVATE prometheus_core)
+  add_test(NAME prometheus_motor_backend COMMAND prometheus_motor_backend_tests)
+
+  add_executable(prometheus_finding_compiler_tests
+    tests/finding_compiler_tests.cpp
+  )
+  target_compile_features(prometheus_finding_compiler_tests PRIVATE cxx_std_20)
+  target_link_libraries(prometheus_finding_compiler_tests PRIVATE
+    prometheus_execution
+    prometheus_integrity
+  )
+  add_test(
+    NAME prometheus_finding_compiler
+    COMMAND prometheus_finding_compiler_tests
   )
 endif()
