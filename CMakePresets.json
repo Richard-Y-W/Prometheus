@@ -39,6 +39,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
         "PROMETHEUS_ENABLE_OCCT": "OFF"
       }
     },
@@ -51,6 +52,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "OFF",
         "PROMETHEUS_ENABLE_OCCT": "OFF",
         "PROMETHEUS_ENABLE_MUJOCO": "OFF"
       }
@@ -64,6 +66,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "PROMETHEUS_BUILD_DESKTOP": "ON",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
         "PROMETHEUS_ENABLE_OCCT": "OFF",
         "PROMETHEUS_ENABLE_MUJOCO": "OFF"
       }
@@ -88,7 +91,8 @@
       "binaryDir": "${sourceDir}/out/build/windows-headless-debug",
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
-        "PROMETHEUS_BUILD_INTEGRITY": "ON"
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON"
       }
     },
     {
@@ -98,7 +102,8 @@
       "binaryDir": "${sourceDir}/out/build/windows-integrity-debug",
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
-        "PROMETHEUS_BUILD_INTEGRITY": "ON"
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "OFF"
       }
     },
     {
@@ -108,7 +113,8 @@
       "binaryDir": "${sourceDir}/out/build/windows-desktop-no-occt-debug",
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "ON",
-        "PROMETHEUS_BUILD_INTEGRITY": "ON"
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON"
       }
     },
     {
