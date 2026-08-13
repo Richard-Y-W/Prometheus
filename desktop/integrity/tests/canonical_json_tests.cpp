@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -28,6 +29,43 @@ using prometheus::integrity::verify_execution_component;
 const fs::path repository_root{PROMETHEUS_REPOSITORY_ROOT};
 const fs::path corpus_root =
     repository_root / "fixtures/conformance/rfc8785";
+
+class TemporaryDirectory final {
+public:
+  TemporaryDirectory() {
+    const auto prefix =
+        "prometheus-integrity-tests-" +
+        std::to_string(std::hash<std::string>{}(fs::current_path().string())) +
+        "-";
+    for (std::size_t index = 0U; index < 10000U; ++index) {
+      std::error_code error;
+      const auto candidate =
+          fs::temp_directory_path() / (prefix + std::to_string(index));
+      if (fs::create_directory(candidate, error)) {
+        path_ = candidate;
+        return;
+      }
+      if (error) {
+        throw std::runtime_error("unable to create temporary test directory: " +
+                                 error.message());
+      }
+    }
+    throw std::runtime_error("unable to reserve a temporary test directory");
+  }
+
+  TemporaryDirectory(const TemporaryDirectory &) = delete;
+  TemporaryDirectory &operator=(const TemporaryDirectory &) = delete;
+
+  ~TemporaryDirectory() {
+    std::error_code error;
+    fs::remove_all(path_, error);
+  }
+
+  [[nodiscard]] const fs::path &path() const noexcept { return path_; }
+
+private:
+  fs::path path_;
+};
 
 void require(const bool condition, const std::string &message) {
   if (!condition) {
@@ -293,8 +331,9 @@ void test_raw_sha256_and_file_hashing() {
               "sha256:40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880",
           "all-byte SHA-256 vector");
 
+  const TemporaryDirectory temporary_directory;
   const auto temporary =
-      fs::temp_directory_path() / "prometheus-integrity-sha256-vector.bin";
+      temporary_directory.path() / "prometheus-integrity-sha256-vector.bin";
   {
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
     require(static_cast<bool>(stream), "create temporary SHA-256 vector");
