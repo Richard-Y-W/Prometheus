@@ -40,6 +40,7 @@
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
         "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
         "PROMETHEUS_ENABLE_OCCT": "OFF"
       }
     },
@@ -53,6 +54,7 @@
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
         "PROMETHEUS_BUILD_EXECUTION": "OFF",
+        "PROMETHEUS_BUILD_RUN_STORE": "OFF",
         "PROMETHEUS_ENABLE_OCCT": "OFF",
         "PROMETHEUS_ENABLE_MUJOCO": "OFF"
       }
@@ -67,6 +69,7 @@
         "PROMETHEUS_BUILD_DESKTOP": "ON",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
         "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
         "PROMETHEUS_ENABLE_OCCT": "OFF",
         "PROMETHEUS_ENABLE_MUJOCO": "OFF"
       }
@@ -92,7 +95,8 @@
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
-        "PROMETHEUS_BUILD_EXECUTION": "ON"
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON"
       }
     },
     {
@@ -103,7 +107,8 @@
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
-        "PROMETHEUS_BUILD_EXECUTION": "OFF"
+        "PROMETHEUS_BUILD_EXECUTION": "OFF",
+        "PROMETHEUS_BUILD_RUN_STORE": "OFF"
       }
     },
     {
@@ -114,7 +119,8 @@
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "ON",
         "PROMETHEUS_BUILD_INTEGRITY": "ON",
-        "PROMETHEUS_BUILD_EXECUTION": "ON"
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON"
       }
     },
     {

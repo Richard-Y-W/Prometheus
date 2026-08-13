@@ -1,0 +1,38 @@
+{
+  "$schema": "urn:prometheus:schema:project:2.0.0",
+  "schema_version": "2.0.0",
+  "execution_store_version": "1.0.0",
+  "name": "Motor arm",
+  "cad_source": "motor-arm.step",
+  "assembly_artifact_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "coordinate_system": "right-handed Z-up",
+  "length_unit": "m",
+  "component_bindings": [],
+  "placement_overrides": [],
+  "connections": [],
+  "interference_classifications": [],
+  "engineering": {
+    "joint": null,
+    "geometry_findings": [
+      {
+        "finding_kind": "motor_arm.hold_continuous_torque",
+        "status": "fail",
+        "severity": "critical",
+        "title": "Continuous horizontal holding torque",
+        "mechanism": "Motor claim placed in mutable geometry state.",
+        "calculated": 1,
+        "unit": "N*m",
+        "available": 0.2,
+        "margin_fraction": -0.8,
+        "evidence": "package",
+        "assumption": "none",
+        "estimated_range": "",
+        "first_id": null,
+        "second_id": null
+      }
+    ],
+    "geometry_status": "completed"
+  },
+  "legacy_v1_engineering_state": null,
+  "execution": {"package_bindings": [], "current_scenario": null, "committed_runs": [], "events": []}
+}
