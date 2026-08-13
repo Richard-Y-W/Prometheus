@@ -1,8 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp service_controller.cpp service_controller.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core)
+target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_integrity)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES ../ui/Main.qml)
@@ -13,13 +13,38 @@ if(TARGET prometheus_cad)
 endif()
 set_target_properties(prometheus_desktop PROPERTIES WIN32_EXECUTABLE TRUE)
 if(BUILD_TESTING)
+  find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)
   target_include_directories(prometheus_review_payload_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(prometheus_review_payload_tests PRIVATE Qt6::Core)
   add_test(NAME prometheus_review_payload_tests COMMAND prometheus_review_payload_tests)
+
+  add_executable(prometheus_exact_package_download_tests
+    tests/exact_package_download_tests.cpp
+    exact_package_download.cpp
+    exact_package_download.hpp
+    review_payload.cpp
+    review_payload.hpp
+    service_controller.cpp
+    service_controller.hpp
+  )
+  target_include_directories(prometheus_exact_package_download_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  target_compile_definitions(prometheus_exact_package_download_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+  )
+  target_link_libraries(prometheus_exact_package_download_tests PRIVATE
+    Qt6::Network
+    Qt6::Test
+    prometheus_integrity
+  )
+  add_test(
+    NAME prometheus_exact_package_download
+    COMMAND prometheus_exact_package_download_tests
+  )
 endif()
 if(BUILD_TESTING AND NOT TARGET prometheus_cad)
-  find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
   add_executable(prometheus_cad_controller_no_occt_tests
     tests/cad_controller_no_occt_tests.cpp
   )

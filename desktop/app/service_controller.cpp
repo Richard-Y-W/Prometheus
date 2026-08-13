@@ -7,27 +7,102 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QUuid>
 #include <QUrl>
 
+#include <algorithm>
+#include <array>
+#include <utility>
+
 namespace {
 
-constexpr auto fixtureId = "prometheus.pm-36-gm.fixture-2";
 constexpr auto schemaId =
     "urn:prometheus:schema:execution-component:2.0.0";
 constexpr auto schemaVersion = "2.0.0";
+constexpr std::array<const char*, 3> fixtureIds{
+    "prometheus.motor-a.fixture-1",
+    "prometheus.motor-b.fixture-1",
+    "prometheus.pm-36-gm.fixture-2",
+};
+
+bool supportedFixtureId(const QString& fixtureId)
+{
+    return std::any_of(fixtureIds.cbegin(), fixtureIds.cend(),
+        [&fixtureId](const char* expected) {
+            return fixtureId == QString::fromLatin1(expected);
+        });
+}
+
+bool strictObjectHash(const QString& value)
+{
+    static const QRegularExpression expression(
+        QStringLiteral("^sha256:[0-9a-f]{64}$"),
+        QRegularExpression::DontCaptureOption);
+    return expression.match(value).hasMatch();
+}
 
 } // namespace
 
 ServiceController::ServiceController(QObject* parent)
-    : QObject(parent)
+    : ServiceController(
+          QUrl(QStringLiteral("http://127.0.0.1:8000")), parent)
 {
+}
+
+ServiceController::ServiceController(
+    QUrl serviceBaseUrl, QObject* parent)
+    : QObject(parent)
+    , service_base_url_(std::move(serviceBaseUrl))
+    , exact_package_download_(&network_)
+{
+    connect(&exact_package_download_,
+        &prometheus::ExactPackageDownload::exactPackageAcquired, this,
+        [this](QByteArray bytes, QString expectedObjectHash) {
+            if (expectedObjectHash != object_hash_) {
+                status_ = "published";
+                setError(
+                    "The verified package identity disagrees with the published revision.",
+                    "package_publication_hash_mismatch");
+                return;
+            }
+            clearError();
+            setBusy(false);
+            status_ = "exact_package_ready";
+            emit changed();
+            emit exactPackageAcquired(
+                std::move(bytes), std::move(expectedObjectHash));
+        });
+    connect(&exact_package_download_,
+        &prometheus::ExactPackageDownload::downloadFailed, this,
+        [this](const QString& message, const QString& code) {
+            status_ = "published";
+            setError(message, code);
+        });
     checkHealth();
+}
+
+QVariantList ServiceController::fixtureChoices() const
+{
+    return {
+        QVariantMap{
+            {"fixture_id", QStringLiteral("prometheus.motor-a.fixture-1")},
+            {"label", QStringLiteral("Motor A — synthetic execution-ready input")},
+        },
+        QVariantMap{
+            {"fixture_id", QStringLiteral("prometheus.motor-b.fixture-1")},
+            {"label", QStringLiteral("Motor B — synthetic execution-ready input")},
+        },
+        QVariantMap{
+            {"fixture_id", QStringLiteral("prometheus.pm-36-gm.fixture-2")},
+            {"label", QStringLiteral("PM-36-GM — blocked conformance input")},
+        },
+    };
 }
 
 QNetworkRequest ServiceController::request(const QString& path) const
 {
-    QNetworkRequest value(QUrl("http://127.0.0.1:8000" + path));
+    QNetworkRequest value(service_base_url_.resolved(QUrl(path)));
     value.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     return value;
 }
@@ -48,11 +123,13 @@ void ServiceController::clearError()
 }
 
 void ServiceController::setError(
-    const QString& message, const QString& code)
+    const QString& message, const QString& code, const bool clearBusy)
 {
     error_ = message;
     error_code_ = code;
-    setBusy(false);
+    if (clearBusy) {
+        setBusy(false);
+    }
     emit changed();
 }
 
@@ -81,6 +158,7 @@ void ServiceController::fail(
 
 void ServiceController::reset()
 {
+    exact_package_download_.cancel();
     setBusy(false);
     status_.clear();
     clearError();
@@ -109,8 +187,19 @@ void ServiceController::checkHealth()
     });
 }
 
-void ServiceController::loadFixture()
+void ServiceController::loadFixture(const QString& fixtureId)
 {
+    if (busy_) {
+        setError("Another service operation is already active.",
+            "service_busy", false);
+        return;
+    }
+    if (!supportedFixtureId(fixtureId)) {
+        setError(
+            "Choose one of the three fixed local fixture catalog entries.",
+            "unsupported_fixture_id");
+        return;
+    }
     reset();
     setBusy(true);
     status_ = "loading_fixture";
@@ -136,6 +225,32 @@ void ServiceController::loadFixture()
         consumeFixtureIngestion(reply->readAll());
         reply->deleteLater();
     });
+}
+
+void ServiceController::acquireExactPackage()
+{
+    const auto revisionId = candidate_.value("id").toString();
+    if (busy_ || exact_package_download_.busy()) {
+        setError(
+            "Another service operation is already active.",
+            "service_busy", false);
+        return;
+    }
+    if (revisionId.isEmpty() || publication_integrity_ != "sealed_v2"
+        || status_ != "published" || !strictObjectHash(object_hash_)) {
+        setError(
+            "Exact package acquisition requires a sealed published revision with a valid object hash.",
+            "exact_package_state_invalid");
+        return;
+    }
+    clearError();
+    setBusy(true);
+    status_ = "acquiring_exact_package";
+    emit changed();
+    const auto encodedRevision =
+        QString::fromLatin1(QUrl::toPercentEncoding(revisionId));
+    exact_package_download_.acquire(request(
+        "/api/v2/revisions/" + encodedRevision + "/execution-package"));
 }
 
 void ServiceController::consumeRevision(const QJsonObject& revision)
