@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -9,6 +10,12 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
+from app.canonical_json import (
+    canonicalize_value,
+    object_hash,
+    parse_strict_json,
+    verify_canonical_bytes,
+)
 from app.execution_contracts_v1 import (
     APPLICABILITY_IDS,
     BACKEND_CONTRACT_VERSION,
@@ -19,6 +26,8 @@ from app.execution_contracts_v1 import (
     MANIFEST_MEDIA_TYPE,
     MANIFEST_SCHEMA_ID,
     OBLIGATION_IDS,
+    PACKAGE_MEDIA_TYPE,
+    PACKAGE_SCHEMA_ID,
     REQUEST_MEDIA_TYPE,
     REQUEST_SCHEMA_ID,
     RESULT_MEDIA_TYPE,
@@ -36,6 +45,7 @@ from app.execution_contracts_v1 import (
 
 ROOT = Path(__file__).parents[2]
 APP_ROOT = ROOT / "backend/app"
+PROGRAM_01B_VECTORS = ROOT / "fixtures/contracts/program-01b"
 HASHES = {letter: f"sha256:{letter * 64}" for letter in "abcdef"}
 
 
@@ -695,3 +705,209 @@ def test_checked_in_program_01b_schemas_are_current_and_validate_examples():
         invalid = deepcopy(example)
         invalid["unknown"] = True
         assert list(Draft202012Validator(schema).iter_errors(invalid))
+
+
+VECTOR_CASES = (
+    (
+        "motor-arm-scenario-v1.acceptance",
+        MotorArmScenarioV1,
+        "motor-arm-scenario-v1.schema.json",
+    ),
+    (
+        "analysis-request-v1.motor-a",
+        AnalysisRequestV1,
+        "analysis-request-v1.schema.json",
+    ),
+    (
+        "analysis-request-v1.motor-b",
+        AnalysisRequestV1,
+        "analysis-request-v1.schema.json",
+    ),
+    (
+        "analysis-result-v1.motor-a",
+        AnalysisResultV1,
+        "analysis-result-v1.schema.json",
+    ),
+    (
+        "analysis-result-v1.motor-b",
+        AnalysisResultV1,
+        "analysis-result-v1.schema.json",
+    ),
+    (
+        "run-manifest-v1.motor-a",
+        RunManifestV1,
+        "run-manifest-v1.schema.json",
+    ),
+    (
+        "run-manifest-v1.motor-b",
+        RunManifestV1,
+        "run-manifest-v1.schema.json",
+    ),
+)
+
+
+@pytest.mark.parametrize(("stem", "model", "schema_name"), VECTOR_CASES)
+def test_cpp_program_01b_vectors_are_exact_cross_language_objects(
+    stem, model, schema_name
+):
+    human_bytes = (PROGRAM_01B_VECTORS / f"{stem}.json").read_bytes()
+    canonical_bytes = (PROGRAM_01B_VECTORS / f"{stem}.jcs").read_bytes()
+    expected_hash = (
+        PROGRAM_01B_VECTORS / f"{stem}.sha256"
+    ).read_text(encoding="ascii").strip()
+
+    human_value = parse_strict_json(human_bytes)
+    canonical_value = parse_strict_json(canonical_bytes)
+    assert human_value == canonical_value
+    assert verify_canonical_bytes(canonical_bytes) == canonical_bytes
+    assert canonicalize_value(human_value) == canonical_bytes
+    assert object_hash(canonical_bytes) == expected_hash
+
+    validated = model.model_validate(canonical_value)
+    assert validated.model_dump(mode="json", by_alias=True) == canonical_value
+    schema = json.loads((ROOT / "schemas" / schema_name).read_bytes())
+    Draft202012Validator(schema).validate(canonical_value)
+
+
+def test_cpp_program_01b_vectors_have_closed_inventory_and_scoped_outcomes():
+    expected_files = {
+        f"{stem}.{suffix}"
+        for stem, _, _ in VECTOR_CASES
+        for suffix in ("json", "jcs", "sha256")
+    }
+    assert {path.name for path in PROGRAM_01B_VECTORS.iterdir()} == expected_files
+
+    result_a = parse_strict_json(
+        (PROGRAM_01B_VECTORS / "analysis-result-v1.motor-a.jcs").read_bytes()
+    )
+    result_b = parse_strict_json(
+        (PROGRAM_01B_VECTORS / "analysis-result-v1.motor-b.jcs").read_bytes()
+    )
+    assert [item["outcome"] for item in result_a["obligation_outcomes"]] == [
+        "pass",
+        "fail",
+        "pass",
+        "pass",
+    ]
+    assert [item["outcome"] for item in result_b["obligation_outcomes"]] == [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+    ]
+    assert result_a["calculations"] == result_b["calculations"]
+    assert result_a["coverage"]["counts"] == {
+        "pass": 3,
+        "fail": 1,
+        "indeterminate": 0,
+        "not_evaluated": 0,
+    }
+    assert result_b["coverage"]["counts"] == {
+        "pass": 4,
+        "fail": 0,
+        "indeterminate": 0,
+        "not_evaluated": 0,
+    }
+    assert result_a["missing_information"][0]["question_id"] == (
+        "assembly.center_of_gravity"
+    )
+    assert all(
+        item["obligation_id"] != "assembly.center_of_gravity"
+        for item in result_a["obligation_outcomes"]
+    )
+    assert not {
+        "overall_verdict",
+        "project_verdict",
+        "timestamp",
+        "run_id",
+    }.intersection(result_a)
+
+    reference_profile = result_a["backend"]["numeric_profile"]
+    assert reference_profile == result_b["backend"]["numeric_profile"]
+    assert reference_profile["operating_system"]["name"] == "macos"
+    assert reference_profile["operating_system"]["architecture"] == "arm64"
+    assert reference_profile["compiler"]["id"] == "AppleClang"
+    assert all(
+        reference_profile[group][field]
+        for group, field in (
+            ("operating_system", "release"),
+            ("compiler", "version"),
+            ("standard_library", "version"),
+            ("math_runtime", "version"),
+        )
+    )
+
+    scenario_bytes = (
+        PROGRAM_01B_VECTORS / "motor-arm-scenario-v1.acceptance.jcs"
+    ).read_bytes()
+    scenario_hash = (
+        PROGRAM_01B_VECTORS / "motor-arm-scenario-v1.acceptance.sha256"
+    ).read_text(encoding="ascii").strip()
+    consumer_hash = (
+        ROOT / "fixtures/contracts/package-consumer.motor-arm-builtin-v1.sha256"
+    ).read_text(encoding="ascii").strip()
+    assembly_bytes = (ROOT / "fixtures/assemblies/motor-arm.step").read_bytes()
+    assembly_hash = f"sha256:{hashlib.sha256(assembly_bytes).hexdigest()}"
+
+    for motor in ("motor-a", "motor-b"):
+        package_bytes = (
+            ROOT / f"fixtures/contracts/execution-component-v2.{motor}.jcs"
+        ).read_bytes()
+        package_hash = (
+            ROOT / f"fixtures/contracts/execution-component-v2.{motor}.sha256"
+        ).read_text(encoding="ascii").strip()
+        request_bytes = (
+            PROGRAM_01B_VECTORS / f"analysis-request-v1.{motor}.jcs"
+        ).read_bytes()
+        request_hash = (
+            PROGRAM_01B_VECTORS / f"analysis-request-v1.{motor}.sha256"
+        ).read_text(encoding="ascii").strip()
+        result_bytes = (
+            PROGRAM_01B_VECTORS / f"analysis-result-v1.{motor}.jcs"
+        ).read_bytes()
+        result_hash = (
+            PROGRAM_01B_VECTORS / f"analysis-result-v1.{motor}.sha256"
+        ).read_text(encoding="ascii").strip()
+        request = parse_strict_json(request_bytes)
+        result = parse_strict_json(result_bytes)
+        manifest = parse_strict_json(
+            (PROGRAM_01B_VECTORS / f"run-manifest-v1.{motor}.jcs").read_bytes()
+        )
+
+        assert request["package_hash"] == package_hash
+        assert request["scenario_hash"] == scenario_hash
+        assert request["assembly_artifact_hash"] == assembly_hash
+        assert request["package_consumer_contract_hash"] == consumer_hash
+        assert result["request_hash"] == request_hash
+        assert result["package_hash"] == package_hash
+        assert manifest["assembly_artifact_hash"] == assembly_hash
+        assert manifest["package_consumer_contract_hash"] == consumer_hash
+        assert manifest["numeric_profile"] == reference_profile
+        assert manifest["package"] == {
+            "object_hash": package_hash,
+            "byte_length": len(package_bytes),
+            "media_type": PACKAGE_MEDIA_TYPE,
+            "schema_id": PACKAGE_SCHEMA_ID,
+            "schema_version": "2.0.0",
+        }
+        assert manifest["scenario"] == {
+            "object_hash": scenario_hash,
+            "byte_length": len(scenario_bytes),
+            "media_type": SCENARIO_MEDIA_TYPE,
+            "schema_id": SCENARIO_SCHEMA_ID,
+            "schema_version": "1.0.0",
+        }
+        assert manifest["request"] == {
+            "object_hash": request_hash,
+            "byte_length": len(request_bytes),
+            "media_type": REQUEST_MEDIA_TYPE,
+            "schema_id": REQUEST_SCHEMA_ID,
+            "schema_version": "1.0.0",
+        }
+        assert manifest["result"] == {
+            "object_hash": result_hash,
+            "byte_length": len(result_bytes),
+            "media_type": RESULT_MEDIA_TYPE,
+            "schema_id": RESULT_SCHEMA_ID,
+            "schema_version": "1.0.0",
+        }

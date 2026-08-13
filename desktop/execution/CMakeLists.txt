@@ -52,12 +52,21 @@ set(PROMETHEUS_BACKEND_BUILD_FINGERPRINT
 
 add_library(prometheus_execution STATIC
   src/contracts.cpp
+  src/execute.cpp
   src/finding_compiler.cpp
   src/numeric_profile.cpp
   src/numeric_profile_platform.cpp
   src/package_consumer.cpp
 )
 target_compile_features(prometheus_execution PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(prometheus_execution PRIVATE /fp:strict)
+else()
+  target_compile_options(prometheus_execution PRIVATE
+    -ffp-contract=off
+    -fno-fast-math
+  )
+endif()
 target_include_directories(prometheus_execution
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -73,6 +82,21 @@ target_compile_definitions(prometheus_execution PRIVATE
   PROMETHEUS_BACKEND_BUILD_FINGERPRINT="${PROMETHEUS_BACKEND_BUILD_FINGERPRINT}"
   PROMETHEUS_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}"
   PROMETHEUS_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
+)
+
+add_executable(prometheus_export_program_01b_vectors
+  tools/export_program_01b_vectors.cpp
+)
+target_compile_features(prometheus_export_program_01b_vectors PRIVATE cxx_std_20)
+target_include_directories(prometheus_export_program_01b_vectors PRIVATE
+  ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+)
+target_compile_definitions(prometheus_export_program_01b_vectors PRIVATE
+  PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+)
+target_link_libraries(prometheus_export_program_01b_vectors PRIVATE
+  prometheus_execution
+  prometheus_integrity
 )
 
 if(BUILD_TESTING)
@@ -133,5 +157,34 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_finding_compiler
     COMMAND prometheus_finding_compiler_tests
+  )
+
+  add_executable(prometheus_execution_process_probe
+    tests/execution_process_probe.cpp
+  )
+  target_compile_features(prometheus_execution_process_probe PRIVATE cxx_std_20)
+  target_link_libraries(prometheus_execution_process_probe PRIVATE
+    prometheus_execution
+  )
+
+  add_executable(prometheus_execution_tests
+    tests/execution_tests.cpp
+  )
+  target_compile_features(prometheus_execution_tests PRIVATE cxx_std_20)
+  target_include_directories(prometheus_execution_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
+  target_compile_definitions(prometheus_execution_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+    PROMETHEUS_EXECUTION_PROCESS_PROBE="$<TARGET_FILE:prometheus_execution_process_probe>"
+  )
+  target_link_libraries(prometheus_execution_tests PRIVATE
+    prometheus_execution
+    prometheus_integrity
+  )
+  add_dependencies(prometheus_execution_tests prometheus_execution_process_probe)
+  add_test(
+    NAME prometheus_execution_end_to_end
+    COMMAND prometheus_execution_tests
   )
 endif()

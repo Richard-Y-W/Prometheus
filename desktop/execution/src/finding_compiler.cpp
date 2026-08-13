@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <optional>
 #include <string>
@@ -42,6 +43,8 @@ constexpr std::string_view thermal_limitation =
     "The thermal estimate is a one-node periodic RC model and excludes gearbox and housing heat paths.";
 constexpr std::string_view synthetic_limitation =
     "The package uses synthetic conformance evidence and provides no physical validation.";
+constexpr std::size_t maximum_result_collection = 256U;
+constexpr std::size_t maximum_result_text_code_points = 4096U;
 
 struct FindingFailure final : std::exception {
   FindingFailure(std::string failure_code, std::string failure_message)
@@ -89,6 +92,105 @@ void validate_backend_output(const simulation::MotorArmBackendOutput &output) {
   if (output.applicability_ids != simulation::motor_arm_applicability_ids) {
     reject("applicability_mismatch",
            "backend applicability does not match its contract");
+  }
+}
+
+bool unicode_whitespace(const std::uint32_t code_point) {
+  return (code_point >= 0x0009U && code_point <= 0x000DU) ||
+         (code_point >= 0x001CU && code_point <= 0x0020U) ||
+         code_point == 0x0085U || code_point == 0x00A0U ||
+         code_point == 0x1680U ||
+         (code_point >= 0x2000U && code_point <= 0x200AU) ||
+         code_point == 0x2028U || code_point == 0x2029U ||
+         code_point == 0x202FU || code_point == 0x205FU ||
+         code_point == 0x3000U;
+}
+
+bool decode_code_point(const std::string_view text, std::size_t &index,
+                       std::uint32_t &code_point) {
+  const auto first = static_cast<unsigned char>(text[index]);
+  if (first <= 0x7FU) {
+    code_point = first;
+    ++index;
+    return true;
+  }
+  std::size_t width = 0U;
+  if (first >= 0xC2U && first <= 0xDFU) {
+    width = 2U;
+    code_point = first & 0x1FU;
+  } else if (first >= 0xE0U && first <= 0xEFU) {
+    width = 3U;
+    code_point = first & 0x0FU;
+  } else if (first >= 0xF0U && first <= 0xF4U) {
+    width = 4U;
+    code_point = first & 0x07U;
+  } else {
+    return false;
+  }
+  if (index + width > text.size()) {
+    return false;
+  }
+  for (std::size_t offset = 1U; offset < width; ++offset) {
+    const auto continuation =
+        static_cast<unsigned char>(text[index + offset]);
+    if ((continuation & 0xC0U) != 0x80U) {
+      return false;
+    }
+    code_point = (code_point << 6U) | (continuation & 0x3FU);
+  }
+  if ((width == 3U && code_point < 0x0800U) ||
+      (width == 3U && code_point >= 0xD800U && code_point <= 0xDFFFU) ||
+      (width == 4U && code_point < 0x10000U) ||
+      (width == 4U && code_point > 0x10FFFFU)) {
+    return false;
+  }
+  index += width;
+  return true;
+}
+
+bool valid_result_text(const std::string_view text) {
+  if (text.empty()) {
+    return false;
+  }
+  std::size_t index = 0U;
+  std::size_t count = 0U;
+  std::uint32_t first = 0U;
+  std::uint32_t last = 0U;
+  while (index < text.size()) {
+    std::uint32_t current = 0U;
+    if (!decode_code_point(text, index, current)) {
+      return false;
+    }
+    if (count == 0U) {
+      first = current;
+    }
+    last = current;
+    ++count;
+    if (count > maximum_result_text_code_points) {
+      return false;
+    }
+  }
+  return !unicode_whitespace(first) && !unicode_whitespace(last);
+}
+
+void validate_result_collection_bounds(const MotorComponentInput &component) {
+  if (!std::all_of(component.package.limitations.begin(),
+                   component.package.limitations.end(),
+                   [](const std::string &value) {
+                     return valid_result_text(value);
+                   })) {
+    reject("result_text_invalid",
+           "package limitation text cannot be represented verbatim in the result contract");
+  }
+  const auto already_has_synthetic =
+      std::find(component.package.limitations.begin(),
+                component.package.limitations.end(), synthetic_limitation) !=
+      component.package.limitations.end();
+  const auto appended_limitations = already_has_synthetic ? 1U : 2U;
+  if (component.package.limitations.size() >
+      maximum_result_collection - appended_limitations) {
+    reject("result_collection_limit_exceeded",
+           "package limitations cannot fit the bounded result contract");
   }
 }
 
@@ -259,6 +361,7 @@ Result<CompiledMotorArmFindings> compile_motor_arm_findings(
     const simulation::MotorArmBackendOutput &maximum_efficiency) {
   try {
     validate_request(component, scenario, request, request_hash, scenario_hash);
+    validate_result_collection_bounds(component);
     validate_backend_output(nominal);
     validate_backend_output(minimum_efficiency);
     validate_backend_output(maximum_efficiency);

@@ -366,6 +366,30 @@ void test_numeric_profile_is_concrete_and_rounding_guarded() {
                   "unsupported_numeric_profile");
 }
 
+void test_result_collection_bounds_reject_without_truncating_provenance() {
+  auto motor = consumed_motor(0.208);
+  motor.package.limitations.assign(
+      256U, "Distinct supplied limitation retained as execution provenance.");
+  require_failure(compile(motor, reviewed_scenario()), "finding_compiler",
+                  "result_collection_limit_exceeded");
+
+  motor = consumed_motor(0.208);
+  motor.package.limitations = {" limitation with altered boundaries "};
+  require_failure(compile(motor, reviewed_scenario()), "finding_compiler",
+                  "result_text_invalid");
+
+  motor = consumed_motor(0.208);
+  motor.package.limitations = {
+      std::string("\xC2\xA0") + "Unicode-boundary limitation"};
+  require_failure(compile(motor, reviewed_scenario()), "finding_compiler",
+                  "result_text_invalid");
+
+  motor = consumed_motor(0.208);
+  motor.package.limitations = {std::string(4097U, 'x')};
+  require_failure(compile(motor, reviewed_scenario()), "finding_compiler",
+                  "result_text_invalid");
+}
+
 } // namespace
 
 int main() {
@@ -374,6 +398,7 @@ int main() {
     test_motor_b_and_ab_normalized_behavior();
     test_inclusive_equality_and_nonfinite_rejection();
     test_numeric_profile_is_concrete_and_rounding_guarded();
+    test_result_collection_bounds_reject_without_truncating_provenance();
     std::cout << "All motor finding compiler tests passed.\n";
     return 0;
   } catch (const std::exception &error) {
