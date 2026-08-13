@@ -70,12 +70,17 @@ def test_checked_in_schemas_are_current(tmp_path):
 
     rendered = render_schemas()
     assert set(rendered) == {
+        "analysis-request-v1.schema.json",
+        "analysis-result-v1.schema.json",
         "engineering-value-v2.schema.json",
         "evidence-record-v2.schema.json",
         "review-request-v2.schema.json",
         "publication-request-v2.schema.json",
         "execution-component-v2.schema.json",
+        "motor-arm-scenario-v1.schema.json",
+        "package-consumer-contract-v1.schema.json",
         "project-summary-v2.schema.json",
+        "run-manifest-v1.schema.json",
     }
     for name, payload in rendered.items():
         checked_in = (ROOT / "schemas" / name).read_bytes()
@@ -83,7 +88,7 @@ def test_checked_in_schemas_are_current(tmp_path):
         schema = json.loads(payload)
         Draft202012Validator.check_schema(schema)
         assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-        assert schema["$id"].endswith(":2.0.0")
+        assert schema["$id"].endswith((":1.0.0", ":2.0.0"))
 
 
 def test_execution_and_summary_schemas_enforce_their_declarative_invariants():

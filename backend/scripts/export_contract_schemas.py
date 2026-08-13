@@ -21,16 +21,28 @@ from app.contracts_v2 import (
     PublicationRequestV2,
     ReviewRequestV2,
 )
+from app.execution_contracts_v1 import (
+    CONSUMER_SCHEMA_ID,
+    MANIFEST_SCHEMA_ID,
+    REQUEST_SCHEMA_ID,
+    RESULT_SCHEMA_ID,
+    SCENARIO_SCHEMA_ID,
+    AnalysisRequestV1,
+    AnalysisResultV1,
+    MotorArmScenarioV1,
+    PackageConsumerContractV1,
+    RunManifestV1,
+)
 
 
 ROOT = BACKEND_ROOT.parent
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
 
-def _schema(contract_name: str, adapter: TypeAdapter[Any]) -> dict[str, Any]:
+def _schema(schema_id: str, adapter: TypeAdapter[Any]) -> dict[str, Any]:
     schema = adapter.json_schema(mode="validation")
     schema["$schema"] = DIALECT
-    schema["$id"] = f"urn:prometheus:schema:{contract_name}:2.0.0"
+    schema["$id"] = schema_id
     return schema
 
 
@@ -171,20 +183,57 @@ def _project_summary_conditions() -> list[dict[str, Any]]:
 def render_schemas() -> dict[str, bytes]:
     """Return filename -> UTF-8 JSON Schema bytes with sorted keys and final newline."""
 
-    adapters: dict[str, TypeAdapter[Any]] = {
-        "engineering-value": TypeAdapter(EngineeringValueV2),
-        "evidence-record": TypeAdapter(EvidenceRecordV2),
-        "review-request": TypeAdapter(ReviewRequestV2),
-        "publication-request": TypeAdapter(PublicationRequestV2),
-        "execution-component": TypeAdapter(ExecutionComponentV2),
-        "project-summary": TypeAdapter(ProjectSummaryV2),
+    adapters: dict[str, tuple[str, TypeAdapter[Any]]] = {
+        "engineering-value-v2.schema.json": (
+            "urn:prometheus:schema:engineering-value:2.0.0",
+            TypeAdapter(EngineeringValueV2),
+        ),
+        "evidence-record-v2.schema.json": (
+            "urn:prometheus:schema:evidence-record:2.0.0",
+            TypeAdapter(EvidenceRecordV2),
+        ),
+        "review-request-v2.schema.json": (
+            "urn:prometheus:schema:review-request:2.0.0",
+            TypeAdapter(ReviewRequestV2),
+        ),
+        "publication-request-v2.schema.json": (
+            "urn:prometheus:schema:publication-request:2.0.0",
+            TypeAdapter(PublicationRequestV2),
+        ),
+        "execution-component-v2.schema.json": (
+            "urn:prometheus:schema:execution-component:2.0.0",
+            TypeAdapter(ExecutionComponentV2),
+        ),
+        "project-summary-v2.schema.json": (
+            "urn:prometheus:schema:project-summary:2.0.0",
+            TypeAdapter(ProjectSummaryV2),
+        ),
+        "package-consumer-contract-v1.schema.json": (
+            CONSUMER_SCHEMA_ID,
+            TypeAdapter(PackageConsumerContractV1),
+        ),
+        "motor-arm-scenario-v1.schema.json": (
+            SCENARIO_SCHEMA_ID,
+            TypeAdapter(MotorArmScenarioV1),
+        ),
+        "analysis-request-v1.schema.json": (
+            REQUEST_SCHEMA_ID,
+            TypeAdapter(AnalysisRequestV1),
+        ),
+        "analysis-result-v1.schema.json": (
+            RESULT_SCHEMA_ID,
+            TypeAdapter(AnalysisResultV1),
+        ),
+        "run-manifest-v1.schema.json": (
+            MANIFEST_SCHEMA_ID,
+            TypeAdapter(RunManifestV1),
+        ),
     }
     rendered: dict[str, bytes] = {}
-    for contract_name, adapter in adapters.items():
-        schema = _schema(contract_name, adapter)
-        if contract_name == "project-summary":
+    for filename, (schema_id, adapter) in adapters.items():
+        schema = _schema(schema_id, adapter)
+        if filename == "project-summary-v2.schema.json":
             schema["allOf"] = _project_summary_conditions()
-        filename = f"{contract_name}-v2.schema.json"
         rendered[filename] = (
             json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         ).encode("utf-8")
