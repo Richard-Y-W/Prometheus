@@ -94,8 +94,10 @@ void valid_round_trip_is_deterministic() {
   check(link_libraries.find("Qt") == std::string::npos &&
             link_libraries.find("Python") == std::string::npos &&
             link_libraries.find("Network") == std::string::npos &&
-            link_libraries.find("prometheus_cad") == std::string::npos,
-        "run store has no Qt, Python, network, or CAD dependency");
+            link_libraries.find("prometheus_cad") == std::string::npos &&
+            link_libraries.find("prometheus_execution") == std::string::npos &&
+            link_libraries.find("prometheus_core") == std::string::npos,
+        "run store has no Qt, Python, network, CAD, or physics dependency");
 
   const auto bytes = read_file(fixture("valid.minimal.json"));
   const auto parsed = run_store::parse_project_v2(bytes);
