@@ -18,6 +18,7 @@ from app.fixture_pipeline_v2 import (
     FixtureDraftError,
     create_fixture_draft,
 )
+from app.fixture_catalog_v2 import FIXTURE_IDS, get_fixture_definition
 from app.models_v1 import Component, ComponentRevision, Manufacturer
 from app.models_v2 import (
     ArtifactObjectV2,
@@ -346,6 +347,9 @@ def test_unsupported_and_unicode_lookalike_fixture_ids_create_nothing(
         {"manufacturer": "A Real Manufacturer"},
         {"part_number": "SUBSTITUTED"},
         {"source_path": "/tmp/untrusted.json"},
+        {"source_hash": "sha256:" + "0" * 64},
+        {"consumer_hash": "sha256:" + "1" * 64},
+        {"capability_id": "caller.selected"},
     ],
 )
 def test_caller_cannot_substitute_fixture_identity_or_source(db, substitution):
@@ -358,6 +362,77 @@ def test_caller_cannot_substitute_fixture_identity_or_source(db, substitution):
         )
     assert _row_count(db, FixtureIngestionJobV2) == 0
     assert _row_count(db, ArtifactObjectV2) == 0
+
+
+@pytest.mark.parametrize("fixture_id", FIXTURE_IDS[:2])
+def test_motor_fixtures_ingest_source_and_consumer_with_role_policy(db, fixture_id):
+    definition = get_fixture_definition(fixture_id)
+    result = create_fixture_draft(
+        db,
+        fixture_id=fixture_id,
+        idempotency_key=f"fixture-motor-{fixture_id[-10:]}-01",
+    )
+
+    assert result.ingestion_job.artifact_hash == definition.source_hash
+    assert result.revision.supported_recipes == [definition.capability_id]
+    assert _row_count(db, ArtifactObjectV2) == 2
+    source = db.get(ArtifactObjectV2, definition.source_hash)
+    consumer = db.get(ArtifactObjectV2, definition.consumer_hash)
+    assert source.payload_bytes == definition.source_path.read_bytes()
+    assert source.media_type == "application/json"
+    assert consumer.payload_bytes == definition.consumer_path.read_bytes()
+    assert consumer.media_type == definition.consumer_media_type
+
+    required_names = {
+        slot.name for slot in result.slots if slot.required_for_execution
+    }
+    assert required_names == set(definition.required_for_execution)
+    assert {
+        slot.name for slot in result.slots if not slot.required_for_execution
+    } == {
+        "nominal_voltage_v",
+        "supply_current_limit_a",
+        "gearbox_lifetime",
+    }
+    execution_gate = next(
+        gate for gate in result.gates if gate.phase == "execution"
+    )
+    assert execution_gate.required_review_type == "package_consumer"
+    assert execution_gate.state == "satisfied"
+    assert execution_gate.satisfying_references == [definition.consumer_hash]
+    assert execution_gate.reason is None
+    assert any(
+        "synthetic" in item["statement"].lower()
+        and "physical" in item["statement"].lower()
+        for item in result.revision.limitations
+    )
+
+
+def test_fixture_idempotency_key_cannot_switch_catalog_identity(db):
+    create_fixture_draft(
+        db,
+        fixture_id=FIXTURE_IDS[0],
+        idempotency_key="fixture-cross-catalog-0001",
+    )
+    before = {
+        model: _row_count(db, model)
+        for model in (
+            FixtureIngestionJobV2,
+            ArtifactObjectV2,
+            ComponentRevision,
+            ParameterSlotV2,
+            CandidateClaimV2,
+        )
+    }
+    db.rollback()
+    with pytest.raises(FixtureDraftError) as captured:
+        create_fixture_draft(
+            db,
+            fixture_id=FIXTURE_IDS[1],
+            idempotency_key="fixture-cross-catalog-0001",
+        )
+    assert captured.value.code == "fixture_idempotency_conflict"
+    assert before == {model: _row_count(db, model) for model in before}
 
 
 def test_pipeline_failure_rolls_back_every_draft_row(db, monkeypatch):

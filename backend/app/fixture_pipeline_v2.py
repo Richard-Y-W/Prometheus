@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .artifact_store import ingest_local_artifact
 from .canonical_json import (
     CanonicalJsonError,
+    canonicalize_value,
     parse_strict_json,
 )
 from .claim_identity_v2 import fingerprint_claim_fields
@@ -22,6 +23,14 @@ from .contracts_v2 import (
     SCHEMA_VERSION,
     ContractV2,
     EngineeringValueV2,
+)
+from .execution_contracts_v1 import PackageConsumerContractV1
+from .fixture_catalog_v2 import (
+    FIXTURE_IDS,
+    PM_36_CAPABILITY,
+    PM_36_FIXTURE_ID,
+    FixtureDefinition,
+    get_fixture_definition,
 )
 from .models import uid
 from .models_v1 import Component, ComponentRevision, Manufacturer
@@ -36,16 +45,11 @@ from .models_v2 import (
 )
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_PATH = (
-    REPOSITORY_ROOT / "fixtures" / "evidence" / "pm-36-gm.synthetic-v2.json"
-)
-FIXTURE_ID = "prometheus.pm-36-gm.fixture-2"
-FIXTURE_ARTIFACT_HASH = (
-    "sha256:2efe91276f0e9950fee8ae651c96b592"
-    "48734e79f01e83fd4b5f638318d0a684"
-)
-CAPABILITY_ID = "component_input.pm_36_gm"
+_PM_36_DEFINITION = get_fixture_definition(PM_36_FIXTURE_ID)
+FIXTURE_PATH = _PM_36_DEFINITION.source_path
+FIXTURE_ID = _PM_36_DEFINITION.fixture_id
+FIXTURE_ARTIFACT_HASH = _PM_36_DEFINITION.source_hash
+CAPABILITY_ID = PM_36_CAPABILITY
 _IDEMPOTENCY_PATTERN = re.compile(r"[A-Za-z0-9._:-]{16,128}\Z")
 _Text = Annotated[StrictStr, Field(min_length=1, max_length=4096)]
 
@@ -103,12 +107,12 @@ _FixtureParameter = _KnownFixtureParameter | _UnknownFixtureParameter
 
 
 class _FixturePayload(ContractV2):
-    fixture_id: Literal["prometheus.pm-36-gm.fixture-2"]
+    fixture_id: _Text
     schema_version: Literal["2.0.0"]
-    manufacturer: Literal["Prometheus Fixture Works"]
-    part_number: Literal["PM-36-GM"]
-    revision: Literal["fixture-2"]
-    component_class: Literal["gearmotor"]
+    manufacturer: _Text
+    part_number: _Text
+    revision: _Text
+    component_class: _Text
     source_authority: Literal["synthetic_fixture"]
     physical_validation_status: Literal["unvalidated"]
     parameters: list[_FixtureParameter] = Field(min_length=1, max_length=1000)
@@ -134,14 +138,49 @@ class FixtureDraftResult:
     gates: tuple[CapabilityGateV2, ...]
 
 
-def _load_fixture(payload_bytes: bytes) -> _FixturePayload:
+def _load_fixture(
+    payload_bytes: bytes, definition: FixtureDefinition
+) -> _FixturePayload:
     try:
         value = parse_strict_json(payload_bytes)
-        return _FixturePayload.model_validate(value)
-    except (CanonicalJsonError, ValidationError) as exc:
+        fixture = _FixturePayload.model_validate(value)
+        expected_identity = (
+            definition.fixture_id,
+            definition.manufacturer,
+            definition.part_number,
+            definition.revision,
+            definition.component_class,
+        )
+        actual_identity = (
+            fixture.fixture_id,
+            fixture.manufacturer,
+            fixture.part_number,
+            fixture.revision,
+            fixture.component_class,
+        )
+        if actual_identity != expected_identity:
+            raise ValueError("fixture identity does not match its catalog entry")
+        return fixture
+    except (CanonicalJsonError, ValidationError, ValueError) as exc:
         raise FixtureDraftError(
             "fixture_contract_invalid",
             "the exact v2 fixture does not satisfy its closed local contract",
+        ) from exc
+
+
+def _load_consumer(payload_bytes: bytes) -> PackageConsumerContractV1:
+    try:
+        value = parse_strict_json(payload_bytes)
+        consumer = PackageConsumerContractV1.model_validate(value)
+        if canonicalize_value(
+            consumer.model_dump(mode="json", by_alias=True)
+        ) != payload_bytes:
+            raise ValueError("consumer artifact must contain canonical bytes")
+        return consumer
+    except (CanonicalJsonError, ValidationError, ValueError) as exc:
+        raise FixtureDraftError(
+            "fixture_consumer_invalid",
+            "the exact consumer artifact does not satisfy its closed contract",
         ) from exc
 
 
@@ -229,9 +268,9 @@ def _ordered_graph(
 
 
 def _existing_result(
-    db: Session, job: FixtureIngestionJobV2
+    db: Session, job: FixtureIngestionJobV2, fixture_id: str
 ) -> FixtureDraftResult:
-    if job.fixture_id != FIXTURE_ID:
+    if job.fixture_id != fixture_id:
         raise FixtureDraftError(
             "fixture_idempotency_conflict",
             "the idempotency key is already bound to another fixture",
@@ -251,10 +290,10 @@ def _existing_result(
 
 
 def _create_graph(
-    db: Session, *, idempotency_key: str
+    db: Session, *, definition: FixtureDefinition, idempotency_key: str
 ) -> FixtureDraftResult:
     job = FixtureIngestionJobV2(
-        fixture_id=FIXTURE_ID,
+        fixture_id=definition.fixture_id,
         idempotency_key=idempotency_key,
         status="queued",
         revision_id=None,
@@ -267,12 +306,29 @@ def _create_graph(
 
     artifact = ingest_local_artifact(
         db,
-        source_path=FIXTURE_PATH,
-        allowed_root=FIXTURE_PATH.parent,
-        expected_hash=FIXTURE_ARTIFACT_HASH,
+        source_path=definition.source_path,
+        allowed_root=definition.source_path.parent,
+        expected_hash=definition.source_hash,
         media_type="application/json",
     )
-    fixture = _load_fixture(artifact.payload_bytes)
+    fixture = _load_fixture(artifact.payload_bytes, definition)
+    if definition.consumer_path is not None:
+        if (
+            definition.consumer_hash is None
+            or definition.consumer_media_type is None
+        ):
+            raise FixtureDraftError(
+                "fixture_catalog_invalid",
+                "a consumer path requires exact hash and media type policy",
+            )
+        consumer_artifact = ingest_local_artifact(
+            db,
+            source_path=definition.consumer_path,
+            allowed_root=definition.consumer_path.parent,
+            expected_hash=definition.consumer_hash,
+            media_type=definition.consumer_media_type,
+        )
+        _load_consumer(consumer_artifact.payload_bytes)
     job.status = "running"
     db.flush()
 
@@ -303,7 +359,7 @@ def _create_graph(
             manufacturer_id=manufacturer.id,
             part_number=fixture.part_number,
             normalized_part_number=_normalize_identity(fixture.part_number),
-            family="synthetic gearmotor",
+            family=definition.family,
             model_class=fixture.component_class,
         )
         db.add(component)
@@ -346,7 +402,7 @@ def _create_graph(
         contract_schema_version=SCHEMA_VERSION,
         publication_integrity="v2_draft",
         published_object_hash=None,
-        supported_recipes=[CAPABILITY_ID],
+        supported_recipes=[definition.capability_id],
         missing_information=[],
         limitations=[],
     )
@@ -360,7 +416,9 @@ def _create_graph(
             name=parameter.name,
             quantity=parameter.quantity,
             dimension=parameter.dimension,
-            required_for_execution=isinstance(parameter, _KnownFixtureParameter),
+            required_for_execution=(
+                parameter.name in definition.required_for_execution
+            ),
         )
         for parameter in ordered_parameters
     ]
@@ -380,8 +438,7 @@ def _create_graph(
         {"limitation_id": uid(), "statement": statement}
         for statement in (
             *fixture.limitations,
-            "Program 01A validates reviewed input identity; it does not execute "
-            "an engineering solver.",
+            definition.execution_limitation,
         )
     ]
     db.flush()
@@ -482,7 +539,7 @@ def _create_graph(
     gates = [
         CapabilityGateV2(
             revision_id=revision.id,
-            capability_id=CAPABILITY_ID,
+            capability_id=definition.capability_id,
             phase="publication",
             required_review_type="component_identity",
             state="satisfied",
@@ -491,7 +548,7 @@ def _create_graph(
         ),
         CapabilityGateV2(
             revision_id=revision.id,
-            capability_id=CAPABILITY_ID,
+            capability_id=definition.capability_id,
             phase="publication",
             required_review_type="source_artifact",
             state="satisfied",
@@ -500,7 +557,7 @@ def _create_graph(
         ),
         CapabilityGateV2(
             revision_id=revision.id,
-            capability_id=CAPABILITY_ID,
+            capability_id=definition.capability_id,
             phase="publication",
             required_review_type="claim_selection",
             state="satisfied",
@@ -509,7 +566,7 @@ def _create_graph(
         ),
         CapabilityGateV2(
             revision_id=revision.id,
-            capability_id=CAPABILITY_ID,
+            capability_id=definition.capability_id,
             phase="publication",
             required_review_type="claim_review",
             state="pending",
@@ -518,12 +575,16 @@ def _create_graph(
         ),
         CapabilityGateV2(
             revision_id=revision.id,
-            capability_id=CAPABILITY_ID,
+            capability_id=definition.capability_id,
             phase="execution",
             required_review_type="package_consumer",
-            state="blocked",
-            satisfying_references=[],
-            reason="Program 01A has no v2 package consumer or solver execution.",
+            state=definition.consumer_gate_state,
+            satisfying_references=(
+                [definition.consumer_hash]
+                if definition.consumer_hash is not None
+                else []
+            ),
+            reason=definition.consumer_gate_reason,
         ),
     ]
     db.add_all(gates)
@@ -548,11 +609,13 @@ def create_fixture_draft(
 ) -> FixtureDraftResult:
     """Create or replay the one exact Program 01A v2 fixture draft."""
 
-    if fixture_id != FIXTURE_ID:
+    try:
+        definition = get_fixture_definition(fixture_id)
+    except (KeyError, TypeError):
         raise FixtureDraftError(
             "unsupported_fixture_id",
-            f"only the exact ASCII fixture ID {FIXTURE_ID!r} is supported",
-        )
+            f"fixture ID must be one of the exact ASCII catalog IDs {FIXTURE_IDS!r}",
+        ) from None
     if not isinstance(idempotency_key, str) or not _IDEMPOTENCY_PATTERN.fullmatch(
         idempotency_key
     ):
@@ -568,8 +631,10 @@ def create_fixture_draft(
             )
         )
         if existing is not None:
-            return _existing_result(db, existing)
-        return _create_graph(db, idempotency_key=idempotency_key)
+            return _existing_result(db, existing, definition.fixture_id)
+        return _create_graph(
+            db, definition=definition, idempotency_key=idempotency_key
+        )
 
 
 __all__ = [
@@ -577,6 +642,7 @@ __all__ = [
     "FIXTURE_ARTIFACT_HASH",
     "FIXTURE_ID",
     "FIXTURE_PATH",
+    "FIXTURE_IDS",
     "FixtureDraftError",
     "FixtureDraftResult",
     "create_fixture_draft",
