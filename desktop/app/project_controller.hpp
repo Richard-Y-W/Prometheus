@@ -55,6 +55,7 @@ public:
     return project_;
   }
   std::filesystem::path projectPath() const;
+  bool hasCadEntityId(const QString &entityId) const;
   void acceptProject(prometheus::run_store::ProjectV2 project);
 
 signals:

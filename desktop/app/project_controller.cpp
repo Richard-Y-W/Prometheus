@@ -322,6 +322,33 @@ std::filesystem::path ProjectController::projectPath() const {
   return nativePath(current_project_path_);
 }
 
+bool ProjectController::hasCadEntityId(const QString &entityId) const {
+  const auto candidate = entityId.trimmed();
+  if (candidate.isEmpty()) {
+    return false;
+  }
+  const auto parts = cad_->parts();
+  for (const auto &partValue : parts) {
+    const auto *part = qobject_cast<CadPart *>(partValue.value<QObject *>());
+    if (part != nullptr && part->persistentId() == candidate) {
+      return true;
+    }
+  }
+  // A no-OCCT build cannot reconstruct the part list, so it relies on the
+  // reviewed stable entity binding stored in the versioned project. When a
+  // part list is available, unresolved/retired bindings are not accepted.
+  if (!parts.isEmpty() || !project_.has_value()) {
+    return false;
+  }
+  const auto id = text(candidate);
+  for (const auto &binding : project_->component_bindings) {
+    if (binding.cad_entity_id == id) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ProjectController::clearError() {
   error_.clear();
   error_code_.clear();

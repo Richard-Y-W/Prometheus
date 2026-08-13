@@ -89,6 +89,16 @@ bool contains(const std::initializer_list<std::string_view> allowed,
   return std::find(allowed.begin(), allowed.end(), candidate) != allowed.end();
 }
 
+std::filesystem::path native_path_from_utf8(const std::string_view value) {
+  std::u8string encoded;
+  encoded.reserve(value.size());
+  for (const auto byte : value) {
+    encoded.push_back(static_cast<char8_t>(
+        static_cast<unsigned char>(byte)));
+  }
+  return std::filesystem::path(encoded);
+}
+
 void require_exact_keys(
     const Json &value, const std::initializer_list<std::string_view> keys,
     const std::string_view field) {
@@ -322,13 +332,12 @@ void verify_external_assembly(const std::filesystem::path &project_path,
     reject("assembly_verification", "assembly_reference_mismatch",
            "project and run manifest cite different assembly snapshots");
   }
-  const std::filesystem::path relative{project.cad_source};
-  if (relative.empty() || relative.is_absolute() || relative.has_root_name() ||
-      relative.has_root_directory() || relative != relative.lexically_normal()) {
+  const auto stored = native_path_from_utf8(project.cad_source);
+  if (stored.empty() || stored != stored.lexically_normal()) {
     reject("assembly_verification", "unsafe_cad_source",
-           "CAD source must be a normalized relative path");
+           "CAD source must be a normalized path");
   }
-  for (const auto &component : relative) {
+  for (const auto &component : stored.relative_path()) {
     if (component.empty() || component == "." || component == "..") {
       reject("assembly_verification", "unsafe_cad_source",
              "CAD source contains an unsafe path component");
@@ -338,8 +347,11 @@ void verify_external_assembly(const std::filesystem::path &project_path,
   if (parent.empty()) {
     parent = ".";
   }
-  auto current = parent;
-  for (auto iterator = relative.begin(); iterator != relative.end();
+  const auto anchored = stored.is_absolute() ? stored : parent / stored;
+  const auto components =
+      stored.is_absolute() ? std::filesystem::path(stored.filename()) : stored;
+  auto current = stored.is_absolute() ? stored.parent_path() : parent;
+  for (auto iterator = components.begin(); iterator != components.end();
        ++iterator) {
     current /= *iterator;
     std::error_code error;
@@ -352,7 +364,7 @@ void verify_external_assembly(const std::filesystem::path &project_path,
       reject("assembly_verification", "unsafe_assembly_path",
              "external CAD path contains a symbolic link");
     }
-    const auto final = std::next(iterator) == relative.end();
+    const auto final = std::next(iterator) == components.end();
     if ((!final && !std::filesystem::is_directory(status)) ||
         (final && !std::filesystem::is_regular_file(status))) {
       reject("assembly_verification", "unsafe_assembly_path",
@@ -361,7 +373,7 @@ void verify_external_assembly(const std::filesystem::path &project_path,
   }
   std::string actual_hash;
   try {
-    actual_hash = integrity::sha256_file(parent / relative);
+    actual_hash = integrity::sha256_file(anchored);
   } catch (const integrity::CanonicalJsonError &failure) {
     reject("assembly_verification", failure.code(), failure.what());
   }
@@ -474,6 +486,76 @@ void verify_recorded_result(const std::string_view bytes,
   }
 }
 
+struct VerifiedRecordedRun final {
+  Manifest manifest;
+  std::string manifest_bytes;
+  std::string package_bytes;
+  std::string scenario_bytes;
+  std::string request_bytes;
+  std::string result_bytes;
+};
+
+VerifiedRecordedRun verify_recorded_run(
+    const std::filesystem::path &project_path,
+    const std::string_view manifest_hash,
+    const run_store::TransactionOptions &options,
+    const bool require_external_assembly) {
+  if (!run_store::is_valid_object_hash(manifest_hash)) {
+    reject("arguments", "invalid_manifest_hash",
+           "manifest hash must use strict lowercase SHA-256 spelling");
+  }
+  const auto opened = run_store::open_read_only(project_path, options);
+  if (!opened.has_value()) {
+    reject(opened.diagnostic().stage, opened.diagnostic().code,
+           opened.diagnostic().message);
+  }
+  const auto &project = opened.value();
+  const auto committed = std::find_if(
+      project.execution.committed_runs.begin(),
+      project.execution.committed_runs.end(), [&](const auto &reference) {
+        return reference.object_hash == manifest_hash;
+      });
+  if (committed == project.execution.committed_runs.end()) {
+    reject("reference_verification", "manifest_not_committed",
+           "requested manifest is not in project run history");
+  }
+
+  auto manifest_bytes = read_verified_object(project_path, *committed);
+  auto manifest = parse_manifest(manifest_bytes);
+  auto package_bytes = read_verified_object(project_path, manifest.package);
+  auto scenario_bytes = read_verified_object(project_path, manifest.scenario);
+  auto request_bytes = read_verified_object(project_path, manifest.request);
+  auto result_bytes = read_verified_object(project_path, manifest.result);
+  if (project.assembly_artifact_hash != manifest.assembly_artifact_hash) {
+    reject("assembly_verification", "assembly_reference_mismatch",
+           "project and run manifest cite different assembly snapshots");
+  }
+  if (require_external_assembly) {
+    verify_external_assembly(project_path, project,
+                             manifest.assembly_artifact_hash);
+  }
+  verify_request_graph(request_bytes, manifest);
+  verify_recorded_result(result_bytes, manifest);
+  return {std::move(manifest), std::move(manifest_bytes),
+          std::move(package_bytes), std::move(scenario_bytes),
+          std::move(request_bytes), std::move(result_bytes)};
+}
+
+RecordedRunReport inspection_failed(const std::string_view hash,
+                                    std::string stage, std::string code,
+                                    std::string message) {
+  return {RecordedRunStatus::verification_failed,
+          bounded(std::string(hash), 128U),
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          ReplayDiagnostic{bounded(std::move(stage), 128U),
+                           bounded(std::move(code), 128U),
+                           bounded(std::move(message), 4096U)}};
+}
+
 } // namespace
 
 std::string_view status_name(const ReplayStatus status) noexcept {
@@ -507,48 +589,44 @@ int recommended_exit_code(const ReplayStatus status) noexcept {
   return 4;
 }
 
+RecordedRunReport inspect_recorded(
+    const std::filesystem::path &project_path,
+    const std::string_view manifest_hash,
+    run_store::TransactionOptions options) noexcept {
+  try {
+    auto verified =
+        verify_recorded_run(project_path, manifest_hash, options, false);
+    return {RecordedRunStatus::recorded,
+            std::string(manifest_hash),
+            verified.manifest.package.object_hash,
+            verified.manifest.result.object_hash,
+            std::move(verified.result_bytes),
+            verified.manifest.backend_id,
+            verified.manifest.backend_contract_version,
+            std::nullopt};
+  } catch (const ReplayError &failure) {
+    return inspection_failed(manifest_hash, failure.stage(), failure.code(),
+                             failure.what());
+  } catch (const integrity::CanonicalJsonError &failure) {
+    return inspection_failed(manifest_hash, "integrity", failure.code(),
+                             failure.what());
+  } catch (const std::exception &failure) {
+    return inspection_failed(manifest_hash, "recorded_run_verification",
+                             "verification_failed", failure.what());
+  } catch (...) {
+    return inspection_failed(manifest_hash, "recorded_run_verification",
+                             "verification_failed",
+                             "unknown recorded-run verification failure");
+  }
+}
+
 ReplayReport replay_exact(const std::filesystem::path &project_path,
                           const std::string_view manifest_hash,
                           run_store::TransactionOptions options) noexcept {
   try {
-    if (!run_store::is_valid_object_hash(manifest_hash)) {
-      return failed(ReplayStatus::verification_failed, manifest_hash,
-                    "arguments", "invalid_manifest_hash",
-                    "manifest hash must use strict lowercase SHA-256 spelling");
-    }
-    const auto opened = run_store::open_read_only(project_path, options);
-    if (!opened.has_value()) {
-      return failed(ReplayStatus::verification_failed, manifest_hash,
-                    opened.diagnostic().stage, opened.diagnostic().code,
-                    opened.diagnostic().message);
-    }
-    const auto &project = opened.value();
-    const auto committed = std::find_if(
-        project.execution.committed_runs.begin(),
-        project.execution.committed_runs.end(), [&](const auto &reference) {
-          return reference.object_hash == manifest_hash;
-        });
-    if (committed == project.execution.committed_runs.end()) {
-      return failed(ReplayStatus::verification_failed, manifest_hash,
-                    "reference_verification", "manifest_not_committed",
-                    "requested manifest is not in project run history");
-    }
-
-    const auto manifest_bytes = read_verified_object(project_path, *committed);
-    const auto manifest = parse_manifest(manifest_bytes);
-    const auto package_bytes =
-        read_verified_object(project_path, manifest.package);
-    const auto scenario_bytes =
-        read_verified_object(project_path, manifest.scenario);
-    const auto request_bytes =
-        read_verified_object(project_path, manifest.request);
-    const auto result_bytes =
-        read_verified_object(project_path, manifest.result);
-
-    verify_external_assembly(project_path, project,
-                             manifest.assembly_artifact_hash);
-    verify_request_graph(request_bytes, manifest);
-    verify_recorded_result(result_bytes, manifest);
+    auto verified =
+        verify_recorded_run(project_path, manifest_hash, options, true);
+    const auto &manifest = verified.manifest;
 
     if (manifest.backend_id != execution::motor_arm_backend_id ||
         manifest.backend_contract_version !=
@@ -558,7 +636,8 @@ ReplayReport replay_exact(const std::filesystem::path &project_path,
                     "recorded authoritative backend is unavailable",
                     manifest.result.object_hash);
     }
-    const auto request = execution::parse_analysis_request(request_bytes);
+    const auto request =
+        execution::parse_analysis_request(verified.request_bytes);
     if (!request.has_value()) {
       const auto status =
           request.diagnostic().code.starts_with("unsupported_")
@@ -583,9 +662,9 @@ ReplayReport replay_exact(const std::filesystem::path &project_path,
     }
 
     const execution::ExecutionInput input{
-        package_bytes, manifest.package.object_hash,
-        scenario_bytes, manifest.scenario.object_hash,
-        request_bytes, manifest.request.object_hash};
+        verified.package_bytes, manifest.package.object_hash,
+        verified.scenario_bytes, manifest.scenario.object_hash,
+        verified.request_bytes, manifest.request.object_hash};
     const auto outcome = execution::execute(input);
     if (const auto *failure =
             std::get_if<execution::ExecutionFailure>(&outcome)) {
@@ -604,7 +683,7 @@ ReplayReport replay_exact(const std::filesystem::path &project_path,
     }
     const auto &completed = std::get<execution::CompletedExecution>(outcome);
     if (completed.result.object_hash != manifest.result.object_hash ||
-        completed.result.bytes != result_bytes) {
+        completed.result.bytes != verified.result_bytes) {
       return failed(ReplayStatus::mismatch, manifest_hash,
                     "exact_comparison", "result_mismatch",
                     "replayed canonical result bytes or hash differ",
@@ -612,7 +691,7 @@ ReplayReport replay_exact(const std::filesystem::path &project_path,
                     completed.result.object_hash);
     }
     if (completed.manifest.object_hash != manifest_hash ||
-        completed.manifest.bytes != manifest_bytes) {
+        completed.manifest.bytes != verified.manifest_bytes) {
       return failed(ReplayStatus::mismatch, manifest_hash,
                     "exact_comparison", "manifest_mismatch",
                     "replayed manifest bytes or hash differ",

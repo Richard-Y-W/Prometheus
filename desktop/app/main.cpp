@@ -6,6 +6,7 @@
 #include <QDebug>
 #include "cad_controller.hpp"
 #include "engineering_controller.hpp"
+#include "execution_controller.hpp"
 #include "project_controller.hpp"
 #include "service_controller.hpp"
 int main(int argc, char* argv[]) {
@@ -15,6 +16,7 @@ int main(int argc, char* argv[]) {
   ServiceController service;
   EngineeringController engineering;
   ProjectController project(&cad,&engineering);
+  ExecutionController execution(&project,&service);
   QQmlApplicationEngine engine;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");
@@ -25,6 +27,7 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("serviceController",&service);
   engine.rootContext()->setContextProperty("engineeringController",&engineering);
   engine.rootContext()->setContextProperty("projectController",&project);
+  engine.rootContext()->setContextProperty("executionController",&execution);
   engine.rootContext()->setContextProperty("demoResearch",demo_research);
   engine.rootContext()->setContextProperty("demoEngineering",demo_engineering);
   engine.rootContext()->setContextProperty("demoCadInspect",demo_cad_inspect);

@@ -31,6 +31,7 @@ struct PackageInspection final {
   std::string capability_id;
   std::string execution_readiness;
   std::vector<std::string> limitations;
+  std::optional<std::string> blocked_reason;
 };
 
 struct TorqueSpeedPoint final {
@@ -67,5 +68,10 @@ inspect_execution_component(std::string_view stored_bytes,
 [[nodiscard]] Result<MotorComponentInput>
 consume_motor_component(std::string_view stored_bytes,
                         std::string_view expected_object_hash);
+
+// Identity of the one reviewed consumer contract compiled into this backend.
+// Orchestrators use this value to bind requests without duplicating it.
+[[nodiscard]] std::string_view
+supported_motor_consumer_contract_hash() noexcept;
 
 } // namespace prometheus::execution

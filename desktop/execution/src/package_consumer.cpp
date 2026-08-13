@@ -156,6 +156,16 @@ PackageInspection inspect_parsed(const Json &root,
   for (const auto &limitation : root.at("limitations")) {
     limitations.push_back(string_member(limitation, "statement"));
   }
+  std::optional<std::string> blocked_reason;
+  for (const auto &gate : root.at("gates")) {
+    if (string_member(gate, "phase") != "execution" ||
+        string_member(gate, "state") == "satisfied" ||
+        gate.at("reason").is_null()) {
+      continue;
+    }
+    blocked_reason = string_member(gate, "reason");
+    break;
+  }
   return PackageInspection{
       package_hash,
       string_member(root, "revision_id"),
@@ -168,6 +178,7 @@ PackageInspection inspect_parsed(const Json &root,
       string_member(root, "capability_id"),
       string_member(root, "execution_readiness"),
       std::move(limitations),
+      std::move(blocked_reason),
   };
 }
 
@@ -580,6 +591,10 @@ consume_motor_component(const std::string_view stored_bytes,
     return map_motor_component(
         verify_and_parse(stored_bytes, expected_object_hash));
   });
+}
+
+std::string_view supported_motor_consumer_contract_hash() noexcept {
+  return detail::supported_consumer_contract_hash;
 }
 
 } // namespace prometheus::execution

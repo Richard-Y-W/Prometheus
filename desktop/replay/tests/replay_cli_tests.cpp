@@ -53,6 +53,10 @@ static_assert(std::is_same_v<decltype(&replay::replay_exact),
                              replay::ReplayReport (*)(
                                  const fs::path &, std::string_view,
                                  run_store::TransactionOptions) noexcept>);
+static_assert(std::is_same_v<decltype(&replay::inspect_recorded),
+                             replay::RecordedRunReport (*)(
+                                 const fs::path &, std::string_view,
+                                 run_store::TransactionOptions) noexcept>);
 
 void require(const bool condition, const std::string &message) {
   if (!condition) {
@@ -384,6 +388,44 @@ ProcessResult invoke_run(
       fixture,
       {"--project", fixture.project.string(), "--run", hash}, capture_root,
       environment);
+}
+
+void test_recorded_inspection_is_verified_and_read_only(const Fixture &fixture) {
+  const auto before = snapshot_tree(fixture.root);
+  const auto inspected = replay::inspect_recorded(
+      fixture.project, fixture.motor_a_manifest_hash);
+  const auto after = snapshot_tree(fixture.root);
+  require(before == after, "recorded inspection is read-only");
+  require(inspected.status == replay::RecordedRunStatus::recorded &&
+              inspected.package_hash.has_value() &&
+              inspected.result_hash.has_value() &&
+              inspected.result_bytes.has_value() &&
+              !inspected.result_bytes->empty() &&
+              !inspected.diagnostic.has_value(),
+          "recorded inspection verifies and returns exact display bytes");
+  const auto result = Json::parse(*inspected.result_bytes);
+  require(result.at("package_hash") == *inspected.package_hash &&
+              result.at("execution_disposition") == "completed",
+          "recorded inspection binds display bytes to the verified graph");
+}
+
+void test_absolute_desktop_cad_path_replays(const Fixture &base,
+                                            const fs::path &variant_root,
+                                            const fs::path &capture_root) {
+  const auto fixture =
+      clone_fixture(base, variant_root / "absolute-desktop-cad");
+  const auto opened = run_store::open_read_only(fixture.project);
+  require(opened.has_value(), "open absolute-CAD replay fixture");
+  auto project = opened.value();
+  project.cad_source = fs::absolute(fixture.root / "motor-arm.step").string();
+  const auto saved =
+      run_store::save_project_snapshot(fixture.project, project);
+  require(saved.has_value(), "save absolute desktop CAD source");
+  const auto replayed =
+      invoke_run(fixture, fixture.motor_a_manifest_hash, capture_root);
+  require(replayed.exit_code == 0,
+          "an ordinary absolute desktop CAD path supports exact replay: " +
+              replayed.standard_error);
 }
 
 void require_failure_report(const ProcessResult &result, const int exit_code,
@@ -1051,6 +1093,9 @@ int main() {
     require(fs::create_directory(variants), "create replay variant root");
 
     test_exact_cli_and_offline_linkage(base, root.capture_root());
+    test_recorded_inspection_is_verified_and_read_only(base);
+    test_absolute_desktop_cad_path_replays(base, variants,
+                                           root.capture_root());
     test_strict_arguments(base, root.capture_root());
     test_project_store_and_commit_failures(base, variants,
                                            root.capture_root());

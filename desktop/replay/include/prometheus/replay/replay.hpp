@@ -31,6 +31,28 @@ struct ReplayReport final {
   std::optional<ReplayDiagnostic> diagnostic;
 };
 
+enum class RecordedRunStatus { recorded, verification_failed };
+
+struct RecordedRunReport final {
+  RecordedRunStatus status;
+  std::string manifest_hash;
+  std::optional<std::string> package_hash;
+  std::optional<std::string> result_hash;
+  std::optional<std::string> result_bytes;
+  std::optional<std::string> backend_id;
+  std::optional<std::string> backend_contract_version;
+  std::optional<ReplayDiagnostic> diagnostic;
+};
+
+// Verifies the complete immutable run graph and its recorded assembly
+// reference without invoking the engineering backend or requiring today's
+// external CAD bytes. Explicit replay separately verifies those external
+// bytes before calculation.
+[[nodiscard]] RecordedRunReport inspect_recorded(
+    const std::filesystem::path &project_path,
+    std::string_view manifest_hash,
+    run_store::TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] ReplayReport
 replay_exact(const std::filesystem::path &project_path,
              std::string_view manifest_hash,

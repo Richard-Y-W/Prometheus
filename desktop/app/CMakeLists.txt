@@ -1,8 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_integrity prometheus_run_store)
+target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES ../ui/Main.qml)
@@ -57,6 +57,28 @@ if(BUILD_TESTING)
     COMMAND prometheus_project_controller_tests
   )
   set_tests_properties(prometheus_project_controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  )
+
+  add_executable(prometheus_execution_controller_tests
+    tests/execution_controller_tests.cpp
+  )
+  target_compile_definitions(prometheus_execution_controller_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+    PROMETHEUS_RUN_STORE_CONTENTION_HELPER="$<TARGET_FILE:prometheus_run_store_contention_helper>"
+  )
+  target_link_libraries(prometheus_execution_controller_tests PRIVATE
+    Qt6::Gui
+    prometheus_desktop_support
+  )
+  add_test(
+    NAME prometheus_execution_controller
+    COMMAND prometheus_execution_controller_tests
+  )
+  add_dependencies(prometheus_execution_controller_tests
+    prometheus_run_store_contention_helper
+  )
+  set_tests_properties(prometheus_execution_controller PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   )
 endif()

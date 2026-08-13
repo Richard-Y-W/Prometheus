@@ -32,8 +32,11 @@ if(PROMETHEUS_ENABLE_OCCT)
   add_subdirectory(desktop/cad)
 endif()
 if(PROMETHEUS_BUILD_DESKTOP)
-  if(NOT PROMETHEUS_BUILD_RUN_STORE)
-    message(FATAL_ERROR "Desktop project ownership requires the run store")
+  if(NOT PROMETHEUS_BUILD_RUN_STORE OR NOT PROMETHEUS_BUILD_EXECUTION OR
+     NOT PROMETHEUS_BUILD_REPLAY)
+    message(FATAL_ERROR
+      "Desktop execution requires execution, run-store, and replay support"
+    )
   endif()
   find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2 Quick3D Concurrent Network)
   if(Qt6_FOUND)

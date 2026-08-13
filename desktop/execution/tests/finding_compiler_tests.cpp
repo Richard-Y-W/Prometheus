@@ -84,6 +84,7 @@ execution::MotorComponentInput consumed_motor(const double continuous_torque) {
           "component_input.dc_gearmotor_v1",
           "ready",
           {"Synthetic conformance input only."},
+          std::nullopt,
       },
       100.0,
       0.70,

@@ -1,16 +1,29 @@
 #include "cad_controller.hpp"
 #include "engineering_controller.hpp"
+#include "execution_controller.hpp"
 #include "project_controller.hpp"
+#include <prometheus/integrity/canonical_json.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <iostream>
+#include <functional>
+#include <string_view>
+
+namespace {
+bool waitUntil(const std::function<bool()>& predicate){QElapsedTimer timer;timer.start();while(!predicate()&&timer.elapsed()<10000){QCoreApplication::processEvents(QEventLoop::AllEvents,20);QThread::msleep(2);}return predicate();}
+QByteArray readFixture(const QString& path){QFile file(path);if(!file.open(QIODevice::ReadOnly))return {};return file.readAll();}
+QString hash(const QByteArray& value){return QString::fromStdString(prometheus::integrity::object_hash(std::string_view(value.constData(),static_cast<std::size_t>(value.size()))));}
+}
 
 int main(int argc,char** argv){
   QGuiApplication app(argc,argv);
@@ -44,6 +57,7 @@ int main(int argc,char** argv){
   if(std::abs(qobject_cast<CadPart*>(reopened.parts()[2].value<QObject*>())->translationX()-saved_translation_x)>1e-9){std::cerr<<"placement override was not restored\n";return 13;}
   if(qobject_cast<CadPart*>(reopened.parts()[2].value<QObject*>())->rotationZ()!=30){std::cerr<<"rotation override was not restored\n";return 14;}
   if(reopened.connections().size()!=1||reopened.connections().front().toMap().value("connection_type")!="fixed"){std::cerr<<"semantic connection was not restored\n";return 15;}
+  ExecutionController execution(&reopened_project);const auto motor_entity=qobject_cast<CadPart*>(reopened.parts()[1].value<QObject*>())->persistentId();execution.setPendingCadEntityId(motor_entity);const QString contracts=QStringLiteral(PROMETHEUS_SOURCE_DIR)+"/fixtures/contracts/";const auto motor_a=readFixture(contracts+"execution-component-v2.motor-a.jcs");if(motor_a.isEmpty()){std::cerr<<"motor package fixture missing\n";return 16;}execution.acceptExactPackage(motor_a,hash(motor_a));execution.setScenarioDraft({{"payload_mass_kg",8.0},{"arm_radius_m",0.2},{"rotation_degrees",90.0},{"move_duration_s",1.2},{"hold_duration_s",4.0},{"cycle_duration_s",10.0},{"ambient_temperature_c",35.0}});execution.previewScenarioDegrees();execution.confirmScenario("Evaluate the bound motor for the reviewed motor-arm operating cycle.");execution.runAnalysis();if(!waitUntil([&execution]{return !execution.busy();})||!execution.errorCode().isEmpty()||execution.runHistory().size()!=1){std::cerr<<"OCCT package-driven execution failed: "<<execution.status().toStdString()<<"/"<<execution.errorCode().toStdString()<<" "<<execution.error().toStdString()<<" history="<<execution.runHistory().size()<<"\n";return 16;}execution.selectRun(0);execution.replaySelected();if(!waitUntil([&execution]{return !execution.busy();})||execution.replayState()!="Exact match"){std::cerr<<"OCCT package-driven replay failed: "<<execution.status().toStdString()<<"/"<<execution.errorCode().toStdString()<<" "<<execution.error().toStdString()<<" replay="<<execution.replayState().toStdString()<<"\n";return 16;}if(reopened_checks.findings().size()!=2){std::cerr<<"motor execution altered geometry findings\n";return 16;}
   reopened_project.saveCurrentProject();if(!reopened_project.errorCode().isEmpty()){std::cerr<<"reopened project did not resave\n";return 16;}const auto preserved=prometheus::run_store::open_read_only(project.toStdString());if(!preserved.has_value()||preserved.value().component_bindings.size()!=2||preserved.value().placement_overrides.size()!=2||preserved.value().connections.size()!=2){std::cerr<<"unresolved CAD relationships disappeared on save\n";return 17;}if(preserved.value().name!="Reviewed arm project"){std::cerr<<"CAD source name overwrote project identity\n";return 18;}
   return 0;
 }
