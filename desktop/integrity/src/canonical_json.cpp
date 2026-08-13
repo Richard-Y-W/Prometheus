@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -683,6 +684,627 @@ std::string serialize_json(const Json &value, const Limits limits) {
   return output;
 }
 
+std::string raw_sha256_identity(const std::string_view bytes) {
+  return "sha256:" +
+         picosha2::hash256_hex_string(bytes.begin(), bytes.end());
+}
+
+bool contains_key(const std::initializer_list<std::string_view> keys,
+                  const std::string_view candidate) {
+  return std::find(keys.begin(), keys.end(), candidate) != keys.end();
+}
+
+void require_exact_members(
+    const Json &value, const std::initializer_list<std::string_view> keys) {
+  if (!value.is_object()) {
+    fail("invalid_type", "execution-component member must be an object");
+  }
+  for (auto iterator = value.begin(); iterator != value.end(); ++iterator) {
+    if (!contains_key(keys, iterator.key())) {
+      fail("unknown_field", "execution-component object has an unknown field");
+    }
+  }
+  for (const auto key : keys) {
+    if (!value.contains(std::string(key))) {
+      fail("missing_field", "execution-component object is missing a field");
+    }
+  }
+}
+
+const std::string &required_string(const Json &object,
+                                   const std::string_view key) {
+  const auto &value = object.at(std::string(key));
+  if (!value.is_string() || value.get_ref<const std::string &>().empty()) {
+    fail("invalid_identity", "execution-component string identity is invalid");
+  }
+  return value.get_ref<const std::string &>();
+}
+
+const Json &required_array(const Json &object, const std::string_view key) {
+  const auto &value = object.at(std::string(key));
+  if (!value.is_array()) {
+    fail("invalid_type", "execution-component member must be an array");
+  }
+  return value;
+}
+
+std::uint64_t required_nonnegative_integer(const Json &object,
+                                           const std::string_view key) {
+  const auto &value = object.at(std::string(key));
+  if (!value.is_number_integer() && !value.is_number_unsigned()) {
+    fail("invalid_type", "execution-component member must be an integer");
+  }
+  if (value.is_number_integer() && value.get<std::int64_t>() < 0) {
+    fail("invalid_type", "execution-component integer must be nonnegative");
+  }
+  return value.get<std::uint64_t>();
+}
+
+bool is_hash_id(const std::string_view value) {
+  if (value.size() != 71U || !value.starts_with("sha256:")) {
+    return false;
+  }
+  return std::all_of(value.begin() + 7, value.end(), [](const char character) {
+    return (character >= '0' && character <= '9') ||
+           (character >= 'a' && character <= 'f');
+  });
+}
+
+void require_hash_id(const std::string_view value) {
+  if (!is_hash_id(value)) {
+    fail("invalid_hash", "execution-component hash identity is invalid");
+  }
+}
+
+void validate_engineering_value(const Json &value,
+                                const std::string_view value_state) {
+  if (!value.is_object()) {
+    fail("invalid_value_shape", "claim value must be an object");
+  }
+  if (!value.contains("kind")) {
+    fail("missing_field", "claim value is missing its kind discriminator");
+  }
+  const auto &kind = required_string(value, "kind");
+  if (value_state == "unknown") {
+    require_exact_members(value, {"kind", "reason"});
+    if (kind != "unknown") {
+      fail("invalid_value_shape", "unknown claim must use unknown value kind");
+    }
+    static_cast<void>(required_string(value, "reason"));
+    return;
+  }
+
+  if (kind == "scalar") {
+    require_exact_members(value, {"kind", "value"});
+    if (!value.at("value").is_number()) {
+      fail("invalid_value_shape", "scalar claim must contain a number");
+    }
+    return;
+  }
+  if (kind == "range") {
+    require_exact_members(value, {"kind", "minimum", "maximum"});
+    if (!value.at("minimum").is_number() ||
+        !value.at("maximum").is_number() ||
+        value.at("minimum").get<double>() >
+            value.at("maximum").get<double>()) {
+      fail("invalid_value_shape", "range claim has invalid bounds");
+    }
+    return;
+  }
+  if (kind == "enumeration") {
+    require_exact_members(value, {"kind", "values"});
+    const auto &values = required_array(value, "values");
+    if (values.empty()) {
+      fail("invalid_value_shape", "enumeration claim must not be empty");
+    }
+    std::unordered_set<std::string> identities;
+    for (const auto &item : values) {
+      if (!item.is_string() && !item.is_number() && !item.is_boolean()) {
+        fail("invalid_value_shape", "enumeration claim item is invalid");
+      }
+      const auto identity = serialize_json(item, Limits{});
+      if (!identities.insert(identity).second) {
+        fail("invalid_value_shape", "enumeration claim items must be unique");
+      }
+    }
+    return;
+  }
+  if (kind == "curve") {
+    require_exact_members(value,
+                          {"kind", "independent_quantity", "independent_unit",
+                           "interpolation", "points"});
+    static_cast<void>(required_string(value, "independent_quantity"));
+    static_cast<void>(required_string(value, "independent_unit"));
+    const auto &interpolation = required_string(value, "interpolation");
+    if (interpolation != "linear" && interpolation != "step" &&
+        interpolation != "cubic") {
+      fail("invalid_value_shape", "curve interpolation is invalid");
+    }
+    const auto &points = required_array(value, "points");
+    if (points.size() < 2U) {
+      fail("invalid_value_shape", "curve requires at least two points");
+    }
+    std::optional<double> previous_x;
+    for (const auto &point : points) {
+      require_exact_members(point, {"x", "y"});
+      if (!point.at("x").is_number() || !point.at("y").is_number()) {
+        fail("invalid_value_shape", "curve point must contain numbers");
+      }
+      const auto x = point.at("x").get<double>();
+      if (previous_x.has_value() && x <= *previous_x) {
+        fail("invalid_value_shape", "curve x values must increase");
+      }
+      previous_x = x;
+    }
+    return;
+  }
+  fail("invalid_value_shape", "claim value kind is unsupported");
+}
+
+std::string recompute_claim_fingerprint(const Json &claim,
+                                        const Limits limits) {
+  auto evidence_ids =
+      claim.at("evidence_ids").get<std::vector<std::string>>();
+  std::sort(evidence_ids.begin(), evidence_ids.end());
+  Json semantic = {
+      {"revision_id", claim.at("revision_id")},
+      {"slot_id", claim.at("slot_id")},
+      {"value_state", claim.at("value_state")},
+      {"value", claim.at("value")},
+      {"provenance", claim.at("provenance")},
+      {"evidence_ids", std::move(evidence_ids)},
+      {"validity_conditions", claim.at("validity_conditions")},
+  };
+  if (claim.at("value_state") == "known") {
+    semantic["unit"] = claim.at("unit");
+    semantic["original_value"] = claim.at("original_value");
+    semantic["original_unit"] = claim.at("original_unit");
+  }
+  return raw_sha256_identity(serialize_json(semantic, limits));
+}
+
+void validate_execution_component_graph(const Json &root,
+                                        const Limits limits) {
+  require_exact_members(
+      root,
+      {"$schema", "schema_version", "package_kind", "capability_id",
+       "revision_id", "reviewed_draft_version", "component", "authority",
+       "package_compiler", "artifacts", "parameter_slots", "claims",
+       "evidence", "claim_reviews", "gates", "missing_information",
+       "limitations", "execution_readiness"});
+
+  if (required_string(root, "package_kind") != "component_execution_input") {
+    fail("unsupported_package_kind", "execution-component kind is unsupported");
+  }
+  const auto &capability_id = required_string(root, "capability_id");
+  const auto &revision_id = required_string(root, "revision_id");
+  const auto reviewed_draft_version =
+      required_nonnegative_integer(root, "reviewed_draft_version");
+  if (reviewed_draft_version == 0U) {
+    fail("invalid_review_version", "reviewed draft version must be positive");
+  }
+  const auto &readiness = required_string(root, "execution_readiness");
+  if (readiness != "ready" && readiness != "blocked") {
+    fail("invalid_execution_readiness",
+         "execution readiness must be ready or blocked");
+  }
+
+  const auto &component = root.at("component");
+  require_exact_members(component,
+                        {"component_id", "manufacturer", "part_number",
+                         "revision", "component_class"});
+  const auto &component_id = required_string(component, "component_id");
+  static_cast<void>(required_string(component, "manufacturer"));
+  static_cast<void>(required_string(component, "part_number"));
+  static_cast<void>(required_string(component, "revision"));
+  static_cast<void>(required_string(component, "component_class"));
+
+  const auto &authority = root.at("authority");
+  require_exact_members(authority,
+                        {"authority_role", "engineering_decision_authority",
+                         "package_role"});
+  if (required_string(authority, "authority_role") != "input_only" ||
+      required_string(authority, "engineering_decision_authority") !=
+          "prometheus_cpp" ||
+      required_string(authority, "package_role") != "reviewed_input") {
+    fail("invalid_authority", "execution-component authority is invalid");
+  }
+
+  const auto &compiler = root.at("package_compiler");
+  require_exact_members(compiler, {"name", "version"});
+  static_cast<void>(required_string(compiler, "name"));
+  static_cast<void>(required_string(compiler, "version"));
+
+  std::unordered_set<std::string> artifact_hashes;
+  std::vector<std::string> artifact_order;
+  for (const auto &artifact : required_array(root, "artifacts")) {
+    require_exact_members(artifact,
+                          {"artifact_hash", "filename", "media_type",
+                           "byte_length", "artifact_role"});
+    const auto &artifact_hash = required_string(artifact, "artifact_hash");
+    require_hash_id(artifact_hash);
+    if (!artifact_hashes.insert(artifact_hash).second) {
+      fail("duplicate_artifact", "artifact hashes must be unique");
+    }
+    artifact_order.push_back(artifact_hash);
+    static_cast<void>(required_string(artifact, "filename"));
+    static_cast<void>(required_string(artifact, "media_type"));
+    static_cast<void>(required_nonnegative_integer(artifact, "byte_length"));
+    const auto &role = required_string(artifact, "artifact_role");
+    if (role != "source_evidence" && role != "supporting_input") {
+      fail("invalid_artifact_role", "artifact role is unsupported");
+    }
+  }
+  if (artifact_order.empty()) {
+    fail("missing_artifact", "execution-component requires an artifact");
+  }
+  if (!std::is_sorted(artifact_order.begin(), artifact_order.end())) {
+    fail("invalid_contract_order", "artifacts are not contract ordered");
+  }
+
+  std::unordered_set<std::string> slot_ids;
+  std::unordered_set<std::string> slot_names;
+  std::unordered_set<std::string> selected_claim_ids;
+  std::unordered_map<std::string, const Json *> slots_by_claim;
+  std::vector<std::pair<std::string, std::string>> slot_order;
+  for (const auto &slot : required_array(root, "parameter_slots")) {
+    require_exact_members(slot,
+                          {"slot_id", "name", "quantity", "dimension",
+                           "required_for_execution", "selected_claim_id"});
+    const auto &slot_id = required_string(slot, "slot_id");
+    const auto &name = required_string(slot, "name");
+    const auto &selected_claim_id =
+        required_string(slot, "selected_claim_id");
+    static_cast<void>(required_string(slot, "quantity"));
+    static_cast<void>(required_string(slot, "dimension"));
+    if (!slot.at("required_for_execution").is_boolean()) {
+      fail("invalid_type", "slot required flag must be boolean");
+    }
+    if (!slot_ids.insert(slot_id).second) {
+      fail("duplicate_slot_id", "parameter slot IDs must be unique");
+    }
+    if (!slot_names.insert(name).second) {
+      fail("duplicate_slot_name", "parameter slot names must be unique");
+    }
+    if (!selected_claim_ids.insert(selected_claim_id).second) {
+      fail("duplicate_selected_claim", "one claim cannot satisfy two slots");
+    }
+    slots_by_claim.emplace(selected_claim_id, &slot);
+    slot_order.emplace_back(name, slot_id);
+  }
+  if (!std::is_sorted(slot_order.begin(), slot_order.end())) {
+    fail("invalid_contract_order", "parameter slots are not contract ordered");
+  }
+
+  std::unordered_set<std::string> evidence_ids;
+  std::vector<std::string> evidence_order;
+  for (const auto &record : required_array(root, "evidence")) {
+    if (!record.is_object() || !record.contains("evidence_id") ||
+        !record.contains("revision_id") || !record.contains("evidence_class")) {
+      fail("missing_field", "evidence identity is incomplete");
+    }
+    const auto &evidence_id = required_string(record, "evidence_id");
+    if (!evidence_ids.insert(evidence_id).second) {
+      fail("duplicate_evidence", "evidence IDs must be unique");
+    }
+    evidence_order.push_back(evidence_id);
+    if (required_string(record, "revision_id") != revision_id) {
+      fail("cross_revision_evidence", "evidence belongs to another revision");
+    }
+    static_cast<void>(required_string(record, "evidence_class"));
+    if (record.contains("artifact_hash") &&
+        !record.at("artifact_hash").is_null()) {
+      const auto &artifact_hash = required_string(record, "artifact_hash");
+      if (!artifact_hashes.contains(artifact_hash)) {
+        fail("missing_artifact_reference",
+             "evidence references an absent artifact");
+      }
+    }
+  }
+  if (!std::is_sorted(evidence_order.begin(), evidence_order.end())) {
+    fail("invalid_contract_order", "evidence is not contract ordered");
+  }
+
+  std::unordered_map<std::string, const Json *> claims;
+  std::vector<std::string> claim_order;
+  for (const auto &claim : required_array(root, "claims")) {
+    if (!claim.is_object() || !claim.contains("value_state")) {
+      fail("missing_field", "claim identity is incomplete");
+    }
+    const auto &value_state = required_string(claim, "value_state");
+    if (value_state == "known") {
+      require_exact_members(
+          claim,
+          {"claim_id", "revision_id", "slot_id", "value_state", "value",
+           "validity_conditions", "provenance", "evidence_ids",
+           "claim_fingerprint", "unit", "original_value", "original_unit"});
+    } else if (value_state == "unknown") {
+      require_exact_members(
+          claim,
+          {"claim_id", "revision_id", "slot_id", "value_state", "value",
+           "validity_conditions", "provenance", "evidence_ids",
+           "claim_fingerprint"});
+    } else {
+      fail("invalid_value_state", "claim value state is unsupported");
+    }
+    const auto &claim_id = required_string(claim, "claim_id");
+    if (!claims.emplace(claim_id, &claim).second) {
+      fail("duplicate_claim", "claim IDs must be unique");
+    }
+    claim_order.push_back(claim_id);
+    if (required_string(claim, "revision_id") != revision_id) {
+      fail("cross_revision_claim", "claim belongs to another revision");
+    }
+    const auto &slot_id = required_string(claim, "slot_id");
+    if (!slot_ids.contains(slot_id)) {
+      fail("selected_claim_link_mismatch", "claim references an absent slot");
+    }
+    static_cast<void>(required_string(claim, "provenance"));
+    const auto &claim_evidence = required_array(claim, "evidence_ids");
+    std::unordered_set<std::string> unique_claim_evidence;
+    std::vector<std::string> ordered_claim_evidence;
+    for (const auto &evidence_id_value : claim_evidence) {
+      if (!evidence_id_value.is_string() ||
+          !evidence_ids.contains(evidence_id_value.get<std::string>())) {
+        fail("missing_evidence_reference",
+             "claim references evidence absent from the package");
+      }
+      const auto evidence_id = evidence_id_value.get<std::string>();
+      if (!unique_claim_evidence.insert(evidence_id).second) {
+        fail("duplicate_claim_evidence",
+             "claim evidence references must be unique");
+      }
+      ordered_claim_evidence.push_back(evidence_id);
+    }
+    if (!std::is_sorted(ordered_claim_evidence.begin(),
+                        ordered_claim_evidence.end())) {
+      fail("invalid_contract_order",
+           "claim evidence references are not contract ordered");
+    }
+    const auto &validity_conditions =
+        required_array(claim, "validity_conditions");
+    std::unordered_set<std::string> unique_validity_conditions;
+    for (const auto &condition : validity_conditions) {
+      if (!condition.is_string() || condition.get_ref<const std::string &>().empty()) {
+        fail("invalid_type", "claim validity condition is invalid");
+      }
+      if (!unique_validity_conditions
+               .insert(condition.get_ref<const std::string &>())
+               .second) {
+        fail("duplicate_validity_condition",
+             "claim validity conditions must be unique");
+      }
+    }
+    if (value_state == "known") {
+      static_cast<void>(required_string(claim, "unit"));
+      static_cast<void>(required_string(claim, "original_value"));
+      static_cast<void>(required_string(claim, "original_unit"));
+    }
+    validate_engineering_value(claim.at("value"), value_state);
+    const auto &fingerprint = required_string(claim, "claim_fingerprint");
+    require_hash_id(fingerprint);
+    if (fingerprint != recompute_claim_fingerprint(claim, limits)) {
+      fail("claim_fingerprint_mismatch",
+           "claim fingerprint does not match semantic claim fields");
+    }
+  }
+  if (!std::is_sorted(claim_order.begin(), claim_order.end())) {
+    fail("invalid_contract_order", "claims are not contract ordered");
+  }
+  if (claims.size() != slots_by_claim.size()) {
+    fail("selected_claim_set_mismatch",
+         "package must contain one selected claim per slot");
+  }
+  for (const auto &[claim_id, slot] : slots_by_claim) {
+    const auto claim = claims.find(claim_id);
+    if (claim == claims.end()) {
+      fail("selected_claim_missing", "slot selects an absent claim");
+    }
+    if (required_string(*claim->second, "slot_id") !=
+        required_string(*slot, "slot_id")) {
+      fail("selected_claim_link_mismatch",
+           "selected claim belongs to a different slot");
+    }
+  }
+
+  std::unordered_set<std::string> review_event_ids;
+  std::unordered_set<std::string> reviewed_claim_ids;
+  std::vector<std::string> review_order;
+  for (const auto &review : required_array(root, "claim_reviews")) {
+    require_exact_members(
+        review,
+        {"review_event_id", "revision_id", "claim_id", "decision",
+         "reviewed_by", "reviewed_at", "note", "applied_draft_version",
+         "reviewed_claim_fingerprint"});
+    const auto &review_event_id = required_string(review, "review_event_id");
+    if (!review_event_ids.insert(review_event_id).second) {
+      fail("duplicate_review", "review event IDs must be unique");
+    }
+    review_order.push_back(review_event_id);
+    const auto &claim_id = required_string(review, "claim_id");
+    if (!reviewed_claim_ids.insert(claim_id).second) {
+      fail("duplicate_review", "a selected claim has multiple reviews");
+    }
+    const auto claim = claims.find(claim_id);
+    if (claim == claims.end()) {
+      fail("missing_review_claim", "review references an absent claim");
+    }
+    if (required_string(review, "revision_id") != revision_id) {
+      fail("cross_revision_review", "review belongs to another revision");
+    }
+    if (required_string(review, "decision") != "accepted") {
+      fail("review_not_accepted", "selected claim review is not accepted");
+    }
+    static_cast<void>(required_string(review, "reviewed_by"));
+    static_cast<void>(required_string(review, "reviewed_at"));
+    if (!review.at("note").is_string() ||
+        review.at("note").get_ref<const std::string &>().empty()) {
+      fail("invalid_review_note", "review note must be a nonempty string");
+    }
+    const auto applied_draft_version =
+        required_nonnegative_integer(review, "applied_draft_version");
+    if (applied_draft_version == 0U) {
+      fail("invalid_review_version", "applied review version must be positive");
+    }
+    if (applied_draft_version > reviewed_draft_version) {
+      fail("stale_review", "review applies to a later draft version");
+    }
+    const auto &reviewed_fingerprint =
+        required_string(review, "reviewed_claim_fingerprint");
+    if (reviewed_fingerprint !=
+        required_string(*claim->second, "claim_fingerprint")) {
+      fail("stale_review", "review fingerprint does not match selected claim");
+    }
+  }
+  if (!std::is_sorted(review_order.begin(), review_order.end())) {
+    fail("invalid_contract_order", "claim reviews are not contract ordered");
+  }
+  if (reviewed_claim_ids.size() != claims.size()) {
+    fail("missing_claim_review", "every selected claim requires one review");
+  }
+
+  std::unordered_set<std::string> known_references{component_id};
+  known_references.insert(artifact_hashes.begin(), artifact_hashes.end());
+  for (const auto &[claim_id, ignored] : claims) {
+    static_cast<void>(ignored);
+    known_references.insert(claim_id);
+  }
+  known_references.insert(review_event_ids.begin(), review_event_ids.end());
+
+  std::unordered_set<std::string> gate_ids;
+  std::vector<std::string> gate_order;
+  std::size_t publication_gate_count = 0U;
+  bool execution_gates_satisfied = true;
+  for (const auto &gate : required_array(root, "gates")) {
+    require_exact_members(
+        gate,
+        {"gate_id", "capability_id", "phase", "state",
+         "required_review_type", "satisfying_reference_ids", "reason"});
+    const auto &gate_id = required_string(gate, "gate_id");
+    if (!gate_ids.insert(gate_id).second) {
+      fail("duplicate_gate", "gate IDs must be unique");
+    }
+    gate_order.push_back(gate_id);
+    if (required_string(gate, "capability_id") != capability_id) {
+      fail("gate_capability_mismatch", "gate capability is inconsistent");
+    }
+    const auto &phase = required_string(gate, "phase");
+    if (phase != "publication" && phase != "execution") {
+      fail("invalid_gate_phase", "gate phase is unsupported");
+    }
+    const auto &state = required_string(gate, "state");
+    if (state != "satisfied" && state != "blocked" && state != "pending") {
+      fail("invalid_gate_state", "gate state is unsupported");
+    }
+    if (state == "pending") {
+      fail("unresolved_gate", "pending gate is unresolved");
+    }
+    static_cast<void>(required_string(gate, "required_review_type"));
+    if (!gate.at("reason").is_null() && !gate.at("reason").is_string()) {
+      fail("invalid_type", "gate reason must be a string or null");
+    }
+    std::unordered_set<std::string> gate_references;
+    std::vector<std::string> ordered_gate_references;
+    for (const auto &reference :
+         required_array(gate, "satisfying_reference_ids")) {
+      if (!reference.is_string()) {
+        fail("invalid_type", "gate reference must be a string");
+      }
+      const auto reference_id = reference.get<std::string>();
+      if (!gate_references.insert(reference_id).second) {
+        fail("duplicate_gate_reference", "gate references must be unique");
+      }
+      ordered_gate_references.push_back(reference_id);
+      if (!known_references.contains(reference_id)) {
+        fail("missing_gate_reference",
+             "gate references an absent package identity");
+      }
+    }
+    if (!std::is_sorted(ordered_gate_references.begin(),
+                        ordered_gate_references.end())) {
+      fail("invalid_contract_order", "gate references are not contract ordered");
+    }
+    if (state == "satisfied") {
+      if (ordered_gate_references.empty() || !gate.at("reason").is_null()) {
+        fail("gate_state_metadata_mismatch",
+             "satisfied gate requires references and no reason");
+      }
+    } else if (!ordered_gate_references.empty() ||
+               !gate.at("reason").is_string() ||
+               gate.at("reason").get_ref<const std::string &>().empty()) {
+      fail("gate_state_metadata_mismatch",
+           "blocked gate requires only an explicit reason");
+    }
+    if (phase == "publication") {
+      ++publication_gate_count;
+      if (state != "satisfied") {
+        fail("unresolved_publication_gate",
+             "publication gate must be satisfied");
+      }
+    } else if (state != "satisfied") {
+      execution_gates_satisfied = false;
+    }
+  }
+  if (!std::is_sorted(gate_order.begin(), gate_order.end())) {
+    fail("invalid_contract_order", "gates are not contract ordered");
+  }
+  if (publication_gate_count == 0U) {
+    fail("missing_publication_gate", "package has no publication gate");
+  }
+  const auto expected_readiness =
+      execution_gates_satisfied ? std::string_view("ready")
+                                : std::string_view("blocked");
+  if (readiness != expected_readiness) {
+    fail("readiness_gate_mismatch",
+         "execution readiness disagrees with execution gates");
+  }
+
+  std::unordered_set<std::string> missing_information_ids;
+  std::vector<std::string> missing_information_order;
+  for (const auto &item : required_array(root, "missing_information")) {
+    if (!item.is_object() || !item.contains("missing_information_id") ||
+        !item.contains("slot_id")) {
+      fail("missing_field", "missing-information identity is incomplete");
+    }
+    const auto &missing_information_id =
+        required_string(item, "missing_information_id");
+    if (!missing_information_ids.insert(missing_information_id).second) {
+      fail("duplicate_missing_information",
+           "missing-information IDs must be unique");
+    }
+    missing_information_order.push_back(missing_information_id);
+    if (!item.at("slot_id").is_null()) {
+      const auto &slot_id = required_string(item, "slot_id");
+      if (!slot_ids.contains(slot_id)) {
+        fail("missing_information_slot",
+             "missing information references an absent slot");
+      }
+    }
+  }
+  if (!std::is_sorted(missing_information_order.begin(),
+                      missing_information_order.end())) {
+    fail("invalid_contract_order",
+         "missing information is not contract ordered");
+  }
+  std::unordered_set<std::string> limitation_ids;
+  std::vector<std::string> limitation_order;
+  for (const auto &limitation : required_array(root, "limitations")) {
+    require_exact_members(limitation, {"limitation_id", "statement"});
+    const auto &limitation_id = required_string(limitation, "limitation_id");
+    if (!limitation_ids.insert(limitation_id).second) {
+      fail("duplicate_limitation", "limitation IDs must be unique");
+    }
+    limitation_order.push_back(limitation_id);
+    static_cast<void>(required_string(limitation, "statement"));
+  }
+  if (limitation_order.empty()) {
+    fail("missing_limitation", "execution-component requires a limitation");
+  }
+  if (!std::is_sorted(limitation_order.begin(), limitation_order.end())) {
+    fail("invalid_contract_order", "limitations are not contract ordered");
+  }
+}
+
 } // namespace
 
 CanonicalJsonError::CanonicalJsonError(std::string code, std::string message)
@@ -708,8 +1330,7 @@ std::string verify_canonical_bytes(const std::string_view source,
 }
 
 std::string sha256_bytes(const std::string_view bytes) {
-  return "sha256:" +
-         picosha2::hash256_hex_string(bytes.begin(), bytes.end());
+  return raw_sha256_identity(bytes);
 }
 
 std::string sha256_file(const std::filesystem::path &path) {
@@ -771,6 +1392,7 @@ std::string verify_execution_component(
     fail("unsupported_schema",
          "execution component schema identity is not supported");
   }
+  validate_execution_component_graph(value, limits);
   return actual_hash;
 }
 

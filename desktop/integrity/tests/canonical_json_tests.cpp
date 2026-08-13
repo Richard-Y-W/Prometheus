@@ -450,6 +450,165 @@ void test_complete_execution_component() {
       "unsupported_schema", "unsupported execution-component schema version");
 }
 
+void test_execution_component_graph_verification() {
+  for (const std::string_view stem : {"execution-component-v2.motor-a",
+                                      "execution-component-v2.motor-b"}) {
+    const auto package_path =
+        repository_root / "fixtures/contracts" / (std::string(stem) + ".jcs");
+    const auto hash_path = repository_root / "fixtures/contracts" /
+                           (std::string(stem) + ".sha256");
+    const auto package = read_file(package_path);
+    const auto expected_hash = trim_ascii_whitespace(read_file(hash_path));
+    require(verify_execution_component(package, expected_hash) == expected_hash,
+            std::string(stem) + " graph verification");
+  }
+
+  const auto source = read_file(
+      repository_root /
+      "fixtures/contracts/execution-component-v2.motor-a.jcs");
+  const auto mutate = [&](const auto &mutation) {
+    auto value = json::parse(source);
+    mutation(value);
+    return canonicalize_json_bytes(value.dump());
+  };
+
+  const auto stale_review = mutate([](json &value) {
+    value["claim_reviews"][0]["reviewed_claim_fingerprint"] =
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            stale_review, object_hash(stale_review)));
+      },
+      "stale_review", "stale selected-claim review");
+
+  const auto duplicate_slot = mutate([](json &value) {
+    value["parameter_slots"][1]["name"] =
+        value["parameter_slots"][0]["name"];
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            duplicate_slot, object_hash(duplicate_slot)));
+      },
+      "duplicate_slot_name", "duplicate package slot name");
+
+  const auto readiness_mismatch = mutate([](json &value) {
+    value["execution_readiness"] = "blocked";
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            readiness_mismatch, object_hash(readiness_mismatch)));
+      },
+      "readiness_gate_mismatch", "readiness and gate disagreement");
+
+  const auto unknown_member = mutate([](json &value) {
+    value["unreviewed_extension"] = true;
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            unknown_member, object_hash(unknown_member)));
+      },
+      "unknown_field", "closed package top-level contract");
+
+  const auto missing_value_kind = mutate([](json &value) {
+    value["claims"][0]["value"].erase("kind");
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            missing_value_kind, object_hash(missing_value_kind)));
+      },
+      "missing_field", "engineering value discriminator");
+
+  const auto invalid_review_version = mutate([](json &value) {
+    value["claim_reviews"][0]["applied_draft_version"] = 0;
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            invalid_review_version, object_hash(invalid_review_version)));
+      },
+      "invalid_review_version", "positive applied review version");
+
+  const auto empty_satisfied_gate = mutate([](json &value) {
+    value["gates"].back()["satisfying_reference_ids"] = json::array();
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            empty_satisfied_gate, object_hash(empty_satisfied_gate)));
+      },
+      "gate_state_metadata_mismatch", "satisfied gate reference requirement");
+
+  const auto unordered_gate_references = mutate([](json &value) {
+    auto &references = value["gates"][2]["satisfying_reference_ids"];
+    std::swap(references[0], references[1]);
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            unordered_gate_references,
+            object_hash(unordered_gate_references)));
+      },
+      "invalid_contract_order", "gate reference contract order");
+
+  const auto unordered_artifacts = mutate([](json &value) {
+    std::swap(value["artifacts"][0], value["artifacts"][1]);
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            unordered_artifacts, object_hash(unordered_artifacts)));
+      },
+      "invalid_contract_order", "artifact contract order");
+
+  const auto duplicate_claim_evidence = mutate([](json &value) {
+    auto &evidence_ids = value["claims"][0]["evidence_ids"];
+    evidence_ids.push_back(evidence_ids[0]);
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            duplicate_claim_evidence,
+            object_hash(duplicate_claim_evidence)));
+      },
+      "duplicate_claim_evidence", "claim evidence uniqueness");
+
+  const auto unordered_limitations = mutate([](json &value) {
+    std::swap(value["limitations"][0], value["limitations"][1]);
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            unordered_limitations, object_hash(unordered_limitations)));
+      },
+      "invalid_contract_order", "limitation contract order");
+
+  const auto empty_review_note = mutate([](json &value) {
+    value["claim_reviews"][0]["note"] = "";
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            empty_review_note, object_hash(empty_review_note)));
+      },
+      "invalid_review_note", "effective review note");
+
+  const auto changed_claim_semantics = mutate([](json &value) {
+    value["claims"][0]["original_value"] = "tampered";
+  });
+  expect_error(
+      [&] {
+        static_cast<void>(verify_execution_component(
+            changed_claim_semantics, object_hash(changed_claim_semantics)));
+      },
+      "claim_fingerprint_mismatch", "semantic claim fingerprint");
+}
+
 } // namespace
 
 int main() {
@@ -460,6 +619,7 @@ int main() {
     test_raw_sha256_and_file_hashing();
     test_qt_free_integrity_boundary();
     test_complete_execution_component();
+    test_execution_component_graph_verification();
     std::cout << "All independent canonical JSON tests passed.\n";
     return 0;
   } catch (const std::exception &error) {
