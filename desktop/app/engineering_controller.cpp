@@ -1,14 +1,128 @@
 #include "engineering_controller.hpp"
-#include "prometheus/simulation/motor_arm_analysis.hpp"
-#include <cmath>
 
-void EngineeringController::defineRevoluteJoint(int source,int target,const QString& axis,double minimum_deg,double maximum_deg,double px,double py,double pz){joint_={{"type","revolute"},{"source_index",source},{"target_index",target},{"axis",axis},{"minimum_deg",minimum_deg},{"maximum_deg",maximum_deg},{"pivot_x",px},{"pivot_y",py},{"pivot_z",pz},{"confirmed_by_user",true}};findings_.clear();run_status_="Not run";emit changed();}
-void EngineeringController::defineMotorArmScenario(double payload,double arm,double rotation,double move,double hold,double cycle,double ambient){scenario_={{"type","rotate_joint"},{"payload_kg",payload},{"arm_m",arm},{"rotation_deg",rotation},{"move_s",move},{"hold_s",hold},{"cycle_s",cycle},{"ambient_c",ambient},{"motion_profile","symmetric triangular velocity"},{"gearbox_efficiency_nominal",0.70},{"gearbox_efficiency_range","0.55–0.82 (documented class assumption)"}};findings_.clear();run_status_="Not run";emit changed();}
-static QVariantMap finding(QString status,QString severity,QString title,QString mechanism,double calculated,QString unit,double available,double margin,QString evidence,QString assumption={},QString range={}){return {{"status",status},{"severity",severity},{"title",title},{"mechanism",mechanism},{"calculated",calculated},{"unit",unit},{"available",available},{"margin_fraction",margin},{"evidence",evidence},{"assumption",assumption},{"estimated_range",range}};}
-void EngineeringController::runChecks(const QVariantList& interferences,const QVariantList& sweep_results,bool sweep_evaluated){findings_.clear();if(!jointConfigured()||!scenarioConfigured()){run_status_="Not evaluated — define a joint and scenario";emit changed();return;}for(const auto& value:interferences){const auto hit=value.toMap();const auto classification=hit.value("classification","unclassified").toString();const bool intended=classification=="intended_engagement",prohibited=classification=="prohibited";auto collision=finding(intended?"information":prohibited?"fail":"caution",intended?"information":prohibited?"critical":"warning",intended?"Intentional solid engagement":prohibited?"Prohibited static part interference":"Unclassified static part interference",hit.value("first_name").toString()+" and "+hit.value("second_name").toString()+" share non-zero solid volume.",hit.value("volume_m3").toDouble(),"m³",0,-1,"Imported STEP B-Rep geometry",intended?"User classified this overlap as an intended engagement":prohibited?"User classified this overlap as prohibited":"Classify an intended fit or connection before escalating severity");collision["first_id"]=hit.value("first_id");collision["second_id"]=hit.value("second_id");findings_<<collision;}if(sweep_evaluated&&sweep_results.isEmpty())findings_<<finding("information","information","No collision found at sampled joint positions","The moving part did not share solid volume with non-joint parts at 19 evenly spaced positions.",19,"samples",0,0,"Imported STEP B-Rep geometry","This sampled result is not a continuous-clearance guarantee");for(const auto& value:sweep_results){const auto hit=value.toMap();auto collision=finding("fail","critical","Collision in sampled joint range",hit.value("moving_name").toString()+" intersects "+hit.value("other_name").toString()+" beginning at sampled angle "+QString::number(hit.value("first_angle_deg").toDouble(),'f',1)+"°.",hit.value("maximum_volume_m3").toDouble(),"m³",0,-1,"Imported STEP B-Rep geometry","OCCT common-volume at "+hit.value("samples_tested").toString()+" evenly spaced samples; connected joint pair excluded");collision["first_id"]=hit.value("moving_id");collision["second_id"]=hit.value("other_id");findings_<<collision;}using prometheus::simulation::MotorArmInput;const double pi=std::acos(-1.0);const MotorArmInput input{scenario_["payload_kg"].toDouble(),scenario_["arm_m"].toDouble(),scenario_["rotation_deg"].toDouble()*pi/180.0,scenario_["move_s"].toDouble(),scenario_["hold_s"].toDouble(),scenario_["cycle_s"].toDouble(),scenario_["ambient_c"].toDouble(),100,0.70,0.208,1.92,418.879,0.18,0.0749,4.0,1.4,3.2,110,125};const auto r=prometheus::simulation::analyze_motor_arm(input);
-  findings_<<finding(r.move_margin>=0?"pass":"fail",r.move_margin>=0?"information":"critical","Short movement torque-speed margin",r.move_margin>=0?"Available torque exceeds acceleration requirement.":"Available torque is below acceleration requirement.",r.required_move_motor_nm,"N·m",r.available_move_torque_nm,r.move_margin,"Manufacturer torque-speed parameters; fixture revision fixture-1","Gearbox efficiency 0.70; symmetric triangular velocity profile");
-  findings_<<finding(r.hold_margin>=0?"pass":"fail",r.hold_margin>=0?"information":"critical","Continuous horizontal holding torque",r.hold_margin>=0?"Continuous rating exceeds holding requirement.":"Continuous rating is below horizontal holding requirement.",r.required_hold_motor_nm,"N·m",0.208,r.hold_margin,"Manufacturer continuous torque; fixture revision fixture-1","Gearbox efficiency range 0.55–0.82 is the largest uncertainty",QString("0.191–0.285 N·m required across the declared efficiency range"));
-  findings_<<finding(r.current_margin>=0?"pass":"fail",r.current_margin>=0?"information":"warning","Driver current-limit compatibility",r.current_margin>=0?"Estimated movement current is below the driver limit.":"Estimated movement current exceeds the driver limit.",r.estimated_current_a,"A",4.0,r.current_margin,"Manufacturer torque constant, no-load current, and driver limit","Current is an algebraic approximation");
-  findings_<<finding(r.thermal_margin_c>=0?"caution":"fail",r.thermal_margin_c>=0?"caution":"critical","Simplified intermittent thermal estimate",r.thermal_margin_c>=0?"Periodic RC peak depends strongly on duty cycle and simplified losses.":"Estimated periodic peak temperature exceeds the published limit.",r.steady_cycle_temperature_c,"°C",125,r.thermal_margin_c/125.0,"Manufacturer winding resistance, thermal resistance, and thermal capacitance","One-node periodic RC solution; gearbox and housing paths excluded");
-  findings_<<finding("information","information","Center of gravity check","Payload point mass is included at the declared arm radius; assembly part masses remain unknown.",scenario_["payload_kg"].toDouble(),"kg",0,0,"User-provided payload and arm radius","Assembly center of gravity is not evaluated until part masses are supplied");run_status_="Completed — "+QString::number(findings_.size())+" findings";emit changed();}
-void EngineeringController::restore(const QVariantMap& state){joint_=state.value("joint").toMap();scenario_=state.value("scenario").toMap();findings_=state.value("findings").toList();run_status_=state.value("run_status","Not run").toString();emit changed();}
+#include <utility>
+
+namespace {
+
+QVariantMap geometryFinding(QString kind, QString status, QString severity,
+                            QString title, QString mechanism,
+                            const double calculated, QString unit,
+                            const double available, const double margin,
+                            QString evidence, QString assumption = {},
+                            QString range = {}) {
+  return {
+      {"finding_kind", std::move(kind)},
+      {"status", std::move(status)},
+      {"severity", std::move(severity)},
+      {"title", std::move(title)},
+      {"mechanism", std::move(mechanism)},
+      {"calculated", calculated},
+      {"unit", std::move(unit)},
+      {"available", available},
+      {"margin_fraction", margin},
+      {"evidence", std::move(evidence)},
+      {"assumption", std::move(assumption)},
+      {"estimated_range", std::move(range)},
+      {"first_id", QVariant{}},
+      {"second_id", QVariant{}},
+  };
+}
+
+} // namespace
+
+void EngineeringController::defineRevoluteJoint(
+    const int source, const int target, const QString &axis,
+    const double minimumDeg, const double maximumDeg, const double pivotX,
+    const double pivotY, const double pivotZ) {
+  joint_ = {
+      {"type", "revolute"},        {"source_index", source},
+      {"target_index", target},    {"axis", axis},
+      {"minimum_deg", minimumDeg}, {"maximum_deg", maximumDeg},
+      {"pivot_x", pivotX},         {"pivot_y", pivotY},
+      {"pivot_z", pivotZ},         {"confirmed_by_user", true},
+  };
+  findings_.clear();
+  geometry_status_ = "not_evaluated";
+  emit changed();
+}
+
+void EngineeringController::runGeometryChecks(const QVariantList &interferences,
+                                              const QVariantList &sweepResults,
+                                              const bool sweepEvaluated) {
+  findings_.clear();
+  for (const auto &value : interferences) {
+    const auto hit = value.toMap();
+    const auto classification =
+        hit.value("classification", "unclassified").toString();
+    const bool intended = classification == "intended_engagement";
+    const bool prohibited = classification == "prohibited";
+    auto collision = geometryFinding(
+        "static_interference",
+        intended     ? "information"
+        : prohibited ? "fail"
+                     : "caution",
+        intended     ? "information"
+        : prohibited ? "critical"
+                     : "warning",
+        intended     ? "Intentional solid engagement"
+        : prohibited ? "Prohibited static part interference"
+                     : "Unclassified static part interference",
+        hit.value("first_name").toString() + " and " +
+            hit.value("second_name").toString() +
+            " share non-zero solid volume.",
+        hit.value("volume_m3").toDouble(), "m³", 0, -1,
+        "Imported STEP B-Rep geometry",
+        intended     ? "User classified this overlap as an intended engagement"
+        : prohibited ? "User classified this overlap as prohibited"
+                     : "Classify an intended fit or connection before "
+                       "escalating severity");
+    collision["first_id"] = hit.value("first_id");
+    collision["second_id"] = hit.value("second_id");
+    findings_.append(collision);
+  }
+
+  if (sweepEvaluated && sweepResults.isEmpty()) {
+    findings_.append(geometryFinding(
+        "sampled_joint_sweep", "information", "information",
+        "No collision found at sampled joint positions",
+        "The moving part did not share solid volume with non-joint parts at 19 "
+        "evenly spaced positions.",
+        19, "samples", 0, 0, "Imported STEP B-Rep geometry",
+        "This sampled result is not a continuous-clearance guarantee"));
+  }
+  for (const auto &value : sweepResults) {
+    const auto hit = value.toMap();
+    auto collision = geometryFinding(
+        "sampled_joint_sweep", "fail", "critical",
+        "Collision in sampled joint range",
+        hit.value("moving_name").toString() + " intersects " +
+            hit.value("other_name").toString() +
+            " beginning at sampled angle " +
+            QString::number(hit.value("first_angle_deg").toDouble(), 'f', 1) +
+            "°.",
+        hit.value("maximum_volume_m3").toDouble(), "m³", 0, -1,
+        "Imported STEP B-Rep geometry",
+        "OCCT common-volume at " + hit.value("samples_tested").toString() +
+            " evenly spaced samples; connected joint pair excluded");
+    collision["first_id"] = hit.value("moving_id");
+    collision["second_id"] = hit.value("other_id");
+    findings_.append(collision);
+  }
+  geometry_status_ = "completed";
+  emit changed();
+}
+
+QVariantMap EngineeringController::snapshotGeometryState() const {
+  return {
+      {"joint", joint_.isEmpty() ? QVariant{} : QVariant(joint_)},
+      {"geometry_findings", findings_},
+      {"geometry_status", geometry_status_},
+  };
+}
+
+void EngineeringController::restoreGeometryState(const QVariantMap &state) {
+  joint_ = state.value("joint").toMap();
+  findings_ = state.value("geometry_findings").toList();
+  geometry_status_ = state.value("geometry_status", "not_evaluated").toString();
+  emit changed();
+}

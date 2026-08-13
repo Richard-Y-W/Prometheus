@@ -1,5 +1,6 @@
 add_library(prometheus_run_store STATIC
   src/project_v2.cpp
+  src/legacy_project_v1.cpp
   src/object_store.cpp
   src/run_store.cpp
 )
@@ -38,6 +39,21 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_run_store_project
     COMMAND prometheus_run_store_project_tests
+  )
+
+  add_executable(prometheus_legacy_project_v1_tests
+    tests/legacy_project_v1_tests.cpp
+  )
+  target_compile_features(prometheus_legacy_project_v1_tests PRIVATE cxx_std_20)
+  target_include_directories(prometheus_legacy_project_v1_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
+  target_link_libraries(prometheus_legacy_project_v1_tests PRIVATE
+    prometheus_run_store
+  )
+  add_test(
+    NAME prometheus_legacy_project
+    COMMAND prometheus_legacy_project_v1_tests
   )
 
   add_executable(prometheus_run_store_object_tests

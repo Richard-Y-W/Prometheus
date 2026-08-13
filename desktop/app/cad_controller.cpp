@@ -1,108 +1,1032 @@
 #include "cad_controller.hpp"
 #include <QByteArray>
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFileInfo>
 #include <QVector3D>
-#include <QSaveFile>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
 #include <QtConcurrent/QtConcurrentRun>
-#include <limits>
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 #ifdef PROMETHEUS_HAS_OCCT
 #include "prometheus/cad/step_importer.hpp"
 #endif
 
-MeshGeometry::MeshGeometry(const std::vector<float>& positions,const std::vector<std::uint32_t>& indices,QObject* parent):QQuick3DGeometry(nullptr){
+namespace {
+
+QString hashCadFileOnce(const QString &path) {
+  const QFileInfo information(path);
+  if (!information.exists() || !information.isFile() ||
+      information.isSymbolicLink()) {
+    throw std::runtime_error("CAD artifact must be a regular non-symlink file");
+  }
+  QFile file(information.absoluteFilePath());
+  if (!file.open(QIODevice::ReadOnly)) {
+    throw std::runtime_error("CAD artifact could not be opened for hashing");
+  }
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  while (!file.atEnd()) {
+    const auto chunk = file.read(1024 * 1024);
+    if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+      throw std::runtime_error("CAD artifact could not be read for hashing");
+    }
+    hash.addData(chunk);
+  }
+  return "sha256:" + QString::fromLatin1(hash.result().toHex());
+}
+
+QString stableCadHash(const QString &path) {
+  const auto first = hashCadFileOnce(path);
+  const auto second = hashCadFileOnce(path);
+  if (first != second) {
+    throw std::runtime_error("CAD artifact changed during hashing");
+  }
+  return first;
+}
+
+#ifdef PROMETHEUS_HAS_OCCT
+CadImportSnapshot importCadSnapshot(const QString &path) {
+  const QFileInfo information(path);
+  const auto before = stableCadHash(information.absoluteFilePath());
+  const bool large = information.size() > 20 * 1024 * 1024;
+  auto result = prometheus::cad::StepImporter{}.import_file(
+      information.absoluteFilePath().toStdString(), large ? 0.0015 : 0.0005,
+      !large);
+  const auto after = stableCadHash(information.absoluteFilePath());
+  if (before != after) {
+    throw std::runtime_error("CAD artifact changed during import");
+  }
+  return CadImportSnapshot{std::move(result), before};
+}
+#endif
+
+} // namespace
+
+MeshGeometry::MeshGeometry(const std::vector<float> &positions,
+                           const std::vector<std::uint32_t> &indices,
+                           QObject *parent)
+    : QQuick3DGeometry(nullptr) {
   setParent(parent);
-  std::vector<QVector3D> normals(positions.size()/3,QVector3D{});
-  for(std::size_t i=0;i+2<indices.size();i+=3){const auto a=indices[i],b=indices[i+1],c=indices[i+2];const QVector3D p0(positions[a*3],positions[a*3+1],positions[a*3+2]),p1(positions[b*3],positions[b*3+1],positions[b*3+2]),p2(positions[c*3],positions[c*3+1],positions[c*3+2]);const auto normal=QVector3D::crossProduct(p1-p0,p2-p0);normals[a]+=normal;normals[b]+=normal;normals[c]+=normal;}
-  std::vector<float> vertices;vertices.reserve(positions.size()*2);for(std::size_t i=0;i<normals.size();++i){const auto normal=normals[i].normalized();vertices.insert(vertices.end(),{positions[i*3],positions[i*3+1],positions[i*3+2],normal.x(),normal.y(),normal.z()});}
-  clear(); setStride(6*sizeof(float)); setPrimitiveType(QQuick3DGeometry::PrimitiveType::Triangles);
-  addAttribute(QQuick3DGeometry::Attribute::PositionSemantic,0,QQuick3DGeometry::Attribute::F32Type);
-  addAttribute(QQuick3DGeometry::Attribute::NormalSemantic,3*sizeof(float),QQuick3DGeometry::Attribute::F32Type);
-  addAttribute(QQuick3DGeometry::Attribute::IndexSemantic,0,QQuick3DGeometry::Attribute::U32Type);
-  setVertexData(QByteArray(reinterpret_cast<const char*>(vertices.data()),static_cast<qsizetype>(vertices.size()*sizeof(float))));
-  setIndexData(QByteArray(reinterpret_cast<const char*>(indices.data()),static_cast<qsizetype>(indices.size()*sizeof(std::uint32_t))));
-  if(!positions.empty()){QVector3D minimum(std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()),maximum(std::numeric_limits<float>::lowest(),std::numeric_limits<float>::lowest(),std::numeric_limits<float>::lowest());for(std::size_t i=0;i+2<positions.size();i+=3){minimum.setX(std::min(minimum.x(),positions[i]));minimum.setY(std::min(minimum.y(),positions[i+1]));minimum.setZ(std::min(minimum.z(),positions[i+2]));maximum.setX(std::max(maximum.x(),positions[i]));maximum.setY(std::max(maximum.y(),positions[i+1]));maximum.setZ(std::max(maximum.z(),positions[i+2]));}setBounds(minimum,maximum);}
+  std::vector<QVector3D> normals(positions.size() / 3, QVector3D{});
+  for (std::size_t i = 0; i + 2 < indices.size(); i += 3) {
+    const auto a = indices[i], b = indices[i + 1], c = indices[i + 2];
+    const QVector3D p0(positions[a * 3], positions[a * 3 + 1],
+                       positions[a * 3 + 2]),
+        p1(positions[b * 3], positions[b * 3 + 1], positions[b * 3 + 2]),
+        p2(positions[c * 3], positions[c * 3 + 1], positions[c * 3 + 2]);
+    const auto normal = QVector3D::crossProduct(p1 - p0, p2 - p0);
+    normals[a] += normal;
+    normals[b] += normal;
+    normals[c] += normal;
+  }
+  std::vector<float> vertices;
+  vertices.reserve(positions.size() * 2);
+  for (std::size_t i = 0; i < normals.size(); ++i) {
+    const auto normal = normals[i].normalized();
+    vertices.insert(vertices.end(),
+                    {positions[i * 3], positions[i * 3 + 1],
+                     positions[i * 3 + 2], normal.x(), normal.y(), normal.z()});
+  }
+  clear();
+  setStride(6 * sizeof(float));
+  setPrimitiveType(QQuick3DGeometry::PrimitiveType::Triangles);
+  addAttribute(QQuick3DGeometry::Attribute::PositionSemantic, 0,
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::NormalSemantic, 3 * sizeof(float),
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::IndexSemantic, 0,
+               QQuick3DGeometry::Attribute::U32Type);
+  setVertexData(
+      QByteArray(reinterpret_cast<const char *>(vertices.data()),
+                 static_cast<qsizetype>(vertices.size() * sizeof(float))));
+  setIndexData(QByteArray(
+      reinterpret_cast<const char *>(indices.data()),
+      static_cast<qsizetype>(indices.size() * sizeof(std::uint32_t))));
+  if (!positions.empty()) {
+    QVector3D minimum(std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max(),
+                      std::numeric_limits<float>::max()),
+        maximum(std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest());
+    for (std::size_t i = 0; i + 2 < positions.size(); i += 3) {
+      minimum.setX(std::min(minimum.x(), positions[i]));
+      minimum.setY(std::min(minimum.y(), positions[i + 1]));
+      minimum.setZ(std::min(minimum.z(), positions[i + 2]));
+      maximum.setX(std::max(maximum.x(), positions[i]));
+      maximum.setY(std::max(maximum.y(), positions[i + 1]));
+      maximum.setZ(std::max(maximum.z(), positions[i + 2]));
+    }
+    setBounds(minimum, maximum);
+  }
   update();
 }
-CadPart::CadPart(QString name,QString id,const prometheus::cad::BoundingBox& bounds,double volume,double area,int faces,int edges,std::unique_ptr<MeshGeometry> geometry,QObject* parent):QObject(parent),name_(std::move(name)),id_(std::move(id)),bounds_(bounds),volume_m3_(volume),surface_area_m2_(area),face_count_(faces),edge_count_(edges),geometry_(std::move(geometry)){geometry_->setParent(this);}
-static std::array<double,3> rotated_extents(double sx,double sy,double sz,double rx,double ry,double rz){constexpr double pi=3.14159265358979323846;const double ax=rx*pi/180,ay=ry*pi/180,az=rz*pi/180,cx=std::cos(ax),sxv=std::sin(ax),cy=std::cos(ay),syv=std::sin(ay),cz=std::cos(az),szv=std::sin(az);const double r00=cz*cy,r01=cz*syv*sxv-szv*cx,r02=cz*syv*cx+szv*sxv,r10=szv*cy,r11=szv*syv*sxv+cz*cx,r12=szv*syv*cx-cz*sxv,r20=-syv,r21=cy*sxv,r22=cy*cx;return {std::abs(r00)*sx+std::abs(r01)*sy+std::abs(r02)*sz,std::abs(r10)*sx+std::abs(r11)*sy+std::abs(r12)*sz,std::abs(r20)*sx+std::abs(r21)*sy+std::abs(r22)*sz};}
-using Matrix3=std::array<double,9>;
-static Matrix3 rotation_matrix(double rx,double ry,double rz){constexpr double k=3.14159265358979323846/180.0;const double ax=rx*k,ay=ry*k,az=rz*k,cx=std::cos(ax),sx=std::sin(ax),cy=std::cos(ay),sy=std::sin(ay),cz=std::cos(az),sz=std::sin(az);return {cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx,sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx,-sy,cy*sx,cy*cx};}
-static Matrix3 multiply(const Matrix3&a,const Matrix3&b){Matrix3 r{};for(int row=0;row<3;++row)for(int col=0;col<3;++col)for(int i=0;i<3;++i)r[row*3+col]+=a[row*3+i]*b[i*3+col];return r;}
-static std::array<double,3> euler_xyz(const Matrix3&r){constexpr double d=180.0/3.14159265358979323846;const double ry=std::asin(std::clamp(-r[6],-1.0,1.0)),cy=std::cos(ry);double rx{},rz{};if(std::abs(cy)>1e-9){rx=std::atan2(r[7],r[8]);rz=std::atan2(r[3],r[0]);}else{rx=std::atan2(-r[5],r[4]);rz=0;}return {rx*d,ry*d,rz*d};}
-double CadPart::aabbSizeX()const{return rotated_extents(sizeX(),sizeY(),sizeZ(),rx_,ry_,rz_)[0];}double CadPart::aabbSizeY()const{return rotated_extents(sizeX(),sizeY(),sizeZ(),rx_,ry_,rz_)[1];}double CadPart::aabbSizeZ()const{return rotated_extents(sizeX(),sizeY(),sizeZ(),rx_,ry_,rz_)[2];}
-CadController::CadController(QObject* parent):QObject(parent){connect(&watcher_,&QFutureWatcher<prometheus::cad::StepImportResult>::finished,this,[this]{setBusy(false);if(watcher_.isCanceled()){emit importFinished(false);return;}try{applyResult(watcher_.result());emit importFinished(true);}catch(const std::exception& e){error_=QString::fromUtf8(e.what());emit errorChanged();emit importFinished(false);}});connect(&sweep_watcher_,&QFutureWatcher<std::vector<prometheus::cad::SweepInterference>>::finished,this,[this]{sweep_busy_=false;emit sweepBusyChanged();sweep_results_.clear();try{for(const auto& hit:sweep_watcher_.result()){QString moving=QString::fromStdString(hit.moving_id),other=QString::fromStdString(hit.other_id);for(const auto& value:parts_){const auto* part=qobject_cast<CadPart*>(value.value<QObject*>());if(part->persistentId()==moving)moving=part->name();if(part->persistentId()==other)other=part->name();}sweep_results_.append(QVariantMap{{"moving_id",QString::fromStdString(hit.moving_id)},{"other_id",QString::fromStdString(hit.other_id)},{"moving_name",moving},{"other_name",other},{"first_angle_deg",hit.first_angle_deg},{"maximum_volume_m3",hit.maximum_volume_m3},{"samples_tested",hit.samples_tested},{"method","sampled OCCT BRep common-volume"}});}}catch(const std::exception& e){error_=QString::fromUtf8(e.what());emit errorChanged();}emit sweepFinished();});connect(&geometry_watcher_,&QFutureWatcher<std::vector<prometheus::cad::StaticInterference>>::finished,this,[this]{geometry_busy_=false;emit geometryBusyChanged();interferences_.clear();try{for(const auto& hit:geometry_watcher_.result()){QString first=QString::fromStdString(hit.first_id),second=QString::fromStdString(hit.second_id),first_name=first,second_name=second;for(const auto& value:parts_){const auto* part=qobject_cast<CadPart*>(value.value<QObject*>());if(part->persistentId()==first)first_name=part->name();if(part->persistentId()==second)second_name=part->name();}interferences_.append(QVariantMap{{"first_id",first},{"second_id",second},{"first_name",first_name},{"second_name",second_name},{"volume_m3",hit.volume_m3},{"classification","unclassified"},{"method","OCCT BRep common-volume with placement"}});}applyInterferenceClassifications();}catch(const std::exception& e){error_=QString::fromUtf8(e.what());emit errorChanged();}emit partsChanged();emit geometryFinished();});const QString fixture="fixtures/assemblies/motor-arm.step";if(QFileInfo::exists(fixture))importStep(fixture);}
-void CadController::clearParts(){for(const auto& item:parts_)delete item.value<QObject*>();parts_.clear();}
-void CadController::setBusy(bool value){if(busy_==value)return;busy_=value;emit busyChanged();}
-void CadController::applyResult(const prometheus::cad::StepImportResult& result){clearParts();warnings_.clear();collision_deferred_=false;for(const auto& warning:result.warnings){warnings_.append(QString::fromStdString(warning));if(warning.find("interference was deferred")!=std::string::npos)collision_deferred_=true;}source_name_=QString::fromStdString(result.source_name);bool initialized=false;double min_x{},min_y{},min_z{},max_x{},max_y{},max_z{};
-  const auto add=[&](const auto& self,const prometheus::cad::AssemblyNode& node)->void{if(node.children.empty()&&!node.mesh.indices.empty()){auto* part=new CadPart(QString::fromStdString(node.name),QString::fromStdString(node.persistent_id),node.bounds,node.volume_m3,node.surface_area_m2,node.face_count,node.edge_count,std::make_unique<MeshGeometry>(node.mesh.positions,node.mesh.indices),this);parts_.append(QVariant::fromValue(static_cast<QObject*>(part)));if(!initialized){min_x=node.bounds.min_x;min_y=node.bounds.min_y;min_z=node.bounds.min_z;max_x=node.bounds.max_x;max_y=node.bounds.max_y;max_z=node.bounds.max_z;initialized=true;}else{min_x=std::min(min_x,node.bounds.min_x);min_y=std::min(min_y,node.bounds.min_y);min_z=std::min(min_z,node.bounds.min_z);max_x=std::max(max_x,node.bounds.max_x);max_y=std::max(max_y,node.bounds.max_y);max_z=std::max(max_z,node.bounds.max_z);}}for(const auto& child:node.children)self(self,child);};for(const auto& root:result.roots)add(add,root);interferences_.clear();for(const auto& hit:result.interferences){QString first_name=QString::fromStdString(hit.first_id),second_name=QString::fromStdString(hit.second_id);for(const auto& value:parts_){const auto* part=qobject_cast<CadPart*>(value.value<QObject*>());if(part->persistentId()==first_name)first_name=part->name();if(part->persistentId()==second_name)second_name=part->name();}interferences_.append(QVariantMap{{"first_id",QString::fromStdString(hit.first_id)},{"second_id",QString::fromStdString(hit.second_id)},{"first_name",first_name},{"second_name",second_name},{"volume_m3",hit.volume_m3},{"classification","unclassified"},{"method","OCCT BRep common-volume"}});}applyInterferenceClassifications();center_x_=(min_x+max_x)/2;center_y_=(min_y+max_y)/2;center_z_=(min_z+max_z)/2;scene_min_z_=min_z;scene_diameter_=std::max({max_x-min_x,max_y-min_y,max_z-min_z,0.01});applyBindings();emit partsChanged();}
-bool CadController::importStep(const QString& path){
-  error_.clear(); emit errorChanged();
-#ifdef PROMETHEUS_HAS_OCCT
-  try{const QFileInfo info(path);const bool large=info.size()>20*1024*1024;const auto result=prometheus::cad::StepImporter{}.import_file(path.toStdString(),large?0.0015:0.0005,!large);source_path_=info.absoluteFilePath();applyResult(result);return true;
-  }catch(const std::exception& e){error_=QString::fromUtf8(e.what());emit errorChanged();return false;}
-#else
-  error_="Open Cascade adapter is not enabled";emit errorChanged();return false;
-#endif
+CadPart::CadPart(QString name, QString id,
+                 const prometheus::cad::BoundingBox &bounds, double volume,
+                 double area, int faces, int edges,
+                 std::unique_ptr<MeshGeometry> geometry, QObject *parent)
+    : QObject(parent), name_(std::move(name)), id_(std::move(id)),
+      bounds_(bounds), volume_m3_(volume), surface_area_m2_(area),
+      face_count_(faces), edge_count_(edges), geometry_(std::move(geometry)) {
+  geometry_->setParent(this);
 }
-void CadController::importStepAsync(const QString& path){
-  if(busy_)return;
-  error_.clear();emit errorChanged();
+static std::array<double, 3> rotated_extents(double sx, double sy, double sz,
+                                             double rx, double ry, double rz) {
+  constexpr double pi = 3.14159265358979323846;
+  const double ax = rx * pi / 180, ay = ry * pi / 180, az = rz * pi / 180,
+               cx = std::cos(ax), sxv = std::sin(ax), cy = std::cos(ay),
+               syv = std::sin(ay), cz = std::cos(az), szv = std::sin(az);
+  const double r00 = cz * cy, r01 = cz * syv * sxv - szv * cx,
+               r02 = cz * syv * cx + szv * sxv, r10 = szv * cy,
+               r11 = szv * syv * sxv + cz * cx, r12 = szv * syv * cx - cz * sxv,
+               r20 = -syv, r21 = cy * sxv, r22 = cy * cx;
+  return {std::abs(r00) * sx + std::abs(r01) * sy + std::abs(r02) * sz,
+          std::abs(r10) * sx + std::abs(r11) * sy + std::abs(r12) * sz,
+          std::abs(r20) * sx + std::abs(r21) * sy + std::abs(r22) * sz};
+}
+using Matrix3 = std::array<double, 9>;
+static Matrix3 rotation_matrix(double rx, double ry, double rz) {
+  constexpr double k = 3.14159265358979323846 / 180.0;
+  const double ax = rx * k, ay = ry * k, az = rz * k, cx = std::cos(ax),
+               sx = std::sin(ax), cy = std::cos(ay), sy = std::sin(ay),
+               cz = std::cos(az), sz = std::sin(az);
+  return {cz * cy,
+          cz * sy * sx - sz * cx,
+          cz * sy * cx + sz * sx,
+          sz * cy,
+          sz * sy * sx + cz * cx,
+          sz * sy * cx - cz * sx,
+          -sy,
+          cy * sx,
+          cy * cx};
+}
+static Matrix3 multiply(const Matrix3 &a, const Matrix3 &b) {
+  Matrix3 r{};
+  for (int row = 0; row < 3; ++row)
+    for (int col = 0; col < 3; ++col)
+      for (int i = 0; i < 3; ++i)
+        r[row * 3 + col] += a[row * 3 + i] * b[i * 3 + col];
+  return r;
+}
+static std::array<double, 3> euler_xyz(const Matrix3 &r) {
+  constexpr double d = 180.0 / 3.14159265358979323846;
+  const double ry = std::asin(std::clamp(-r[6], -1.0, 1.0)), cy = std::cos(ry);
+  double rx{}, rz{};
+  if (std::abs(cy) > 1e-9) {
+    rx = std::atan2(r[7], r[8]);
+    rz = std::atan2(r[3], r[0]);
+  } else {
+    rx = std::atan2(-r[5], r[4]);
+    rz = 0;
+  }
+  return {rx * d, ry * d, rz * d};
+}
+double CadPart::aabbSizeX() const {
+  return rotated_extents(sizeX(), sizeY(), sizeZ(), rx_, ry_, rz_)[0];
+}
+double CadPart::aabbSizeY() const {
+  return rotated_extents(sizeX(), sizeY(), sizeZ(), rx_, ry_, rz_)[1];
+}
+double CadPart::aabbSizeZ() const {
+  return rotated_extents(sizeX(), sizeY(), sizeZ(), rx_, ry_, rz_)[2];
+}
+CadController::CadController(QObject *parent) : QObject(parent) {
+  connect(&watcher_, &QFutureWatcher<CadImportSnapshot>::finished, this,
+          [this] {
+            setBusy(false);
+            if (watcher_.isCanceled()) {
+              emit importFinished(false);
+              return;
+            }
+            try {
+              const auto snapshot = watcher_.result();
+              assembly_artifact_hash_ = snapshot.assembly_artifact_hash;
+              applyResult(snapshot.result);
+              emit importFinished(true);
+            } catch (const std::exception &e) {
+              artifact_check_error_ = false;
+              error_ = QString::fromUtf8(e.what());
+              emit errorChanged();
+              emit importFinished(false);
+            }
+          });
+  connect(&sweep_watcher_,
+          &QFutureWatcher<
+              std::vector<prometheus::cad::SweepInterference>>::finished,
+          this, [this] {
+            sweep_busy_ = false;
+            emit sweepBusyChanged();
+            sweep_results_.clear();
+            try {
+              for (const auto &hit : sweep_watcher_.result()) {
+                QString moving = QString::fromStdString(hit.moving_id),
+                        other = QString::fromStdString(hit.other_id);
+                for (const auto &value : parts_) {
+                  const auto *part =
+                      qobject_cast<CadPart *>(value.value<QObject *>());
+                  if (part->persistentId() == moving)
+                    moving = part->name();
+                  if (part->persistentId() == other)
+                    other = part->name();
+                }
+                sweep_results_.append(QVariantMap{
+                    {"moving_id", QString::fromStdString(hit.moving_id)},
+                    {"other_id", QString::fromStdString(hit.other_id)},
+                    {"moving_name", moving},
+                    {"other_name", other},
+                    {"first_angle_deg", hit.first_angle_deg},
+                    {"maximum_volume_m3", hit.maximum_volume_m3},
+                    {"samples_tested", hit.samples_tested},
+                    {"method", "sampled OCCT BRep common-volume"}});
+              }
+            } catch (const std::exception &e) {
+              artifact_check_error_ = false;
+              error_ = QString::fromUtf8(e.what());
+              emit errorChanged();
+            }
+            emit sweepFinished();
+          });
+  connect(&geometry_watcher_,
+          &QFutureWatcher<
+              std::vector<prometheus::cad::StaticInterference>>::finished,
+          this, [this] {
+            geometry_busy_ = false;
+            emit geometryBusyChanged();
+            interferences_.clear();
+            try {
+              for (const auto &hit : geometry_watcher_.result()) {
+                QString first = QString::fromStdString(hit.first_id),
+                        second = QString::fromStdString(hit.second_id),
+                        first_name = first, second_name = second;
+                for (const auto &value : parts_) {
+                  const auto *part =
+                      qobject_cast<CadPart *>(value.value<QObject *>());
+                  if (part->persistentId() == first)
+                    first_name = part->name();
+                  if (part->persistentId() == second)
+                    second_name = part->name();
+                }
+                interferences_.append(QVariantMap{
+                    {"first_id", first},
+                    {"second_id", second},
+                    {"first_name", first_name},
+                    {"second_name", second_name},
+                    {"volume_m3", hit.volume_m3},
+                    {"classification", "unclassified"},
+                    {"method", "OCCT BRep common-volume with placement"}});
+              }
+              applyInterferenceClassifications();
+            } catch (const std::exception &e) {
+              artifact_check_error_ = false;
+              error_ = QString::fromUtf8(e.what());
+              emit errorChanged();
+            }
+            emit partsChanged();
+            emit geometryFinished();
+          });
+  const QString fixture = "fixtures/assemblies/motor-arm.step";
+  if (QFileInfo::exists(fixture))
+    importStep(fixture);
+}
+void CadController::clearParts() {
+  for (const auto &item : parts_)
+    delete item.value<QObject *>();
+  parts_.clear();
+}
+void CadController::setBusy(bool value) {
+  if (busy_ == value)
+    return;
+  busy_ = value;
+  emit busyChanged();
+}
+void CadController::setArtifactCheckError(QString message) {
+  if (!artifact_check_error_) {
+    error_before_artifact_check_ = error_;
+  }
+  artifact_check_error_ = true;
+  error_ = std::move(message);
+  emit errorChanged();
+}
+void CadController::clearArtifactCheckError() {
+  if (!artifact_check_error_) {
+    return;
+  }
+  artifact_check_error_ = false;
+  error_ = std::exchange(error_before_artifact_check_, {});
+  emit errorChanged();
+}
+void CadController::applyResult(
+    const prometheus::cad::StepImportResult &result) {
+  clearParts();
+  warnings_.clear();
+  collision_deferred_ = false;
+  for (const auto &warning : result.warnings) {
+    warnings_.append(QString::fromStdString(warning));
+    if (warning.find("interference was deferred") != std::string::npos)
+      collision_deferred_ = true;
+  }
+  source_name_ = QString::fromStdString(result.source_name);
+  bool initialized = false;
+  double min_x{}, min_y{}, min_z{}, max_x{}, max_y{}, max_z{};
+  const auto add = [&](const auto &self,
+                       const prometheus::cad::AssemblyNode &node) -> void {
+    if (node.children.empty() && !node.mesh.indices.empty()) {
+      auto *part =
+          new CadPart(QString::fromStdString(node.name),
+                      QString::fromStdString(node.persistent_id), node.bounds,
+                      node.volume_m3, node.surface_area_m2, node.face_count,
+                      node.edge_count,
+                      std::make_unique<MeshGeometry>(node.mesh.positions,
+                                                     node.mesh.indices),
+                      this);
+      parts_.append(QVariant::fromValue(static_cast<QObject *>(part)));
+      if (!initialized) {
+        min_x = node.bounds.min_x;
+        min_y = node.bounds.min_y;
+        min_z = node.bounds.min_z;
+        max_x = node.bounds.max_x;
+        max_y = node.bounds.max_y;
+        max_z = node.bounds.max_z;
+        initialized = true;
+      } else {
+        min_x = std::min(min_x, node.bounds.min_x);
+        min_y = std::min(min_y, node.bounds.min_y);
+        min_z = std::min(min_z, node.bounds.min_z);
+        max_x = std::max(max_x, node.bounds.max_x);
+        max_y = std::max(max_y, node.bounds.max_y);
+        max_z = std::max(max_z, node.bounds.max_z);
+      }
+    }
+    for (const auto &child : node.children)
+      self(self, child);
+  };
+  for (const auto &root : result.roots)
+    add(add, root);
+  interferences_.clear();
+  for (const auto &hit : result.interferences) {
+    QString first_name = QString::fromStdString(hit.first_id),
+            second_name = QString::fromStdString(hit.second_id);
+    for (const auto &value : parts_) {
+      const auto *part = qobject_cast<CadPart *>(value.value<QObject *>());
+      if (part->persistentId() == first_name)
+        first_name = part->name();
+      if (part->persistentId() == second_name)
+        second_name = part->name();
+    }
+    interferences_.append(
+        QVariantMap{{"first_id", QString::fromStdString(hit.first_id)},
+                    {"second_id", QString::fromStdString(hit.second_id)},
+                    {"first_name", first_name},
+                    {"second_name", second_name},
+                    {"volume_m3", hit.volume_m3},
+                    {"classification", "unclassified"},
+                    {"method", "OCCT BRep common-volume"}});
+  }
+  applyInterferenceClassifications();
+  center_x_ = (min_x + max_x) / 2;
+  center_y_ = (min_y + max_y) / 2;
+  center_z_ = (min_z + max_z) / 2;
+  scene_min_z_ = min_z;
+  scene_diameter_ =
+      std::max({max_x - min_x, max_y - min_y, max_z - min_z, 0.01});
+  applyBindings();
+  emit partsChanged();
+}
+bool CadController::importStep(const QString &path) {
+  artifact_check_error_ = false;
+  error_.clear();
+  emit errorChanged();
 #ifdef PROMETHEUS_HAS_OCCT
-  const QFileInfo info(path);source_path_=info.absoluteFilePath();const bool large=info.size()>20*1024*1024;setBusy(true);watcher_.setFuture(QtConcurrent::run([file=source_path_.toStdString(),large]{return prometheus::cad::StepImporter{}.import_file(file,large?0.0015:0.0005,!large);}));
+  try {
+    const QFileInfo info(path);
+    source_path_ = info.absoluteFilePath();
+    source_reference_ = source_path_;
+    const auto snapshot = importCadSnapshot(source_path_);
+    assembly_artifact_hash_ = snapshot.assembly_artifact_hash;
+    applyResult(snapshot.result);
+    return true;
+  } catch (const std::exception &e) {
+    artifact_check_error_ = false;
+    error_ = QString::fromUtf8(e.what());
+    emit errorChanged();
+    return false;
+  }
 #else
   Q_UNUSED(path);
-  setBusy(false);error_="Open Cascade adapter is not enabled";emit errorChanged();emit importFinished(false);
+  error_ = "Open Cascade adapter is not enabled";
+  emit errorChanged();
+  return false;
 #endif
 }
-void CadController::cancelImport(){if(!busy_)return;watcher_.cancel();setBusy(false);}
-bool CadController::saveProject(const QString& path){QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)){error_="Cannot open project for writing";emit errorChanged();return false;}QJsonArray bindings,placements_json;for(const auto& value:parts_){const auto* part=qobject_cast<CadPart*>(value.value<QObject*>());if(!part->componentRevisionId().isEmpty())bindings.append(QJsonObject{{"cad_entity_id",part->persistentId()},{"revision_id",part->componentRevisionId()},{"label",part->componentLabel()}});if(part->translationX()!=0||part->translationY()!=0||part->translationZ()!=0||part->rotationX()!=0||part->rotationY()!=0||part->rotationZ()!=0)placements_json.append(QJsonObject{{"cad_entity_id",part->persistentId()},{"translation_x_m",part->translationX()},{"translation_y_m",part->translationY()},{"translation_z_m",part->translationZ()},{"rotation_x_deg",part->rotationX()},{"rotation_y_deg",part->rotationY()},{"rotation_z_deg",part->rotationZ()},{"rotation_convention","extrinsic_X_then_Y_then_Z_about_imported_bounds_center"}});}const QJsonObject manifest{{"schema_version","1.0.0"},{"name",source_name_},{"cad_source",source_path_},{"coordinate_system","right-handed Z-up"},{"length_unit","m"},{"component_bindings",bindings},{"placement_overrides",placements_json},{"connections",QJsonArray::fromVariantList(connections_)},{"interference_classifications",QJsonArray::fromVariantList(pending_interference_classifications_)},{"engineering",QJsonObject::fromVariantMap(engineering_state_)}};file.write(QJsonDocument(manifest).toJson(QJsonDocument::Indented));if(!file.commit()){error_="Atomic project save failed";emit errorChanged();return false;}return true;}
-void CadController::openProject(const QString& path){QFile file(path);if(!file.open(QIODevice::ReadOnly)){error_="Cannot open project";emit errorChanged();return;}const auto document=QJsonDocument::fromJson(file.readAll());if(!document.isObject()||document.object().value("schema_version")!="1.0.0"){error_="Unsupported project manifest";emit errorChanged();return;}pending_bindings_=document.object().value("component_bindings").toArray().toVariantList();pending_placements_=document.object().value("placement_overrides").toArray().toVariantList();pending_connections_=document.object().value("connections").toArray().toVariantList();pending_interference_classifications_=document.object().value("interference_classifications").toArray().toVariantList();engineering_state_=document.object().value("engineering").toObject().toVariantMap();emit engineeringStateChanged();const auto source=document.object().value("cad_source").toString();if(!QFileInfo::exists(source)){error_="Referenced CAD artifact is missing";emit errorChanged();return;}importStepAsync(source);}
-void CadController::toggleVisible(int index){if(index<0||index>=parts_.size())return;auto* part=qobject_cast<CadPart*>(parts_[index].value<QObject*>());part->setVisible(!part->visible());}
-void CadController::isolate(int index){for(int i=0;i<parts_.size();++i)qobject_cast<CadPart*>(parts_[i].value<QObject*>())->setVisible(i==index);}
-void CadController::showAll(){for(const auto& item:parts_)qobject_cast<CadPart*>(item.value<QObject*>())->setVisible(true);}
-void CadController::bindComponent(int index,const QVariantMap& revision){if(index<0||index>=parts_.size())return;auto* part=qobject_cast<CadPart*>(parts_[index].value<QObject*>());part->bindComponent(revision.value("id").toString(),revision.value("manufacturer").toString()+" "+revision.value("part_number").toString());}
-QVariantMap CadController::measureBetween(int first,int second)const{if(first<0||second<0||first>=parts_.size()||second>=parts_.size()||first==second)return {};const auto* a=qobject_cast<CadPart*>(parts_[first].value<QObject*>());const auto* b=qobject_cast<CadPart*>(parts_[second].value<QObject*>());const double dx=b->centerX()+b->translationX()-a->centerX()-a->translationX(),dy=b->centerY()+b->translationY()-a->centerY()-a->translationY(),dz=b->centerZ()+b->translationZ()-a->centerZ()-a->translationZ();const double gap_x=std::max(0.0,std::abs(dx)-(a->aabbSizeX()+b->aabbSizeX())/2),gap_y=std::max(0.0,std::abs(dy)-(a->aabbSizeY()+b->aabbSizeY())/2),gap_z=std::max(0.0,std::abs(dz)-(a->aabbSizeZ()+b->aabbSizeZ())/2);return {{"first",a->name()},{"second",b->name()},{"dx_m",dx},{"dy_m",dy},{"dz_m",dz},{"center_distance_m",std::sqrt(dx*dx+dy*dy+dz*dz)},{"aabb_clearance_m",std::sqrt(gap_x*gap_x+gap_y*gap_y+gap_z*gap_z)},{"broad_phase_overlap",gap_x==0&&gap_y==0&&gap_z==0}};}
-void CadController::classifyInterference(const QString& first,const QString& second,const QString& classification){bool stored=false;for(int i=0;i<pending_interference_classifications_.size();++i){auto saved=pending_interference_classifications_[i].toMap();if((saved.value("first_id")==first&&saved.value("second_id")==second)||(saved.value("first_id")==second&&saved.value("second_id")==first)){saved["classification"]=classification;pending_interference_classifications_[i]=saved;stored=true;}}if(!stored)pending_interference_classifications_.append(QVariantMap{{"first_id",first},{"second_id",second},{"classification",classification}});applyInterferenceClassifications();emit partsChanged();}
-void CadController::applyInterferenceClassifications(){for(const auto& saved_value:pending_interference_classifications_){const auto saved=saved_value.toMap();for(int i=0;i<interferences_.size();++i){auto hit=interferences_[i].toMap();if((hit.value("first_id")==saved.value("first_id")&&hit.value("second_id")==saved.value("second_id"))||(hit.value("first_id")==saved.value("second_id")&&hit.value("second_id")==saved.value("first_id"))){hit["classification"]=saved.value("classification","unclassified");interferences_[i]=hit;}}}}
-void CadController::runJointSweepAsync(int moving_index,int excluded_index,double px,double py,double pz,const QString& axis,double minimum,double maximum){
+void CadController::importStepAsync(const QString &path) {
+  const QFileInfo information(path);
+  startImport(information.absoluteFilePath(), information.absoluteFilePath());
+}
+void CadController::startImport(const QString &resolvedPath,
+                                const QString &sourceReference) {
+  if (busy_)
+    return;
+  artifact_check_error_ = false;
+  error_.clear();
+  emit errorChanged();
+  source_path_ = resolvedPath;
+  source_reference_ = sourceReference;
 #ifdef PROMETHEUS_HAS_OCCT
-  if(sweep_busy_||geometry_busy_||moving_index<0||excluded_index<0||moving_index>=parts_.size()||excluded_index>=parts_.size())return;const auto moving=qobject_cast<CadPart*>(parts_[moving_index].value<QObject*>())->persistentId().toStdString();const auto excluded=qobject_cast<CadPart*>(parts_[excluded_index].value<QObject*>())->persistentId().toStdString();const auto path=source_path_.toStdString();const auto current_placements=placements();std::array<double,3> direction{0,0,0};if(axis=="X")direction[0]=1;else if(axis=="Y")direction[1]=1;else direction[2]=1;sweep_busy_=true;emit sweepBusyChanged();sweep_watcher_.setFuture(QtConcurrent::run([path,moving,excluded,px,py,pz,direction,minimum,maximum,current_placements]{return prometheus::cad::StepImporter{}.sweep_revolute(path,moving,excluded,{px,py,pz},direction,minimum,maximum,19,current_placements);}));
+  setBusy(true);
+  watcher_.setFuture(QtConcurrent::run(
+      [file = source_path_] { return importCadSnapshot(file); }));
 #else
-  Q_UNUSED(moving_index);Q_UNUSED(excluded_index);Q_UNUSED(px);Q_UNUSED(py);Q_UNUSED(pz);Q_UNUSED(axis);Q_UNUSED(minimum);Q_UNUSED(maximum);
-  if(sweep_busy_){sweep_busy_=false;emit sweepBusyChanged();}sweep_results_.clear();error_="Open Cascade adapter is not enabled";emit errorChanged();emit sweepFinished();
+  setBusy(false);
+  error_ = "Open Cascade adapter is not enabled";
+  emit errorChanged();
+  emit importFinished(false);
 #endif
 }
-void CadController::applyBindings(){for(const auto& value:pending_bindings_){const auto binding=value.toMap();for(const auto& part_value:parts_){auto* part=qobject_cast<CadPart*>(part_value.value<QObject*>());if(part->persistentId()==binding.value("cad_entity_id").toString())part->bindComponent(binding.value("revision_id").toString(),binding.value("label").toString());}}pending_bindings_.clear();applyPlacements();}
-std::vector<prometheus::cad::PartPlacement> CadController::placements()const{std::vector<prometheus::cad::PartPlacement> result;for(const auto& value:parts_){const auto* part=qobject_cast<CadPart*>(value.value<QObject*>());if(part->translationX()!=0||part->translationY()!=0||part->translationZ()!=0||part->rotationX()!=0||part->rotationY()!=0||part->rotationZ()!=0)result.push_back({part->persistentId().toStdString(),part->translationX(),part->translationY(),part->translationZ(),part->rotationX(),part->rotationY(),part->rotationZ()});}return result;}
-void CadController::applyPlacements(){bool changed=false;for(const auto& value:pending_placements_){const auto saved=value.toMap();for(const auto& part_value:parts_){auto* part=qobject_cast<CadPart*>(part_value.value<QObject*>());if(part->persistentId()==saved.value("cad_entity_id").toString()){part->setPlacement(saved.value("translation_x_m").toDouble(),saved.value("translation_y_m").toDouble(),saved.value("translation_z_m").toDouble(),saved.value("rotation_x_deg").toDouble(),saved.value("rotation_y_deg").toDouble(),saved.value("rotation_z_deg").toDouble());changed=true;}}}pending_placements_.clear();applyConnections();if(changed)refreshInterferencesAsync();}
-void CadController::applyConnections(){connections_.clear();QStringList ids;for(const auto& item:parts_)ids.append(qobject_cast<CadPart*>(item.value<QObject*>())->persistentId());for(const auto& item:pending_connections_){const auto connection=item.toMap();if(ids.contains(connection.value("source_part").toString())&&ids.contains(connection.value("target_part").toString()))connections_.append(connection);}pending_connections_.clear();emit connectionsChanged();}
-QVariantMap CadController::placementState(int index)const{if(index<0||index>=parts_.size())return {};const auto* part=qobject_cast<CadPart*>(parts_[index].value<QObject*>());return {{"index",index},{"x",part->translationX()},{"y",part->translationY()},{"z",part->translationZ()},{"rx",part->rotationX()},{"ry",part->rotationY()},{"rz",part->rotationZ()}};}
-void CadController::applyPlacementState(const QVariantMap& state){const int index=state.value("index").toInt();if(index<0||index>=parts_.size())return;qobject_cast<CadPart*>(parts_[index].value<QObject*>())->setPlacement(state.value("x").toDouble(),state.value("y").toDouble(),state.value("z").toDouble(),state.value("rx").toDouble(),state.value("ry").toDouble(),state.value("rz").toDouble());refreshInterferencesAsync();emit partsChanged();}
-void CadController::setPartPlacement(int index,double x,double y,double z,double rx,double ry,double rz){if(index<0||index>=parts_.size()||geometry_busy_)return;undo_stack_.append(placementState(index));redo_stack_.clear();qobject_cast<CadPart*>(parts_[index].value<QObject*>())->setPlacement(x,y,z,rx,ry,rz);emit historyChanged();refreshInterferencesAsync();emit partsChanged();}
-bool CadController::beginPlacementPreview(int index){if(index<0||index>=parts_.size()||geometry_busy_||!active_placement_preview_.isEmpty())return false;active_placement_preview_=placementState(index);return true;}
-void CadController::previewPartPlacement(int index,double x,double y,double z,double rx,double ry,double rz){if(active_placement_preview_.isEmpty()||active_placement_preview_.value("index").toInt()!=index)return;qobject_cast<CadPart*>(parts_[index].value<QObject*>())->setPlacement(x,y,z,rx,ry,rz);}
-void CadController::commitPlacementPreview(){if(active_placement_preview_.isEmpty())return;undo_stack_.append(active_placement_preview_);active_placement_preview_.clear();redo_stack_.clear();emit historyChanged();refreshInterferencesAsync();emit partsChanged();}
-void CadController::cancelPlacementPreview(){if(active_placement_preview_.isEmpty())return;const auto state=active_placement_preview_;active_placement_preview_.clear();const int index=state.value("index").toInt();if(index>=0&&index<parts_.size())qobject_cast<CadPart*>(parts_[index].value<QObject*>())->setPlacement(state.value("x").toDouble(),state.value("y").toDouble(),state.value("z").toDouble(),state.value("rx").toDouble(),state.value("ry").toDouble(),state.value("rz").toDouble());emit partsChanged();}
-QVariantMap CadController::localAxisDirection(int index,const QString& axis)const{if(index<0||index>=parts_.size())return {};const auto* p=qobject_cast<CadPart*>(parts_[index].value<QObject*>());const auto r=rotation_matrix(p->rotationX(),p->rotationY(),p->rotationZ());const int column=axis=="X"?0:axis=="Y"?1:2;return {{"x",r[column]},{"y",r[3+column]},{"z",r[6+column]}};}
-QVariantMap CadController::composeLocalRotation(double rx,double ry,double rz,const QString& axis,double delta)const{const auto local=axis=="X"?rotation_matrix(delta,0,0):axis=="Y"?rotation_matrix(0,delta,0):rotation_matrix(0,0,delta);const auto result=euler_xyz(multiply(rotation_matrix(rx,ry,rz),local));return {{"rx",result[0]},{"ry",result[1]},{"rz",result[2]}};}
-QVariantList CadController::placementAnchors(int index)const{QVariantList result;if(index<0||index>=parts_.size())return result;const auto* p=qobject_cast<CadPart*>(parts_[index].value<QObject*>());const auto r=rotation_matrix(p->rotationX(),p->rotationY(),p->rotationZ());const auto append=[&](const QString&id,const QString&label,double lx,double ly,double lz){const double x=p->centerX()+p->translationX()+r[0]*lx+r[1]*ly+r[2]*lz,y=p->centerY()+p->translationY()+r[3]*lx+r[4]*ly+r[5]*lz,z=p->centerZ()+p->translationZ()+r[6]*lx+r[7]*ly+r[8]*lz;result.append(QVariantMap{{"id",id},{"label",label},{"x",x},{"y",y},{"z",z},{"origin","derived_bounds"}});};append("center","Bounds center",0,0,0);append("x_min","−X face center",-p->sizeX()/2,0,0);append("x_max","+X face center",p->sizeX()/2,0,0);append("y_min","−Y face center",0,-p->sizeY()/2,0);append("y_max","+Y face center",0,p->sizeY()/2,0);append("z_min","−Z face center",0,0,-p->sizeZ()/2);append("z_max","+Z face center",0,0,p->sizeZ()/2);return result;}
-bool CadController::snapPlacementAnchors(int moving_index,const QString& moving_anchor,int target_index,const QString& target_anchor){if(moving_index<0||target_index<0||moving_index>=parts_.size()||target_index>=parts_.size()||moving_index==target_index||geometry_busy_)return false;const auto find=[](const QVariantList& anchors,const QString&id){for(const auto& item:anchors){const auto anchor=item.toMap();if(anchor.value("id").toString()==id)return anchor;}return QVariantMap{};};const auto moving=find(placementAnchors(moving_index),moving_anchor),target=find(placementAnchors(target_index),target_anchor);if(moving.isEmpty()||target.isEmpty())return false;const auto* p=qobject_cast<CadPart*>(parts_[moving_index].value<QObject*>());setPartPlacement(moving_index,p->translationX()+target.value("x").toDouble()-moving.value("x").toDouble(),p->translationY()+target.value("y").toDouble()-moving.value("y").toDouble(),p->translationZ()+target.value("z").toDouble()-moving.value("z").toDouble(),p->rotationX(),p->rotationY(),p->rotationZ());return true;}
-bool CadController::confirmAnchorConnection(int source_index,const QString& source_anchor,int target_index,const QString& target_anchor,const QString& type){if(type!="fixed"&&type!="revolute"&&type!="sliding"&&type!="contact")return false;if(!snapPlacementAnchors(source_index,source_anchor,target_index,target_anchor))return false;const auto* source=qobject_cast<CadPart*>(parts_[source_index].value<QObject*>());const auto* target=qobject_cast<CadPart*>(parts_[target_index].value<QObject*>());const QString id=source->persistentId()+":"+source_anchor+"->"+target->persistentId()+":"+target_anchor;for(int i=connections_.size()-1;i>=0;--i)if(connections_[i].toMap().value("id").toString()==id)connections_.removeAt(i);connections_.append(QVariantMap{{"id",id},{"source_part",source->persistentId()},{"source_name",source->name()},{"source_anchor",source_anchor},{"target_part",target->persistentId()},{"target_name",target->name()},{"target_anchor",target_anchor},{"connection_type",type},{"confirmed_by_user",true},{"anchor_origin","derived_bounds"},{"semantic_status","provisional_geometry_anchor"}});emit connectionsChanged();return true;}
-void CadController::removeConnection(int index){if(index<0||index>=connections_.size())return;connections_.removeAt(index);emit connectionsChanged();}
-void CadController::setPartTranslation(int index,double x,double y,double z){if(index<0||index>=parts_.size())return;const auto* part=qobject_cast<CadPart*>(parts_[index].value<QObject*>());setPartPlacement(index,x,y,z,part->rotationX(),part->rotationY(),part->rotationZ());}
-void CadController::resetPartTranslation(int index){setPartPlacement(index,0,0,0,0,0,0);}
-void CadController::undoPlacement(){if(!canUndo()||geometry_busy_)return;const auto state=undo_stack_.takeLast().toMap();redo_stack_.append(placementState(state.value("index").toInt()));emit historyChanged();applyPlacementState(state);}
-void CadController::redoPlacement(){if(!canRedo()||geometry_busy_)return;const auto state=redo_stack_.takeLast().toMap();undo_stack_.append(placementState(state.value("index").toInt()));emit historyChanged();applyPlacementState(state);}
-void CadController::refreshInterferencesAsync(){
+void CadController::cancelImport() {
+  if (!busy_)
+    return;
+  watcher_.cancel();
+  setBusy(false);
+}
+QVariantMap CadController::snapshotCadState() const {
+  QVariantList bindings;
+  QVariantList placementSnapshots;
+  for (const auto &value : parts_) {
+    const auto *part = qobject_cast<CadPart *>(value.value<QObject *>());
+    if (!part->componentRevisionId().isEmpty())
+      bindings.append(QVariantMap{{"cad_entity_id", part->persistentId()},
+                                  {"revision_id", part->componentRevisionId()},
+                                  {"label", part->componentLabel()}});
+    if (part->translationX() != 0 || part->translationY() != 0 ||
+        part->translationZ() != 0 || part->rotationX() != 0 ||
+        part->rotationY() != 0 || part->rotationZ() != 0)
+      placementSnapshots.append(QVariantMap{
+          {"cad_entity_id", part->persistentId()},
+          {"translation_x_m", part->translationX()},
+          {"translation_y_m", part->translationY()},
+          {"translation_z_m", part->translationZ()},
+          {"rotation_x_deg", part->rotationX()},
+          {"rotation_y_deg", part->rotationY()},
+          {"rotation_z_deg", part->rotationZ()},
+          {"rotation_convention",
+           "extrinsic_X_then_Y_then_Z_about_imported_bounds_center"}});
+  }
+  for (const auto &value : pending_bindings_) {
+    bindings.append(value);
+  }
+  for (const auto &value : pending_placements_) {
+    placementSnapshots.append(value);
+  }
+  QVariantList connectionSnapshots = connections_;
+  for (const auto &value : pending_connections_) {
+    connectionSnapshots.append(value);
+  }
+  return {
+      {"name", source_name_},
+      {"cad_source",
+       source_reference_.isEmpty() ? source_path_ : source_reference_},
+      {"resolved_cad_source", source_path_},
+      {"assembly_artifact_hash", assembly_artifact_hash_},
+      {"coordinate_system", "right-handed Z-up"},
+      {"length_unit", "m"},
+      {"component_bindings", bindings},
+      {"placement_overrides", placementSnapshots},
+      {"connections", connectionSnapshots},
+      {"interference_classifications", pending_interference_classifications_}};
+}
+void CadController::restoreCadState(const QVariantMap &state) {
+  if (busy_)
+    cancelImport();
+  clearParts();
+  interferences_.clear();
+  connections_.clear();
+  sweep_results_.clear();
+  undo_stack_.clear();
+  redo_stack_.clear();
+  source_name_ = state.value("name").toString();
+  source_reference_ = state.value("cad_source").toString();
+  source_path_ =
+      state.value("resolved_cad_source", source_reference_).toString();
+  assembly_artifact_hash_ = state.value("assembly_artifact_hash").toString();
+  pending_bindings_ = state.value("component_bindings").toList();
+  pending_placements_ = state.value("placement_overrides").toList();
+  pending_connections_ = state.value("connections").toList();
+  pending_interference_classifications_ =
+      state.value("interference_classifications").toList();
+  emit partsChanged();
+  emit connectionsChanged();
+  emit historyChanged();
+  if (!QFileInfo(source_path_).isFile()) {
+    artifact_check_error_ = false;
+    error_ = "Referenced CAD artifact is missing";
+    emit errorChanged();
+    emit importFinished(false);
+    return;
+  }
+  startImport(source_path_, source_reference_);
+}
+QString CadController::captureAssemblyArtifactHash() {
+  try {
+    assembly_artifact_hash_ = stableCadHash(source_path_);
+    source_reference_ = source_path_;
+    clearArtifactCheckError();
+    emit partsChanged();
+    return assembly_artifact_hash_;
+  } catch (const std::exception &failure) {
+    setArtifactCheckError(QString::fromUtf8(failure.what()));
+    return {};
+  }
+}
+bool CadController::recheckAssemblyArtifact(const QString &expectedHash) {
+  try {
+    const auto current = stableCadHash(source_path_);
+    if (current != expectedHash) {
+      setArtifactCheckError(
+          "External CAD artifact bytes changed after project capture");
+      return false;
+    }
+    clearArtifactCheckError();
+    return true;
+  } catch (const std::exception &failure) {
+    setArtifactCheckError(QString::fromUtf8(failure.what()));
+    return false;
+  }
+}
+void CadController::toggleVisible(int index) {
+  if (index < 0 || index >= parts_.size())
+    return;
+  auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  part->setVisible(!part->visible());
+}
+void CadController::isolate(int index) {
+  for (int i = 0; i < parts_.size(); ++i)
+    qobject_cast<CadPart *>(parts_[i].value<QObject *>())
+        ->setVisible(i == index);
+}
+void CadController::showAll() {
+  for (const auto &item : parts_)
+    qobject_cast<CadPart *>(item.value<QObject *>())->setVisible(true);
+}
+void CadController::bindComponent(int index, const QVariantMap &revision) {
+  if (index < 0 || index >= parts_.size())
+    return;
+  auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  part->bindComponent(revision.value("id").toString(),
+                      revision.value("manufacturer").toString() + " " +
+                          revision.value("part_number").toString());
+}
+QVariantMap CadController::measureBetween(int first, int second) const {
+  if (first < 0 || second < 0 || first >= parts_.size() ||
+      second >= parts_.size() || first == second)
+    return {};
+  const auto *a = qobject_cast<CadPart *>(parts_[first].value<QObject *>());
+  const auto *b = qobject_cast<CadPart *>(parts_[second].value<QObject *>());
+  const double dx = b->centerX() + b->translationX() - a->centerX() -
+                    a->translationX(),
+               dy = b->centerY() + b->translationY() - a->centerY() -
+                    a->translationY(),
+               dz = b->centerZ() + b->translationZ() - a->centerZ() -
+                    a->translationZ();
+  const double gap_x = std::max(0.0, std::abs(dx) -
+                                         (a->aabbSizeX() + b->aabbSizeX()) / 2),
+               gap_y = std::max(0.0, std::abs(dy) -
+                                         (a->aabbSizeY() + b->aabbSizeY()) / 2),
+               gap_z = std::max(0.0, std::abs(dz) -
+                                         (a->aabbSizeZ() + b->aabbSizeZ()) / 2);
+  return {{"first", a->name()},
+          {"second", b->name()},
+          {"dx_m", dx},
+          {"dy_m", dy},
+          {"dz_m", dz},
+          {"center_distance_m", std::sqrt(dx * dx + dy * dy + dz * dz)},
+          {"aabb_clearance_m",
+           std::sqrt(gap_x * gap_x + gap_y * gap_y + gap_z * gap_z)},
+          {"broad_phase_overlap", gap_x == 0 && gap_y == 0 && gap_z == 0}};
+}
+void CadController::classifyInterference(const QString &first,
+                                         const QString &second,
+                                         const QString &classification) {
+  bool stored = false;
+  for (int i = 0; i < pending_interference_classifications_.size(); ++i) {
+    auto saved = pending_interference_classifications_[i].toMap();
+    if ((saved.value("first_id") == first &&
+         saved.value("second_id") == second) ||
+        (saved.value("first_id") == second &&
+         saved.value("second_id") == first)) {
+      saved["classification"] = classification;
+      pending_interference_classifications_[i] = saved;
+      stored = true;
+    }
+  }
+  if (!stored)
+    pending_interference_classifications_.append(
+        QVariantMap{{"first_id", first},
+                    {"second_id", second},
+                    {"classification", classification}});
+  applyInterferenceClassifications();
+  emit partsChanged();
+}
+void CadController::applyInterferenceClassifications() {
+  for (const auto &saved_value : pending_interference_classifications_) {
+    const auto saved = saved_value.toMap();
+    for (int i = 0; i < interferences_.size(); ++i) {
+      auto hit = interferences_[i].toMap();
+      if ((hit.value("first_id") == saved.value("first_id") &&
+           hit.value("second_id") == saved.value("second_id")) ||
+          (hit.value("first_id") == saved.value("second_id") &&
+           hit.value("second_id") == saved.value("first_id"))) {
+        hit["classification"] = saved.value("classification", "unclassified");
+        interferences_[i] = hit;
+      }
+    }
+  }
+}
+void CadController::runJointSweepAsync(int moving_index, int excluded_index,
+                                       double px, double py, double pz,
+                                       const QString &axis, double minimum,
+                                       double maximum) {
 #ifdef PROMETHEUS_HAS_OCCT
-  if(geometry_busy_)return;if(collision_deferred_){emit partsChanged();emit geometryFinished();return;}geometry_busy_=true;emit geometryBusyChanged();const auto path=source_path_.toStdString();const auto current=placements();geometry_watcher_.setFuture(QtConcurrent::run([path,current]{return prometheus::cad::StepImporter{}.static_interferences(path,current);}));
+  if (sweep_busy_ || geometry_busy_ || moving_index < 0 || excluded_index < 0 ||
+      moving_index >= parts_.size() || excluded_index >= parts_.size())
+    return;
+  const auto moving =
+      qobject_cast<CadPart *>(parts_[moving_index].value<QObject *>())
+          ->persistentId()
+          .toStdString();
+  const auto excluded =
+      qobject_cast<CadPart *>(parts_[excluded_index].value<QObject *>())
+          ->persistentId()
+          .toStdString();
+  const auto path = source_path_.toStdString();
+  const auto current_placements = placements();
+  std::array<double, 3> direction{0, 0, 0};
+  if (axis == "X")
+    direction[0] = 1;
+  else if (axis == "Y")
+    direction[1] = 1;
+  else
+    direction[2] = 1;
+  sweep_busy_ = true;
+  emit sweepBusyChanged();
+  sweep_watcher_.setFuture(
+      QtConcurrent::run([path, moving, excluded, px, py, pz, direction, minimum,
+                         maximum, current_placements] {
+        return prometheus::cad::StepImporter{}.sweep_revolute(
+            path, moving, excluded, {px, py, pz}, direction, minimum, maximum,
+            19, current_placements);
+      }));
 #else
-  if(geometry_busy_){geometry_busy_=false;emit geometryBusyChanged();}error_="Open Cascade adapter is not enabled";emit errorChanged();emit geometryFinished();
+  Q_UNUSED(moving_index);
+  Q_UNUSED(excluded_index);
+  Q_UNUSED(px);
+  Q_UNUSED(py);
+  Q_UNUSED(pz);
+  Q_UNUSED(axis);
+  Q_UNUSED(minimum);
+  Q_UNUSED(maximum);
+  if (sweep_busy_) {
+    sweep_busy_ = false;
+    emit sweepBusyChanged();
+  }
+  sweep_results_.clear();
+  artifact_check_error_ = false;
+  error_ = "Open Cascade adapter is not enabled";
+  emit errorChanged();
+  emit sweepFinished();
+#endif
+}
+void CadController::applyBindings() {
+  QVariantList unresolved;
+  for (const auto &value : pending_bindings_) {
+    const auto binding = value.toMap();
+    bool matched = false;
+    for (const auto &part_value : parts_) {
+      auto *part = qobject_cast<CadPart *>(part_value.value<QObject *>());
+      if (part->persistentId() == binding.value("cad_entity_id").toString()) {
+        part->bindComponent(binding.value("revision_id").toString(),
+                            binding.value("label").toString());
+        matched = true;
+      }
+    }
+    if (!matched) {
+      unresolved.append(value);
+    }
+  }
+  pending_bindings_ = std::move(unresolved);
+  applyPlacements();
+}
+std::vector<prometheus::cad::PartPlacement> CadController::placements() const {
+  std::vector<prometheus::cad::PartPlacement> result;
+  for (const auto &value : parts_) {
+    const auto *part = qobject_cast<CadPart *>(value.value<QObject *>());
+    if (part->translationX() != 0 || part->translationY() != 0 ||
+        part->translationZ() != 0 || part->rotationX() != 0 ||
+        part->rotationY() != 0 || part->rotationZ() != 0)
+      result.push_back({part->persistentId().toStdString(),
+                        part->translationX(), part->translationY(),
+                        part->translationZ(), part->rotationX(),
+                        part->rotationY(), part->rotationZ()});
+  }
+  return result;
+}
+void CadController::applyPlacements() {
+  bool changed = false;
+  QVariantList unresolved;
+  for (const auto &value : pending_placements_) {
+    const auto saved = value.toMap();
+    bool matched = false;
+    for (const auto &part_value : parts_) {
+      auto *part = qobject_cast<CadPart *>(part_value.value<QObject *>());
+      if (part->persistentId() == saved.value("cad_entity_id").toString()) {
+        part->setPlacement(saved.value("translation_x_m").toDouble(),
+                           saved.value("translation_y_m").toDouble(),
+                           saved.value("translation_z_m").toDouble(),
+                           saved.value("rotation_x_deg").toDouble(),
+                           saved.value("rotation_y_deg").toDouble(),
+                           saved.value("rotation_z_deg").toDouble());
+        changed = true;
+        matched = true;
+      }
+    }
+    if (!matched) {
+      unresolved.append(value);
+    }
+  }
+  pending_placements_ = std::move(unresolved);
+  applyConnections();
+  if (changed)
+    refreshInterferencesAsync();
+}
+void CadController::applyConnections() {
+  connections_.clear();
+  QVariantList unresolved;
+  QStringList ids;
+  for (const auto &item : parts_)
+    ids.append(
+        qobject_cast<CadPart *>(item.value<QObject *>())->persistentId());
+  for (const auto &item : pending_connections_) {
+    const auto connection = item.toMap();
+    if (ids.contains(connection.value("source_part").toString()) &&
+        ids.contains(connection.value("target_part").toString())) {
+      connections_.append(connection);
+    } else {
+      unresolved.append(item);
+    }
+  }
+  pending_connections_ = std::move(unresolved);
+  emit connectionsChanged();
+}
+QVariantMap CadController::placementState(int index) const {
+  if (index < 0 || index >= parts_.size())
+    return {};
+  const auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  return {{"index", index},
+          {"x", part->translationX()},
+          {"y", part->translationY()},
+          {"z", part->translationZ()},
+          {"rx", part->rotationX()},
+          {"ry", part->rotationY()},
+          {"rz", part->rotationZ()}};
+}
+void CadController::applyPlacementState(const QVariantMap &state) {
+  const int index = state.value("index").toInt();
+  if (index < 0 || index >= parts_.size())
+    return;
+  qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+      ->setPlacement(state.value("x").toDouble(), state.value("y").toDouble(),
+                     state.value("z").toDouble(), state.value("rx").toDouble(),
+                     state.value("ry").toDouble(),
+                     state.value("rz").toDouble());
+  refreshInterferencesAsync();
+  emit partsChanged();
+}
+void CadController::setPartPlacement(int index, double x, double y, double z,
+                                     double rx, double ry, double rz) {
+  if (index < 0 || index >= parts_.size() || geometry_busy_)
+    return;
+  undo_stack_.append(placementState(index));
+  redo_stack_.clear();
+  qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+      ->setPlacement(x, y, z, rx, ry, rz);
+  emit historyChanged();
+  refreshInterferencesAsync();
+  emit partsChanged();
+}
+bool CadController::beginPlacementPreview(int index) {
+  if (index < 0 || index >= parts_.size() || geometry_busy_ ||
+      !active_placement_preview_.isEmpty())
+    return false;
+  active_placement_preview_ = placementState(index);
+  return true;
+}
+void CadController::previewPartPlacement(int index, double x, double y,
+                                         double z, double rx, double ry,
+                                         double rz) {
+  if (active_placement_preview_.isEmpty() ||
+      active_placement_preview_.value("index").toInt() != index)
+    return;
+  qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+      ->setPlacement(x, y, z, rx, ry, rz);
+}
+void CadController::commitPlacementPreview() {
+  if (active_placement_preview_.isEmpty())
+    return;
+  undo_stack_.append(active_placement_preview_);
+  active_placement_preview_.clear();
+  redo_stack_.clear();
+  emit historyChanged();
+  refreshInterferencesAsync();
+  emit partsChanged();
+}
+void CadController::cancelPlacementPreview() {
+  if (active_placement_preview_.isEmpty())
+    return;
+  const auto state = active_placement_preview_;
+  active_placement_preview_.clear();
+  const int index = state.value("index").toInt();
+  if (index >= 0 && index < parts_.size())
+    qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+        ->setPlacement(
+            state.value("x").toDouble(), state.value("y").toDouble(),
+            state.value("z").toDouble(), state.value("rx").toDouble(),
+            state.value("ry").toDouble(), state.value("rz").toDouble());
+  emit partsChanged();
+}
+QVariantMap CadController::localAxisDirection(int index,
+                                              const QString &axis) const {
+  if (index < 0 || index >= parts_.size())
+    return {};
+  const auto *p = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  const auto r =
+      rotation_matrix(p->rotationX(), p->rotationY(), p->rotationZ());
+  const int column = axis == "X" ? 0 : axis == "Y" ? 1 : 2;
+  return {{"x", r[column]}, {"y", r[3 + column]}, {"z", r[6 + column]}};
+}
+QVariantMap CadController::composeLocalRotation(double rx, double ry, double rz,
+                                                const QString &axis,
+                                                double delta) const {
+  const auto local = axis == "X"   ? rotation_matrix(delta, 0, 0)
+                     : axis == "Y" ? rotation_matrix(0, delta, 0)
+                                   : rotation_matrix(0, 0, delta);
+  const auto result = euler_xyz(multiply(rotation_matrix(rx, ry, rz), local));
+  return {{"rx", result[0]}, {"ry", result[1]}, {"rz", result[2]}};
+}
+QVariantList CadController::placementAnchors(int index) const {
+  QVariantList result;
+  if (index < 0 || index >= parts_.size())
+    return result;
+  const auto *p = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  const auto r =
+      rotation_matrix(p->rotationX(), p->rotationY(), p->rotationZ());
+  const auto append = [&](const QString &id, const QString &label, double lx,
+                          double ly, double lz) {
+    const double x = p->centerX() + p->translationX() + r[0] * lx + r[1] * ly +
+                     r[2] * lz,
+                 y = p->centerY() + p->translationY() + r[3] * lx + r[4] * ly +
+                     r[5] * lz,
+                 z = p->centerZ() + p->translationZ() + r[6] * lx + r[7] * ly +
+                     r[8] * lz;
+    result.append(QVariantMap{{"id", id},
+                              {"label", label},
+                              {"x", x},
+                              {"y", y},
+                              {"z", z},
+                              {"origin", "derived_bounds"}});
+  };
+  append("center", "Bounds center", 0, 0, 0);
+  append("x_min", "−X face center", -p->sizeX() / 2, 0, 0);
+  append("x_max", "+X face center", p->sizeX() / 2, 0, 0);
+  append("y_min", "−Y face center", 0, -p->sizeY() / 2, 0);
+  append("y_max", "+Y face center", 0, p->sizeY() / 2, 0);
+  append("z_min", "−Z face center", 0, 0, -p->sizeZ() / 2);
+  append("z_max", "+Z face center", 0, 0, p->sizeZ() / 2);
+  return result;
+}
+bool CadController::snapPlacementAnchors(int moving_index,
+                                         const QString &moving_anchor,
+                                         int target_index,
+                                         const QString &target_anchor) {
+  if (moving_index < 0 || target_index < 0 || moving_index >= parts_.size() ||
+      target_index >= parts_.size() || moving_index == target_index ||
+      geometry_busy_)
+    return false;
+  const auto find = [](const QVariantList &anchors, const QString &id) {
+    for (const auto &item : anchors) {
+      const auto anchor = item.toMap();
+      if (anchor.value("id").toString() == id)
+        return anchor;
+    }
+    return QVariantMap{};
+  };
+  const auto moving = find(placementAnchors(moving_index), moving_anchor),
+             target = find(placementAnchors(target_index), target_anchor);
+  if (moving.isEmpty() || target.isEmpty())
+    return false;
+  const auto *p =
+      qobject_cast<CadPart *>(parts_[moving_index].value<QObject *>());
+  setPartPlacement(moving_index,
+                   p->translationX() + target.value("x").toDouble() -
+                       moving.value("x").toDouble(),
+                   p->translationY() + target.value("y").toDouble() -
+                       moving.value("y").toDouble(),
+                   p->translationZ() + target.value("z").toDouble() -
+                       moving.value("z").toDouble(),
+                   p->rotationX(), p->rotationY(), p->rotationZ());
+  return true;
+}
+bool CadController::confirmAnchorConnection(int source_index,
+                                            const QString &source_anchor,
+                                            int target_index,
+                                            const QString &target_anchor,
+                                            const QString &type) {
+  if (type != "fixed" && type != "revolute" && type != "sliding" &&
+      type != "contact")
+    return false;
+  if (!snapPlacementAnchors(source_index, source_anchor, target_index,
+                            target_anchor))
+    return false;
+  const auto *source =
+      qobject_cast<CadPart *>(parts_[source_index].value<QObject *>());
+  const auto *target =
+      qobject_cast<CadPart *>(parts_[target_index].value<QObject *>());
+  const QString id = source->persistentId() + ":" + source_anchor + "->" +
+                     target->persistentId() + ":" + target_anchor;
+  for (int i = connections_.size() - 1; i >= 0; --i)
+    if (connections_[i].toMap().value("id").toString() == id)
+      connections_.removeAt(i);
+  connections_.append(
+      QVariantMap{{"id", id},
+                  {"source_part", source->persistentId()},
+                  {"source_name", source->name()},
+                  {"source_anchor", source_anchor},
+                  {"target_part", target->persistentId()},
+                  {"target_name", target->name()},
+                  {"target_anchor", target_anchor},
+                  {"connection_type", type},
+                  {"confirmed_by_user", true},
+                  {"anchor_origin", "derived_bounds"},
+                  {"semantic_status", "provisional_geometry_anchor"}});
+  emit connectionsChanged();
+  return true;
+}
+void CadController::removeConnection(int index) {
+  if (index < 0 || index >= connections_.size())
+    return;
+  connections_.removeAt(index);
+  emit connectionsChanged();
+}
+void CadController::setPartTranslation(int index, double x, double y,
+                                       double z) {
+  if (index < 0 || index >= parts_.size())
+    return;
+  const auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  setPartPlacement(index, x, y, z, part->rotationX(), part->rotationY(),
+                   part->rotationZ());
+}
+void CadController::resetPartTranslation(int index) {
+  setPartPlacement(index, 0, 0, 0, 0, 0, 0);
+}
+void CadController::undoPlacement() {
+  if (!canUndo() || geometry_busy_)
+    return;
+  const auto state = undo_stack_.takeLast().toMap();
+  redo_stack_.append(placementState(state.value("index").toInt()));
+  emit historyChanged();
+  applyPlacementState(state);
+}
+void CadController::redoPlacement() {
+  if (!canRedo() || geometry_busy_)
+    return;
+  const auto state = redo_stack_.takeLast().toMap();
+  undo_stack_.append(placementState(state.value("index").toInt()));
+  emit historyChanged();
+  applyPlacementState(state);
+}
+void CadController::refreshInterferencesAsync() {
+#ifdef PROMETHEUS_HAS_OCCT
+  if (geometry_busy_)
+    return;
+  if (collision_deferred_) {
+    emit partsChanged();
+    emit geometryFinished();
+    return;
+  }
+  geometry_busy_ = true;
+  emit geometryBusyChanged();
+  const auto path = source_path_.toStdString();
+  const auto current = placements();
+  geometry_watcher_.setFuture(QtConcurrent::run([path, current] {
+    return prometheus::cad::StepImporter{}.static_interferences(path, current);
+  }));
+#else
+  if (geometry_busy_) {
+    geometry_busy_ = false;
+    emit geometryBusyChanged();
+  }
+  artifact_check_error_ = false;
+  error_ = "Open Cascade adapter is not enabled";
+  emit errorChanged();
+  emit geometryFinished();
 #endif
 }

@@ -67,12 +67,24 @@ create_project_v2(const std::filesystem::path &project_path,
                   const ProjectV2 &initial_project,
                   TransactionOptions options = {}) noexcept;
 
+// Reads only the atomically replaced project index. This intentionally does
+// not claim that its execution sidecar exists and is used by the desktop only
+// for degraded metadata/CAD recovery when the sidecar is missing.
+[[nodiscard]] Result<ProjectV2> open_project_index_read_only(
+    const std::filesystem::path &project_path) noexcept;
+
+// Updates only mutable CAD and geometry snapshot fields. The execution index
+// and legacy preservation are reloaded and retained while holding the writer
+// lock so a stale desktop snapshot cannot erase newer committed runs.
 [[nodiscard]] Result<ProjectV2>
-install_package_binding(const std::filesystem::path &project_path,
-                        std::string cad_entity_id,
-                        const StoredObjectReference &package_reference,
-                        std::string_view package_bytes,
-                        TransactionOptions options = {}) noexcept;
+save_project_snapshot(const std::filesystem::path &project_path,
+                      const ProjectV2 &snapshot,
+                      TransactionOptions options = {}) noexcept;
+
+[[nodiscard]] Result<ProjectV2> install_package_binding(
+    const std::filesystem::path &project_path, std::string cad_entity_id,
+    const StoredObjectReference &package_reference,
+    std::string_view package_bytes, TransactionOptions options = {}) noexcept;
 
 [[nodiscard]] Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,

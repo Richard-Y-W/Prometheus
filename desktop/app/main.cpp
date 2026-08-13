@@ -5,15 +5,17 @@
 #include <QTimer>
 #include <QDebug>
 #include "cad_controller.hpp"
-#include "service_controller.hpp"
 #include "engineering_controller.hpp"
+#include "project_controller.hpp"
+#include "service_controller.hpp"
 int main(int argc, char* argv[]) {
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName("Prometheus");
-  QQmlApplicationEngine engine;
   CadController cad;
   ServiceController service;
   EngineeringController engineering;
+  ProjectController project(&cad,&engineering);
+  QQmlApplicationEngine engine;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");
   const bool demo_cad_inspect=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_CAD_INSPECT");
@@ -22,6 +24,7 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("cadController",&cad);
   engine.rootContext()->setContextProperty("serviceController",&service);
   engine.rootContext()->setContextProperty("engineeringController",&engineering);
+  engine.rootContext()->setContextProperty("projectController",&project);
   engine.rootContext()->setContextProperty("demoResearch",demo_research);
   engine.rootContext()->setContextProperty("demoEngineering",demo_engineering);
   engine.rootContext()->setContextProperty("demoCadInspect",demo_cad_inspect);

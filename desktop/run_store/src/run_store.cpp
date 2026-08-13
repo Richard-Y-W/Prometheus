@@ -40,10 +40,9 @@ std::string bounded(std::string value, const std::size_t maximum_bytes) {
 
 } // namespace
 
-Diagnostic
-store_diagnostic(std::string code, std::string message,
-                 std::optional<std::string> field,
-                 std::optional<std::filesystem::path> path) {
+Diagnostic store_diagnostic(std::string code, std::string message,
+                            std::optional<std::string> field,
+                            std::optional<std::filesystem::path> path) {
   if (field.has_value()) {
     *field = bounded(std::move(*field), 512U);
   }
@@ -93,8 +92,7 @@ namespace {
 using Json = nlohmann::json;
 constexpr std::uint64_t maximum_safe_integer = 9007199254740991ULL;
 
-template <typename T>
-Result<T> failure_from(const Diagnostic &diagnostic) {
+template <typename T> Result<T> failure_from(const Diagnostic &diagnostic) {
   return Result<T>::failure(diagnostic);
 }
 
@@ -152,11 +150,9 @@ bool exact_keys(const Json &value,
   });
 }
 
-std::optional<StoredObjectReference>
-reference_from_json(const Json &value) {
-  if (!exact_keys(value,
-                  {"object_hash", "byte_length", "media_type", "schema_id",
-                   "schema_version"}) ||
+std::optional<StoredObjectReference> reference_from_json(const Json &value) {
+  if (!exact_keys(value, {"object_hash", "byte_length", "media_type",
+                          "schema_id", "schema_version"}) ||
       !value.at("object_hash").is_string() ||
       (!value.at("byte_length").is_number_integer() &&
        !value.at("byte_length").is_number_unsigned()) ||
@@ -169,12 +165,11 @@ reference_from_json(const Json &value) {
       value.at("byte_length").get<std::int64_t>() < 0) {
     return std::nullopt;
   }
-  return StoredObjectReference{
-      value.at("object_hash").get<std::string>(),
-      value.at("byte_length").get<std::uint64_t>(),
-      value.at("media_type").get<std::string>(),
-      value.at("schema_id").get<std::string>(),
-      value.at("schema_version").get<std::string>()};
+  return StoredObjectReference{value.at("object_hash").get<std::string>(),
+                               value.at("byte_length").get<std::uint64_t>(),
+                               value.at("media_type").get<std::string>(),
+                               value.at("schema_id").get<std::string>(),
+                               value.at("schema_version").get<std::string>()};
 }
 
 bool string_equals(const Json &object, const std::string_view member,
@@ -198,9 +193,9 @@ Result<detail::Unit>
 validate_publication_graph(const ProjectV2 &project,
                            const CompletedRunObjects &objects,
                            const bool require_current_bindings) {
-  for (const auto *object : {&objects.package, &objects.scenario,
-                             &objects.request, &objects.result,
-                             &objects.manifest}) {
+  for (const auto *object :
+       {&objects.package, &objects.scenario, &objects.request, &objects.result,
+        &objects.manifest}) {
     const auto valid =
         detail::verify_stored_object(object->reference, object->bytes);
     if (!valid.has_value()) {
@@ -209,12 +204,11 @@ validate_publication_graph(const ProjectV2 &project,
   }
   try {
     const auto manifest = Json::parse(objects.manifest.bytes);
-    if (!exact_keys(
-            manifest,
-            {"$schema", "schema_version", "manifest_kind", "package",
-             "scenario", "request", "result", "assembly_artifact_hash",
-             "backend_id", "backend_contract_version",
-             "package_consumer_contract_hash", "numeric_profile"}) ||
+    if (!exact_keys(manifest,
+                    {"$schema", "schema_version", "manifest_kind", "package",
+                     "scenario", "request", "result", "assembly_artifact_hash",
+                     "backend_id", "backend_contract_version",
+                     "package_consumer_contract_hash", "numeric_profile"}) ||
         !string_equals(manifest, "$schema",
                        "urn:prometheus:schema:run-manifest:1.0.0") ||
         !string_equals(manifest, "schema_version", "1.0.0") ||
@@ -242,8 +236,7 @@ validate_publication_graph(const ProjectV2 &project,
         string_member(manifest, "assembly_artifact_hash");
     if (!manifest_assembly.has_value()) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
-          "assembly_artifact_mismatch",
-          "manifest assembly hash is invalid"));
+          "assembly_artifact_mismatch", "manifest assembly hash is invalid"));
     }
     if (require_current_bindings &&
         *manifest_assembly != project.assembly_artifact_hash) {
@@ -253,13 +246,12 @@ validate_publication_graph(const ProjectV2 &project,
     }
 
     const auto request = Json::parse(objects.request.bytes);
-    if (!exact_keys(
-            request,
-            {"$schema", "schema_version", "request_kind", "package_hash",
-             "scenario_hash", "assembly_artifact_hash",
-             "bound_cad_entity_id", "backend_id",
-             "backend_contract_version", "package_consumer_contract_hash",
-             "obligation_ids"}) ||
+    if (!exact_keys(request,
+                    {"$schema", "schema_version", "request_kind",
+                     "package_hash", "scenario_hash", "assembly_artifact_hash",
+                     "bound_cad_entity_id", "backend_id",
+                     "backend_contract_version",
+                     "package_consumer_contract_hash", "obligation_ids"}) ||
         !string_equals(request, "$schema",
                        "urn:prometheus:schema:analysis-request:1.0.0") ||
         !string_equals(request, "schema_version", "1.0.0") ||
@@ -268,8 +260,7 @@ validate_publication_graph(const ProjectV2 &project,
                        objects.package.reference.object_hash) ||
         !string_equals(request, "scenario_hash",
                        objects.scenario.reference.object_hash) ||
-        !string_equals(request, "assembly_artifact_hash",
-                       *manifest_assembly)) {
+        !string_equals(request, "assembly_artifact_hash", *manifest_assembly)) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "request_binding_mismatch",
           "request hashes do not match the publication snapshot"));
@@ -312,20 +303,20 @@ validate_publication_graph(const ProjectV2 &project,
       }
       if (!project.execution.current_scenario.has_value() ||
           *project.execution.current_scenario != objects.scenario.reference) {
-        return Result<detail::Unit>::failure(detail::store_diagnostic(
-            "current_scenario_mismatch",
-            "request scenario is not the project's confirmed current scenario"));
+        return Result<detail::Unit>::failure(
+            detail::store_diagnostic("current_scenario_mismatch",
+                                     "request scenario is not the project's "
+                                     "confirmed current scenario"));
       }
     }
 
     const auto result = Json::parse(objects.result.bytes);
-    if (!exact_keys(
-            result,
-            {"$schema", "schema_version", "execution_disposition",
-             "request_hash", "package_hash", "backend", "calculations",
-             "consumed_inputs", "sensitivities", "obligation_outcomes",
-             "missing_information", "assumptions", "limitations",
-             "applicability", "coverage"}) ||
+    if (!exact_keys(result,
+                    {"$schema", "schema_version", "execution_disposition",
+                     "request_hash", "package_hash", "backend", "calculations",
+                     "consumed_inputs", "sensitivities", "obligation_outcomes",
+                     "missing_information", "assumptions", "limitations",
+                     "applicability", "coverage"}) ||
         !string_equals(result, "$schema",
                        "urn:prometheus:schema:analysis-result:1.0.0") ||
         !string_equals(result, "schema_version", "1.0.0") ||
@@ -344,8 +335,7 @@ validate_publication_graph(const ProjectV2 &project,
         !string_equals(result_backend, "backend_id",
                        *string_member(manifest, "backend_id")) ||
         !string_equals(result_backend, "contract_version",
-                       *string_member(manifest,
-                                      "backend_contract_version")) ||
+                       *string_member(manifest, "backend_contract_version")) ||
         result_backend.at("numeric_profile") !=
             manifest.at("numeric_profile")) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
@@ -354,8 +344,8 @@ validate_publication_graph(const ProjectV2 &project,
     }
     return Result<detail::Unit>::success(detail::Unit{});
   } catch (const std::exception &failure) {
-    return Result<detail::Unit>::failure(detail::store_diagnostic(
-        "publication_graph_invalid", failure.what()));
+    return Result<detail::Unit>::failure(
+        detail::store_diagnostic("publication_graph_invalid", failure.what()));
   } catch (...) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "publication_graph_invalid",
@@ -400,10 +390,9 @@ Result<detail::Unit> append_event(ProjectV2 &project, std::string event_kind,
 
 } // namespace
 
-Result<ProjectV2>
-create_project_v2(const std::filesystem::path &project_path,
-                  const ProjectV2 &initial_project,
-                  TransactionOptions options) noexcept {
+Result<ProjectV2> create_project_v2(const std::filesystem::path &project_path,
+                                    const ProjectV2 &initial_project,
+                                    TransactionOptions options) noexcept {
   try {
     if (const auto cancelled = detail::check_cancelled(options);
         cancelled.has_value()) {
@@ -422,8 +411,7 @@ create_project_v2(const std::filesystem::path &project_path,
           normalized(serialized.diagnostic(), project_path));
     }
     auto lock = detail::acquire_project_lock(
-        project_path, detail::LockMode::exclusive, true,
-        options.lock_timeout);
+        project_path, detail::LockMode::exclusive, true, options.lock_timeout);
     if (!lock.has_value()) {
       return failure_from<ProjectV2>(lock.diagnostic());
     }
@@ -438,16 +426,73 @@ create_project_v2(const std::filesystem::path &project_path,
   }
 }
 
+Result<ProjectV2> open_project_index_read_only(
+    const std::filesystem::path &project_path) noexcept {
+  try {
+    const auto bytes = detail::read_project_index_file(project_path);
+    if (!bytes.has_value()) {
+      return failure_from<ProjectV2>(bytes.diagnostic());
+    }
+    return parse_stored_project(bytes.value(), project_path);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "project_open_failed", failure.what(), std::nullopt, project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "project_open_failed", "unknown project-index open failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<ProjectV2>
-install_package_binding(const std::filesystem::path &project_path,
-                        std::string cad_entity_id,
-                        const StoredObjectReference &package_reference,
-                        const std::string_view package_bytes,
-                        TransactionOptions options) noexcept {
+save_project_snapshot(const std::filesystem::path &project_path,
+                      const ProjectV2 &snapshot,
+                      TransactionOptions options) noexcept {
   try {
     auto lock = detail::acquire_project_lock(
-        project_path, detail::LockMode::exclusive, false,
-        options.lock_timeout);
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    if (const auto cancelled = detail::check_cancelled(options);
+        cancelled.has_value()) {
+      return Result<ProjectV2>::failure(*cancelled);
+    }
+    auto stored = read_locked_project(project_path);
+    if (!stored.has_value()) {
+      return stored;
+    }
+    auto project = std::move(stored.value());
+    project.name = snapshot.name;
+    project.cad_source = snapshot.cad_source;
+    project.assembly_artifact_hash = snapshot.assembly_artifact_hash;
+    project.coordinate_system = snapshot.coordinate_system;
+    project.length_unit = snapshot.length_unit;
+    project.component_bindings = snapshot.component_bindings;
+    project.placement_overrides = snapshot.placement_overrides;
+    project.connections = snapshot.connections;
+    project.interference_classifications =
+        snapshot.interference_classifications;
+    project.engineering = snapshot.engineering;
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(
+        detail::store_diagnostic("project_snapshot_save_failed", failure.what(),
+                                 std::nullopt, project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "project_snapshot_save_failed", "unknown project snapshot save failure",
+        std::nullopt, project_path));
+  }
+}
+
+Result<ProjectV2> install_package_binding(
+    const std::filesystem::path &project_path, std::string cad_entity_id,
+    const StoredObjectReference &package_reference,
+    const std::string_view package_bytes, TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
     if (!lock.has_value()) {
       return failure_from<ProjectV2>(lock.diagnostic());
     }
@@ -482,8 +527,8 @@ install_package_binding(const std::filesystem::path &project_path,
           project.execution.package_bindings.back().binding_revision;
       if (previous >= maximum_safe_integer) {
         return Result<ProjectV2>::failure(detail::store_diagnostic(
-            "binding_revision_exhausted",
-            "package-binding revision reached the interoperable integer limit"));
+            "binding_revision_exhausted", "package-binding revision reached "
+                                          "the interoperable integer limit"));
       }
       revision = previous + 1U;
     }
@@ -502,8 +547,7 @@ install_package_binding(const std::filesystem::path &project_path,
     return persist_project(project_path, project, true, options);
   } catch (const std::exception &failure) {
     return Result<ProjectV2>::failure(detail::store_diagnostic(
-        "package_binding_failed", failure.what(), std::nullopt,
-        project_path));
+        "package_binding_failed", failure.what(), std::nullopt, project_path));
   } catch (...) {
     return Result<ProjectV2>::failure(detail::store_diagnostic(
         "package_binding_failed", "unknown package-binding failure",
@@ -518,8 +562,7 @@ set_current_scenario(const std::filesystem::path &project_path,
                      TransactionOptions options) noexcept {
   try {
     auto lock = detail::acquire_project_lock(
-        project_path, detail::LockMode::exclusive, false,
-        options.lock_timeout);
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
     if (!lock.has_value()) {
       return failure_from<ProjectV2>(lock.diagnostic());
     }
@@ -542,8 +585,7 @@ set_current_scenario(const std::filesystem::path &project_path,
     return persist_project(project_path, project, true, options);
   } catch (const std::exception &failure) {
     return Result<ProjectV2>::failure(detail::store_diagnostic(
-        "scenario_update_failed", failure.what(), std::nullopt,
-        project_path));
+        "scenario_update_failed", failure.what(), std::nullopt, project_path));
   } catch (...) {
     return Result<ProjectV2>::failure(detail::store_diagnostic(
         "scenario_update_failed", "unknown scenario update failure",
@@ -557,8 +599,7 @@ publish_completed_run(const std::filesystem::path &project_path,
                       TransactionOptions options) noexcept {
   try {
     auto lock = detail::acquire_project_lock(
-        project_path, detail::LockMode::exclusive, false,
-        options.lock_timeout);
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
     if (!lock.has_value()) {
       return failure_from<Publication>(lock.diagnostic());
     }
@@ -587,9 +628,9 @@ publish_completed_run(const std::filesystem::path &project_path,
     if (!graph.has_value()) {
       return failure_from<Publication>(graph.diagnostic());
     }
-    for (const auto *object : {&objects.package, &objects.scenario,
-                               &objects.request, &objects.result,
-                               &objects.manifest}) {
+    for (const auto *object :
+         {&objects.package, &objects.scenario, &objects.request,
+          &objects.result, &objects.manifest}) {
       const auto installed = detail::install_object_file(
           project_path, object->reference, object->bytes, options);
       if (!installed.has_value()) {
@@ -612,7 +653,8 @@ publish_completed_run(const std::filesystem::path &project_path,
     if (!event.has_value()) {
       return failure_from<Publication>(event.diagnostic());
     }
-    const auto persisted = persist_project(project_path, project, true, options);
+    const auto persisted =
+        persist_project(project_path, project, true, options);
     if (!persisted.has_value()) {
       return failure_from<Publication>(persisted.diagnostic());
     }
@@ -620,8 +662,7 @@ publish_completed_run(const std::filesystem::path &project_path,
         Publication{persisted.value(), already_committed});
   } catch (const std::exception &failure) {
     return Result<Publication>::failure(detail::store_diagnostic(
-        "run_publication_failed", failure.what(), std::nullopt,
-        project_path));
+        "run_publication_failed", failure.what(), std::nullopt, project_path));
   } catch (...) {
     return Result<Publication>::failure(detail::store_diagnostic(
         "run_publication_failed", "unknown run publication failure",
@@ -629,9 +670,8 @@ publish_completed_run(const std::filesystem::path &project_path,
   }
 }
 
-Result<ProjectV2>
-open_read_only(const std::filesystem::path &project_path,
-               TransactionOptions options) noexcept {
+Result<ProjectV2> open_read_only(const std::filesystem::path &project_path,
+                                 TransactionOptions options) noexcept {
   try {
     auto lock = detail::acquire_project_lock(
         project_path, detail::LockMode::shared, false, options.lock_timeout);

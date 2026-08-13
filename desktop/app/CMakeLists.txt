@@ -1,8 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_integrity)
+target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_integrity prometheus_run_store)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES ../ui/Main.qml)
@@ -42,6 +42,22 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_exact_package_download
     COMMAND prometheus_exact_package_download_tests
+  )
+
+  add_executable(prometheus_project_controller_tests
+    tests/project_controller_tests.cpp
+  )
+  target_link_libraries(prometheus_project_controller_tests PRIVATE
+    Qt6::Gui
+    prometheus_desktop_support
+    prometheus_run_store
+  )
+  add_test(
+    NAME prometheus_project_controller
+    COMMAND prometheus_project_controller_tests
+  )
+  set_tests_properties(prometheus_project_controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   )
 endif()
 if(BUILD_TESTING AND NOT TARGET prometheus_cad)
