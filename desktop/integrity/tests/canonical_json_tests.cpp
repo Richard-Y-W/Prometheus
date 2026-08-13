@@ -20,6 +20,8 @@ using prometheus::integrity::CanonicalJsonError;
 using prometheus::integrity::Limits;
 using prometheus::integrity::canonicalize_json_bytes;
 using prometheus::integrity::object_hash;
+using prometheus::integrity::sha256_bytes;
+using prometheus::integrity::sha256_file;
 using prometheus::integrity::verify_canonical_bytes;
 using prometheus::integrity::verify_execution_component;
 
@@ -271,6 +273,93 @@ void test_policy_edges() {
                "unsafe_integer", "canonical output must remain parseable");
 }
 
+void test_raw_sha256_and_file_hashing() {
+  require(sha256_bytes("") ==
+              "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "empty SHA-256 vector");
+  require(sha256_bytes("abc") ==
+              "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "abc SHA-256 vector");
+  require(sha256_bytes(std::string(1000000U, 'a')) ==
+              "sha256:cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+          "million-a SHA-256 vector");
+
+  std::string all_bytes;
+  all_bytes.reserve(256U);
+  for (unsigned int value = 0U; value <= 255U; ++value) {
+    all_bytes.push_back(static_cast<char>(value));
+  }
+  require(sha256_bytes(all_bytes) ==
+              "sha256:40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880",
+          "all-byte SHA-256 vector");
+
+  const auto temporary =
+      fs::temp_directory_path() / "prometheus-integrity-sha256-vector.bin";
+  {
+    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+    require(static_cast<bool>(stream), "create temporary SHA-256 vector");
+    stream.write(all_bytes.data(), static_cast<std::streamsize>(all_bytes.size()));
+    require(static_cast<bool>(stream), "write temporary SHA-256 vector");
+  }
+  require(sha256_file(temporary) == sha256_bytes(all_bytes),
+          "file and raw byte hashing agree");
+
+  auto symlink = temporary;
+  symlink += ".symlink";
+  std::error_code cleanup_error;
+  fs::remove(symlink, cleanup_error);
+  std::error_code symlink_error;
+  fs::create_symlink(temporary, symlink, symlink_error);
+#ifndef _WIN32
+  require(!symlink_error, "create symbolic-link rejection fixture");
+#endif
+  if (!symlink_error) {
+    expect_error([&] { static_cast<void>(sha256_file(symlink)); },
+                 "file_not_regular", "symbolic link cannot be hashed");
+    fs::remove(symlink);
+  }
+
+  const std::string larger_than_json_limit(Limits{}.raw_bytes + 1U, 'x');
+  {
+    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+    require(static_cast<bool>(stream), "create oversized SHA-256 vector");
+    stream.write(larger_than_json_limit.data(),
+                 static_cast<std::streamsize>(larger_than_json_limit.size()));
+    require(static_cast<bool>(stream), "write oversized SHA-256 vector");
+  }
+  require(sha256_file(temporary) == sha256_bytes(larger_than_json_limit),
+          "file hashing must not inherit the JSON byte limit");
+  fs::remove(temporary);
+
+  expect_error(
+      [&] { static_cast<void>(sha256_file(fs::temp_directory_path())); },
+      "file_not_regular", "directory cannot be hashed as a file");
+  expect_error(
+      [&] { static_cast<void>(sha256_file(temporary)); }, "file_read_failed",
+      "missing file cannot be hashed");
+}
+
+void test_qt_free_integrity_boundary() {
+#ifndef PROMETHEUS_INTEGRITY_LINK_LIBRARIES
+#error "integrity link libraries must be visible to the boundary test"
+#endif
+  const std::string link_libraries = PROMETHEUS_INTEGRITY_LINK_LIBRARIES;
+  require(link_libraries.find("Qt") == std::string::npos,
+          "prometheus_integrity must not link a Qt target");
+
+  const auto source_root = repository_root / "desktop/integrity";
+  const auto production = read_file(source_root / "CMakeLists.txt") +
+                          read_file(source_root / "src/canonical_json.cpp") +
+                          read_file(source_root /
+                                    "include/prometheus/integrity/canonical_json.hpp");
+  for (const std::string_view forbidden : {"QCryptographicHash", "QByteArray",
+                                           "Qt6::Core"}) {
+    require(production.find(forbidden) == std::string::npos,
+            "Qt symbol remains under desktop/integrity: " +
+                std::string(forbidden));
+  }
+}
+
 void test_complete_execution_component() {
   const auto package_path =
       repository_root / "fixtures/contracts/execution-component-v2.pm-36-gm.jcs";
@@ -329,6 +418,8 @@ int main() {
     test_shared_corpus();
     test_limits_are_inclusive();
     test_policy_edges();
+    test_raw_sha256_and_file_hashing();
+    test_qt_free_integrity_boundary();
     test_complete_execution_component();
     std::cout << "All independent canonical JSON tests passed.\n";
     return 0;

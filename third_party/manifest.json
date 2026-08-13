@@ -16,6 +16,22 @@
     "sha256": "sha256:aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
   },
   {
+    "path": "third_party/picosha2/LICENSE",
+    "upstream": "https://github.com/okdshin/PicoSHA2",
+    "commit": "161cb3fc4170fa7a3eca9e582cebd27cc4d1fe29",
+    "license": "MIT",
+    "license_path": "third_party/picosha2/LICENSE",
+    "sha256": "sha256:6c30eb1f37554ec4199cb82a8c86d9e7a852da78a757832bebb03ac9ddc44ff1"
+  },
+  {
+    "path": "third_party/picosha2/picosha2.h",
+    "upstream": "https://github.com/okdshin/PicoSHA2",
+    "commit": "161cb3fc4170fa7a3eca9e582cebd27cc4d1fe29",
+    "license": "MIT",
+    "license_path": "third_party/picosha2/LICENSE",
+    "sha256": "sha256:b13c180161ffac8d0adc81e033e493c409457c4d1258ab9781ac80579ba3bdd8"
+  },
+  {
     "path": "third_party/ryu/LICENSE-Apache2",
     "upstream": "https://github.com/ulfjack/ryu",
     "commit": "3377662b1958dbdefb679e2c110368512cccf4f6",

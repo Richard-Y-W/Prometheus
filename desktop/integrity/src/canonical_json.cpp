@@ -2,15 +2,15 @@
 
 #include "ecmascript_number.hpp"
 
-#include <QByteArray>
-#include <QByteArrayView>
-#include <QCryptographicHash>
-
 #include <nlohmann/json.hpp>
+#include <picosha2.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <string>
@@ -683,13 +683,6 @@ std::string serialize_json(const Json &value, const Limits limits) {
   return output;
 }
 
-std::string sha256_identity(const std::string_view source) {
-  QCryptographicHash hasher(QCryptographicHash::Sha256);
-  hasher.addData(QByteArrayView(source.data(),
-                               static_cast<qsizetype>(source.size())));
-  return "sha256:" + hasher.result().toHex().toStdString();
-}
-
 } // namespace
 
 CanonicalJsonError::CanonicalJsonError(std::string code, std::string message)
@@ -714,16 +707,53 @@ std::string verify_canonical_bytes(const std::string_view source,
   return std::string(source);
 }
 
+std::string sha256_bytes(const std::string_view bytes) {
+  return "sha256:" +
+         picosha2::hash256_hex_string(bytes.begin(), bytes.end());
+}
+
+std::string sha256_file(const std::filesystem::path &path) {
+  std::error_code status_error;
+  const auto status = std::filesystem::symlink_status(path, status_error);
+  if (status_error || status.type() == std::filesystem::file_type::not_found) {
+    fail("file_read_failed", "unable to inspect file for SHA-256 hashing");
+  }
+  if (std::filesystem::is_symlink(status) ||
+      !std::filesystem::is_regular_file(status)) {
+    fail("file_not_regular", "SHA-256 input is not a regular file");
+  }
+
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) {
+    fail("file_read_failed", "unable to open file for SHA-256 hashing");
+  }
+
+  picosha2::hash256_one_by_one hasher;
+  std::array<char, 64U * 1024U> buffer{};
+  while (stream) {
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = stream.gcount();
+    if (count > 0) {
+      hasher.process(buffer.begin(), buffer.begin() + count);
+    }
+  }
+  if (!stream.eof()) {
+    fail("file_read_failed", "unable to read file for SHA-256 hashing");
+  }
+  hasher.finish();
+  return "sha256:" + picosha2::get_hash_hex_string(hasher);
+}
+
 std::string object_hash(const std::string_view canonical_bytes) {
   const auto verified = verify_canonical_bytes(canonical_bytes);
-  return sha256_identity(verified);
+  return sha256_bytes(verified);
 }
 
 std::string verify_execution_component(
     const std::string_view stored_bytes,
     const std::string_view expected_object_hash, const Limits limits) {
   const auto verified = verify_canonical_bytes(stored_bytes, limits);
-  const auto actual_hash = sha256_identity(verified);
+  const auto actual_hash = sha256_bytes(verified);
   if (actual_hash != expected_object_hash) {
     fail("object_hash_mismatch",
          "stored bytes do not match the expected object hash");

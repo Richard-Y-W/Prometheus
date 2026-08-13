@@ -32,6 +32,12 @@ DEPENDENCIES = {
             "third_party/ryu/LICENSE-Boost",
         },
     },
+    "third_party/picosha2/": {
+        "upstream": "https://github.com/okdshin/PicoSHA2",
+        "commit": "161cb3fc4170fa7a3eca9e582cebd27cc4d1fe29",
+        "license": "MIT",
+        "license_paths": {"third_party/picosha2/LICENSE"},
+    },
 }
 
 

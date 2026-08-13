@@ -38,7 +38,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
-        "PROMETHEUS_BUILD_INTEGRITY": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
         "PROMETHEUS_ENABLE_OCCT": "OFF"
       }
     },
@@ -88,7 +88,7 @@
       "binaryDir": "${sourceDir}/out/build/windows-headless-debug",
       "cacheVariables": {
         "PROMETHEUS_BUILD_DESKTOP": "OFF",
-        "PROMETHEUS_BUILD_INTEGRITY": "OFF"
+        "PROMETHEUS_BUILD_INTEGRITY": "ON"
       }
     },
     {

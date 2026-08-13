@@ -64,7 +64,7 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
 def test_checked_in_vendored_dependencies_verify():
     result = _run(ROOT)
     assert result.returncode == 0, result.stderr
-    assert "10 vendored files verified" in result.stdout
+    assert "12 vendored files verified" in result.stdout
 
 
 @pytest.mark.parametrize(

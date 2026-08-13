@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -30,6 +31,8 @@ private:
     std::string_view source, Limits limits = {});
 [[nodiscard]] std::string verify_canonical_bytes(
     std::string_view source, Limits limits = {});
+[[nodiscard]] std::string sha256_bytes(std::string_view bytes);
+[[nodiscard]] std::string sha256_file(const std::filesystem::path &path);
 [[nodiscard]] std::string object_hash(std::string_view canonical_bytes);
 [[nodiscard]] std::string verify_execution_component(
     std::string_view stored_bytes, std::string_view expected_object_hash,
