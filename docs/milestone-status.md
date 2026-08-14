@@ -5,11 +5,11 @@ The earlier numbered milestones record how the rough electromechanical vertical 
 ## Current truth boundary
 
 - **Real CAD:** the native path imports real STEP/XDE with Open Cascade. The checked-in motor arm is a separate synthetic fixture used for conformance tests.
-- **Synthetic research only:** component intake is exact lookup of `Prometheus Fixture Works / PM-36-GM`. Public research, remote datasheet acquisition, PDF parsing, and LLM extraction are not implemented.
+- **Synthetic research only:** component intake is exact lookup of the checked-in Motor A, Motor B, or `Prometheus Fixture Works / PM-36-GM` fixture. Public research, remote datasheet acquisition, PDF parsing, and LLM extraction are not implemented.
 - **Stable review and immutable publication:** v2 review identifies finalized revision-scoped claims and fingerprints, appends versioned events, and keeps publication separate. Publication stores exact RFC 8785 input bytes under an external SHA-256 identity; byte integrity is not an engineering result.
-- **Execution gap:** the published execution-component package is not consumed by `EngineeringController`. Program 01B must remove fixed PM-36 values and close this loop.
-- **Conformance calculations:** the current C++ motor-arm calculations exercise narrow deterministic paths. They do not provide arbitrary mechanical analysis or general engineering coverage.
-- **No Python verdicts:** the unversioned Python research-confirm-plan-run path is retired. Python persists and packages evidence but is not an engineering decision authority.
+- **Bounded execution loop:** the exact Motor A/B package and reviewed scenario drive `motor_arm_builtin_v1` through the shared Qt-free C++ execution library. The desktop and replay CLI use that same implementation; project-local immutable run objects reproduce offline under the recorded numeric identity.
+- **Conformance calculations:** four fixed motor-arm obligations cover torque-speed, continuous holding torque, driver current, and a one-node thermal estimate. They do not provide arbitrary mechanical analysis or general engineering coverage.
+- **No Python verdicts:** the unversioned Python research-confirm-plan-run path and the historical Python motor module are retired. Python persists and packages evidence but is not an engineering decision authority.
 - **No external solver:** no structural, thermal, electrical, CFD, or controls solver adapter exists.
 - **No certification claim:** the repository does not claim physical validation, safety, certification, or project-wide correctness.
 
@@ -19,7 +19,15 @@ The former Program 01A implementation added exact fixture provenance, typed valu
 
 The amended v2 implementation now provides bounded source ingestion, revision-scoped finalized claims, append-only review events, capability-specific publication and execution gates, immutable stored RFC 8785 objects, exact verified export, durable success/failure replay, SQLite/PostgreSQL backstops, and an independent C++ canonical-byte/hash verifier. The Qt flow uses claim IDs and visible draft versions, and the OCCT-disabled desktop path fails explicitly instead of synthesizing geometry.
 
-Program 01A closed on 2026-08-12 after the [amended completion record](program/01-trust-kernel/01a-amended-completion.md) captured a successful nine-job release matrix, exact local verification, and a restart-based exact-byte audit. A sealed package is still reviewed input only: it contains no engineering verdict, remains execution-blocked until Program 01B, and supplies no physical-validation or arbitrary-project claim. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved, and the [v1-to-v2 migration guide](migration/program-01a-v1-to-v2.md) documents the breaking retirement. Program 01B is the next gate, but its package-driven execution work has not started.
+Program 01A closed on 2026-08-12 after the [amended completion record](program/01-trust-kernel/01a-amended-completion.md) captured a successful nine-job release matrix, exact local verification, and a restart-based exact-byte audit. A sealed package is still reviewed input only and contains no engineering verdict. Program 01B added two new execution-ready packages without changing the older blocked PM-36 package or converting byte integrity into physical validation. The [former completion record](program/01-trust-kernel/01a-integrity-and-contracts.md) is preserved, and the [v1-to-v2 migration guide](migration/program-01a-v1-to-v2.md) documents the breaking retirement.
+
+## Program 01B — complete under the bounded contract-tested gate
+
+Program 01B closed on 2026-08-13 at implementation and CI commit `dd5b915ae0fa23f0d48fb7e4f8df4a9834c9816d`. The [completion record](program/01-trust-kernel/01b-package-driven-execution-completion.md) binds that claim to a successful nine-job matrix, the local 13/3/19/20 native suites, the complete SQLite/PostgreSQL suites, exact Motor A/B object identities, and offline desktop/CLI replay.
+
+The two synthetic packages' normalized engineering vectors differ only in the decision-relevant continuous-torque value; their package graphs retain distinct fixture and claim identities. Under one unchanged reviewed scenario, Motor A failed the continuous holding obligation and Motor B passed it; all non-holding calculation outputs remained equal. Package, scenario, request, result, manifest, numeric profile, assumptions, limitations, consumed claims, and scoped coverage remain visible. Geometry remains a separate capability instead of being merged into an unqualified project verdict.
+
+This gate establishes one synthetic package-driven built-in backend. It is not arbitrary project verification, physical validation, universal intake, general mechanical analysis, or external solver execution. Center of gravity remains explicitly uncovered, and the simplified model provides no structural, fatigue, fastening, tolerance, manufacturing, safety, or certification conclusion.
 
 ## Historical rough-V1 increments
 
@@ -33,7 +41,7 @@ Normalized manufacturer, component, revision, parameter, source, evidence, job/e
 
 ### Milestone 3 — fixed motor-arm conformance path
 
-The desktop added a user-confirmed revolute joint, a structured motor-arm scenario, and fixed-input C++ torque-speed, holding, current, one-node thermal, and partial COG calculations. Findings retain methods and assumptions, but the component values remain compiled constants until Program 01B. Unknown masses and support geometry prevent complete COG or tipping conclusions.
+The desktop added a user-confirmed revolute joint, a structured motor-arm scenario, and fixed-input C++ torque-speed, holding, current, one-node thermal, and partial COG calculations. Findings retained methods and assumptions, but component values were compiled constants at that milestone; Program 01B later removed them from the production path. Unknown masses and support geometry still prevent complete COG or tipping conclusions.
 
 ### Milestones 4–6 — CAD inspection and sampled motion
 
@@ -57,4 +65,4 @@ The optional OpenArm 2.0 workflow records an on-demand hash-verified, licensed l
 
 ## Next gate
 
-Program 01B must create two immutable reviewed motor packages with a decision-relevant difference, make C++ consume the selected package, prove the expected result changes, persist the package and execution manifest, reproduce after offline reopen, and show that Python never duplicates the calculation. Broader acquisition and solver work waits behind that gate.
+Program 01C safe evidence acquisition is next and has not started. It must preserve source bytes, add bounded sandboxed deterministic parsers and optional candidate extraction, retain provenance and licensing state, and require human review before any candidate can reach the Program 01B execution boundary. Universal intake, semantic reconstruction, planning, and solver work remain later roadmap gates.
