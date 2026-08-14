@@ -436,11 +436,12 @@ void require_failure_report(const ProcessResult &result, const int exit_code,
           "unexpected replay exit code: " + std::to_string(result.exit_code) +
               " stderr=" + result.standard_error);
   const auto value = Json::parse(result.standard_output);
-  require(value.is_object() && value.at("status") == status &&
+  require(value.is_object() &&
+              value.at("status").get<std::string>() == std::string(status) &&
               value.contains("stage") && value.contains("code"),
           "failure stdout is the closed machine-readable report");
   if (code.has_value()) {
-    require(value.at("code") == *code,
+    require(value.at("code").get<std::string>() == std::string(*code),
             "unexpected replay diagnostic code: expected " +
                 std::string(*code) + ", received " +
                 value.at("code").get<std::string>());

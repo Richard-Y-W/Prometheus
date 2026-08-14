@@ -91,6 +91,12 @@ ExecutionDisposition disposition_for(const Diagnostic &value,
   return fallback;
 }
 
+ExecutionOutcome fail_classified(Diagnostic value,
+                                 const ExecutionDisposition fallback) {
+  const auto disposition = disposition_for(value, fallback);
+  return fail(disposition, std::move(value));
+}
+
 std::optional<Diagnostic>
 verify_exact_input(const std::string_view bytes,
                    const std::string_view expected_hash,
@@ -448,9 +454,8 @@ ExecutionOutcome execute(const ExecutionInput &input) noexcept {
              {input.request_bytes, input.expected_request_hash, "request"},
          }) {
       if (auto failure = verify_exact_input(bytes, expected_hash, object_name)) {
-        return fail(disposition_for(*failure,
-                                    ExecutionDisposition::rejected_input),
-                    std::move(*failure));
+        return fail_classified(std::move(*failure),
+                               ExecutionDisposition::rejected_input);
       }
     }
 
@@ -458,28 +463,27 @@ ExecutionOutcome execute(const ExecutionInput &input) noexcept {
         input.package_bytes, input.expected_package_hash);
     if (!component_result.has_value()) {
       auto value = component_result.diagnostic();
-      return fail(disposition_for(value, ExecutionDisposition::rejected_input),
-                  std::move(value));
+      return fail_classified(std::move(value),
+                             ExecutionDisposition::rejected_input);
     }
     auto scenario_result = parse_motor_arm_scenario(input.scenario_bytes);
     if (!scenario_result.has_value()) {
       auto value = scenario_result.diagnostic();
-      return fail(disposition_for(value, ExecutionDisposition::rejected_input),
-                  std::move(value));
+      return fail_classified(std::move(value),
+                             ExecutionDisposition::rejected_input);
     }
     auto request_result = parse_analysis_request(input.request_bytes);
     if (!request_result.has_value()) {
       auto value = request_result.diagnostic();
-      return fail(disposition_for(value, ExecutionDisposition::rejected_input),
-                  std::move(value));
+      return fail_classified(std::move(value),
+                             ExecutionDisposition::rejected_input);
     }
     const auto &component = component_result.value();
     const auto &scenario = scenario_result.value();
     const auto &request = request_result.value();
     if (auto failure = validate_request_bindings(request, input)) {
-      return fail(disposition_for(*failure,
-                                  ExecutionDisposition::rejected_input),
-                  std::move(*failure));
+      return fail_classified(std::move(*failure),
+                             ExecutionDisposition::rejected_input);
     }
 
     auto profile_result = collect_numeric_profile();
@@ -516,8 +520,7 @@ ExecutionOutcome execute(const ExecutionInput &input) noexcept {
         std::get<simulation::MotorArmBackendOutput>(maximum));
     if (!findings_result.has_value()) {
       auto value = findings_result.diagnostic();
-      return fail(disposition_for(value, ExecutionDisposition::failed),
-                  std::move(value));
+      return fail_classified(std::move(value), ExecutionDisposition::failed);
     }
 
     CanonicalObject result;

@@ -159,7 +159,9 @@ require_execution_failure(const execution::ExecutionOutcome &outcome,
           "noncompleted execution must expose only ExecutionFailure");
   const auto &failure = std::get<execution::ExecutionFailure>(outcome);
   require(failure.disposition == disposition,
-          "execution failure has unexpected disposition: " +
+          "execution failure for " + stage + "/" + code +
+              " has unexpected disposition: expected " +
+              std::to_string(static_cast<int>(disposition)) + ", received " +
               std::to_string(static_cast<int>(failure.disposition)));
   require(!failure.diagnostics.empty(),
           "execution failure diagnostics must be non-empty");
