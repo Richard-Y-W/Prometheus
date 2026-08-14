@@ -1,6 +1,6 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store)
 qt_add_executable(prometheus_desktop main.cpp)
@@ -24,6 +24,23 @@ endif()
 set_target_properties(prometheus_desktop PROPERTIES WIN32_EXECUTABLE TRUE)
 if(BUILD_TESTING)
   find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+  add_executable(prometheus_project_intake_tests
+    tests/project_intake_tests.cpp
+    project_intake.cpp
+    project_intake.hpp
+  )
+  target_include_directories(prometheus_project_intake_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  target_link_libraries(prometheus_project_intake_tests PRIVATE
+    Qt6::Concurrent
+    Qt6::Test
+  )
+  add_test(
+    NAME prometheus_project_intake
+    COMMAND prometheus_project_intake_tests
+  )
+
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)
   target_include_directories(prometheus_review_payload_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(prometheus_review_payload_tests PRIVATE Qt6::Core)
