@@ -237,7 +237,8 @@ void ServiceController::acquireExactPackage()
         return;
     }
     if (revisionId.isEmpty() || publication_integrity_ != "sealed_v2"
-        || status_ != "published" || !strictObjectHash(object_hash_)) {
+        || (status_ != "published" && status_ != "exact_package_ready")
+        || !strictObjectHash(object_hash_)) {
         setError(
             "Exact package acquisition requires a sealed published revision with a valid object hash.",
             "exact_package_state_invalid");

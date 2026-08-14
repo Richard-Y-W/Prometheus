@@ -379,8 +379,12 @@ ExecutionController::ExecutionController(ProjectController *project,
                                          QObject *parent)
     : QObject(parent), project_(project) {
   Q_ASSERT(project_ != nullptr);
-  connect(project_, &ProjectController::projectOpened, this,
-          &ExecutionController::reloadProject);
+  connect(project_, &ProjectController::projectOpened, this, [this] {
+    clearPendingSaveAsAction();
+    reloadProject();
+  });
+  connect(project_, &ProjectController::projectSaved, this,
+          &ExecutionController::resumePendingSaveAsAction);
   if (service != nullptr) {
     connect(service, &ServiceController::exactPackageAcquired, this,
             &ExecutionController::acceptExactPackage);
@@ -437,6 +441,7 @@ void ExecutionController::setPendingCadEntityId(const QString &entityId) {
     return;
   }
   pending_cad_entity_id_ = normalized;
+  clearPendingSaveAsAction();
   active_package_.clear();
   active_package_reference_.reset();
   clearSelection();
@@ -453,7 +458,23 @@ void ExecutionController::acceptExactPackage(QByteArray packageBytes,
              "execution_busy");
     return;
   }
+  const auto storedBytes = bytes(packageBytes);
+  const auto expectedHash = text(expectedObjectHash);
+  const auto inspection =
+      execution::inspect_execution_component(storedBytes, expectedHash);
+  if (!inspection.has_value()) {
+    setError(executionDiagnosticMessage(inspection.diagnostic()),
+             executionDiagnosticCode(inspection.diagnostic()));
+    return;
+  }
   if (!project_->ensureExecutionWritable()) {
+    if (project_->errorCode() == "save_as_required") {
+      pending_package_binding_ = PendingPackageBinding{
+          std::move(packageBytes), std::move(expectedObjectHash),
+          pending_cad_entity_id_};
+      pending_scenario_confirmation_.reset();
+      pending_save_as_action_ = "package_binding";
+    }
     setError(project_->error(), project_->errorCode());
     return;
   }
@@ -464,15 +485,6 @@ void ExecutionController::acceptExactPackage(QByteArray packageBytes,
   if (!project_->hasCadEntityId(pending_cad_entity_id_)) {
     setError("Select a stable CAD entity that exists in the current project.",
              "cad_entity_not_found");
-    return;
-  }
-  const auto storedBytes = bytes(packageBytes);
-  const auto expectedHash = text(expectedObjectHash);
-  const auto inspection =
-      execution::inspect_execution_component(storedBytes, expectedHash);
-  if (!inspection.has_value()) {
-    setError(executionDiagnosticMessage(inspection.diagnostic()),
-             executionDiagnosticCode(inspection.diagnostic()));
     return;
   }
   const auto reference =
@@ -488,6 +500,7 @@ void ExecutionController::acceptExactPackage(QByteArray packageBytes,
   project_->acceptProject(installed.value());
   active_package_reference_ = reference;
   active_package_ = packageMap(inspection.value());
+  clearPendingSaveAsAction();
   clearSelection();
   clearError();
   status_ = inspection.value().execution_readiness == "ready"
@@ -509,6 +522,7 @@ void ExecutionController::setScenarioDraft(const QVariantMap &draft) {
   scenario_preview_.clear();
   typed_preview_.reset();
   clearScenarioConfirmation();
+  clearPendingSaveAsAction();
   scenario_load_error_.clear();
   scenario_load_error_code_.clear();
   clearSelection();
@@ -553,14 +567,6 @@ void ExecutionController::confirmScenario(const QString &intent) {
              "scenario_preview_missing");
     return;
   }
-  if (!project_->ensureExecutionWritable()) {
-    setError(project_->error(), project_->errorCode());
-    return;
-  }
-  if (!project_->verifyAssemblyArtifactCurrent()) {
-    setError(project_->error(), project_->errorCode());
-    return;
-  }
   auto confirmedPreview = *typed_preview_;
   confirmedPreview.confirmed_by_user = true;
   const auto confirmed =
@@ -571,25 +577,84 @@ void ExecutionController::confirmScenario(const QString &intent) {
              "scenario_invalid");
     return;
   }
-  const auto reference = objectReference(confirmed.value());
-  const auto stored = run_store::set_current_scenario(
-      project_->projectPath(), reference, confirmed.value().bytes);
+  if (!project_->ensureExecutionWritable()) {
+    if (project_->errorCode() == "save_as_required") {
+      pending_scenario_confirmation_ =
+          PendingScenarioConfirmation{confirmed.value(), confirmedPreview};
+      pending_package_binding_.reset();
+      pending_save_as_action_ = "scenario_confirmation";
+    }
+    setError(project_->error(), project_->errorCode());
+    return;
+  }
+  static_cast<void>(
+      installConfirmedScenario(confirmed.value(), confirmedPreview));
+}
+
+bool ExecutionController::installConfirmedScenario(
+    const execution::CanonicalObject &object,
+    const execution::ScenarioPreview &preview) {
+  if (!project_->verifyAssemblyArtifactCurrent()) {
+    setError(project_->error(), project_->errorCode());
+    return false;
+  }
+  const auto reference = objectReference(object);
+  const auto stored = run_store::set_current_scenario(project_->projectPath(),
+                                                      reference, object.bytes);
   if (!stored.has_value()) {
     setError(storeDiagnosticMessage(stored.diagnostic()),
              storeDiagnosticCode(stored.diagnostic()));
-    return;
+    return false;
   }
   project_->acceptProject(stored.value());
-  typed_preview_ = confirmedPreview;
-  scenario_preview_ = scenarioPreviewMap(confirmedPreview);
+  typed_preview_ = preview;
+  scenario_preview_ = scenarioPreviewMap(preview);
   scenario_confirmed_ = true;
   confirmed_scenario_reference_ = reference;
   confirmed_scenario_hash_ = text(reference.object_hash);
   scenario_load_error_.clear();
   scenario_load_error_code_.clear();
+  clearPendingSaveAsAction();
   clearSelection();
   clearError();
   status_ = "scenario_confirmed";
+  emit changed();
+  return true;
+}
+
+void ExecutionController::clearPendingSaveAsAction() {
+  pending_package_binding_.reset();
+  pending_scenario_confirmation_.reset();
+  pending_save_as_action_.clear();
+}
+
+void ExecutionController::resumePendingSaveAsAction() {
+  if (project_->saveAsRequired() || pending_save_as_action_.isEmpty()) {
+    return;
+  }
+  if (pending_package_binding_.has_value()) {
+    auto pending = std::move(*pending_package_binding_);
+    clearPendingSaveAsAction();
+    pending_cad_entity_id_ = pending.cad_entity_id;
+    acceptExactPackage(std::move(pending.bytes),
+                       std::move(pending.expected_object_hash));
+    return;
+  }
+  if (pending_scenario_confirmation_.has_value()) {
+    auto pending = std::move(*pending_scenario_confirmation_);
+    clearPendingSaveAsAction();
+    static_cast<void>(
+        installConfirmedScenario(pending.object, pending.preview));
+  }
+}
+
+void ExecutionController::cancelPendingSaveAsAction() {
+  if (pending_save_as_action_.isEmpty()) {
+    return;
+  }
+  clearPendingSaveAsAction();
+  clearError();
+  status_ = "pending_action_cancelled";
   emit changed();
 }
 

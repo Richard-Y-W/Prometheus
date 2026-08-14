@@ -115,6 +115,9 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path(
             "draft_version",
             "contract",
             "component",
+            "capability_id",
+            "evidence",
+            "limitations",
             "parameters",
             "capability_gates",
             "publication_integrity",
@@ -135,6 +138,26 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path(
             "component_class": definition.component_class,
         }
         assert revision["publication_integrity"] == "v2_draft"
+        assert revision["capability_id"] == definition.capability_id
+        assert revision["evidence"]
+        assert {
+            item["evidence_class"] for item in revision["evidence"]
+        } == {"private_upload"}
+        assert {
+            item["source_authority"] for item in revision["evidence"]
+        } == {"synthetic_fixture"}
+        assert {
+            item["physical_validation_status"]
+            for item in revision["evidence"]
+        } == {"unvalidated"}
+        assert all(item["limitations"] for item in revision["evidence"])
+        source_limitations = json.loads(definition.source_path.read_text())[
+            "limitations"
+        ]
+        assert {item["statement"] for item in revision["limitations"]} == {
+            *source_limitations,
+            definition.execution_limitation,
+        }
         assert revision["object_hash"] is None
         assert revision["published_at"] is None
         assert len(revision["parameters"]) == 17

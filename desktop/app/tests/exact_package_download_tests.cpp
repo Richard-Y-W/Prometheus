@@ -86,9 +86,22 @@ class ServiceStateServer final : public QObject {
     Q_OBJECT
 
 public:
-    explicit ServiceStateServer(QObject* parent = nullptr)
+    explicit ServiceStateServer(
+        const bool completePackages = false, QObject* parent = nullptr)
         : QObject(parent)
+        , complete_packages_(completePackages)
     {
+        if (complete_packages_) {
+            package_bytes_ = readFile(
+                QStringLiteral(PROMETHEUS_REPOSITORY_ROOT)
+                + "/fixtures/contracts/execution-component-v2.motor-a.jcs");
+            package_hash_ = QByteArray::fromStdString(
+                prometheus::integrity::sha256_bytes(
+                    std::string_view(package_bytes_.constData(),
+                        static_cast<std::size_t>(package_bytes_.size()))));
+        } else {
+            package_hash_ = QByteArray("sha256:") + QByteArray(64, 'a');
+        }
         connect(&server_, &QTcpServer::newConnection, this, [this] {
             while (server_.hasPendingConnections()) {
                 auto* socket = server_.nextPendingConnection();
@@ -107,8 +120,6 @@ public:
                         }
                         if (request->startsWith(
                                 "POST /api/v2/fixture-ingestions ")) {
-                            const auto hash = QByteArray("sha256:")
-                                + QByteArray(64, 'a');
                             const auto body = QByteArray(
                                 "{\"id\":\"ingestion-1\",\"revision\":{"
                                 "\"id\":\"revision-1\",\"component\":{},"
@@ -117,20 +128,26 @@ public:
                                 "\"execution_readiness\":\"ready\","
                                 "\"publication_integrity\":\"sealed_v2\","
                                 "\"object_hash\":\"")
-                                + hash + "\"}}";
+                                + package_hash_ + "\"}}";
                             writeJson(socket, body);
                             return;
                         }
                         if (request->startsWith(
                                 "GET /api/v2/revisions/revision-1/execution-package ")) {
                             package_requested_ = true;
-                            const auto hash = QByteArray("sha256:")
-                                + QByteArray(64, 'a');
+                            ++package_request_count_;
                             socket->write(
                                 "HTTP/1.1 200 OK\r\nContent-Type: "
                                 + QByteArray(packageMediaType)
-                                + "\r\nETag: \"" + hash
-                                + "\"\r\nContent-Length: 2\r\n\r\n");
+                                + "\r\nETag: \"" + package_hash_
+                                + "\"\r\nContent-Length: "
+                                + QByteArray::number(
+                                    complete_packages_ ? package_bytes_.size() : 2)
+                                + "\r\n\r\n");
+                            if (complete_packages_) {
+                                socket->write(package_bytes_);
+                                socket->disconnectFromHost();
+                            }
                             socket->flush();
                             return;
                         }
@@ -154,6 +171,7 @@ public:
     }
 
     bool packageRequested() const noexcept { return package_requested_; }
+    int packageRequestCount() const noexcept { return package_request_count_; }
 
 private:
     static void writeJson(QTcpSocket* socket, const QByteArray& body)
@@ -168,7 +186,11 @@ private:
     }
 
     QTcpServer server_;
+    bool complete_packages_{false};
+    QByteArray package_bytes_;
+    QByteArray package_hash_;
     bool package_requested_{false};
+    int package_request_count_{0};
 };
 
 QByteArray validHeaders(
@@ -249,6 +271,7 @@ private slots:
     void overflowAndHashDisagreement();
     void failureCanRetry();
     void repeatedServiceAcquirePreservesBusyState();
+    void successfulServiceAcquireCanRetry();
 };
 
 void ExactPackageDownloadTests::validExactResponse()
@@ -479,6 +502,29 @@ void ExactPackageDownloadTests::repeatedServiceAcquirePreservesBusyState()
         QStringLiteral("acquiring_exact_package"));
     QCOMPARE(controller.errorCode(), QStringLiteral("service_busy"));
     controller.reset();
+}
+
+void ExactPackageDownloadTests::successfulServiceAcquireCanRetry()
+{
+    ServiceStateServer server(true);
+    ServiceController controller(server.baseUrl());
+    QSignalSpy acquired(
+        &controller, &ServiceController::exactPackageAcquired);
+    controller.loadFixture(
+        QStringLiteral("prometheus.motor-a.fixture-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(
+        controller.status(), QStringLiteral("published"), 10000);
+
+    controller.acquireExactPackage();
+    QTRY_COMPARE_WITH_TIMEOUT(acquired.count(), 1, 10000);
+    QCOMPARE(controller.status(), QStringLiteral("exact_package_ready"));
+    QCOMPARE(controller.errorCode(), QString{});
+
+    controller.acquireExactPackage();
+    QTRY_COMPARE_WITH_TIMEOUT(acquired.count(), 2, 10000);
+    QCOMPARE(server.packageRequestCount(), 2);
+    QCOMPARE(controller.status(), QStringLiteral("exact_package_ready"));
+    QCOMPARE(controller.errorCode(), QString{});
 }
 
 QTEST_GUILESS_MAIN(ExactPackageDownloadTests)

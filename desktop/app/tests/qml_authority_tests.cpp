@@ -1,0 +1,408 @@
+#include "cad_controller.hpp"
+#include "engineering_controller.hpp"
+#include "execution_controller.hpp"
+#include "project_controller.hpp"
+#include "service_controller.hpp"
+
+#include <prometheus/integrity/canonical_json.hpp>
+#include <prometheus/run_store/run_store.hpp>
+
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QRegularExpression>
+#include <QTemporaryDir>
+#include <QThread>
+#include <QUrl>
+#include <QVariantList>
+#include <QVariantMap>
+
+#include <cstdlib>
+#include <filesystem>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace {
+
+namespace integrity = prometheus::integrity;
+namespace run_store = prometheus::run_store;
+
+void require(const bool condition, const std::string &message) {
+  if (!condition) {
+    std::cerr << "FAILED: " << message << '\n';
+    std::exit(1);
+  }
+}
+
+QByteArray readBytes(const QString &path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly),
+          "open test input " + path.toStdString());
+  return file.readAll();
+}
+
+void writeBytes(const QString &path, const QByteArray &bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
+          "open test output " + path.toStdString());
+  require(file.write(bytes) == bytes.size(),
+          "write test output " + path.toStdString());
+  file.close();
+}
+
+std::filesystem::path nativePath(const QString &value) {
+#ifdef _WIN32
+  return std::filesystem::path(value.toStdWString());
+#else
+  const auto bytes = value.toUtf8();
+  return std::filesystem::path(
+      std::string(bytes.constData(), static_cast<std::size_t>(bytes.size())));
+#endif
+}
+
+QString objectHash(const QByteArray &bytes) {
+  return QString::fromStdString(integrity::sha256_bytes(std::string_view(
+      bytes.constData(), static_cast<std::size_t>(bytes.size()))));
+}
+
+bool waitUntil(const std::function<bool()> &predicate,
+               const int timeoutMilliseconds = 10000) {
+  QElapsedTimer timer;
+  timer.start();
+  while (!predicate() && timer.elapsed() < timeoutMilliseconds) {
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    QThread::msleep(2);
+  }
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+  return predicate();
+}
+
+run_store::ProjectV2 projectFixture(const QString &cadPath,
+                                    const QString &cadHash) {
+  run_store::ProjectV2 project;
+  project.name = "QML authority motor arm";
+  project.cad_source = cadPath.toStdString();
+  project.assembly_artifact_hash = cadHash.toStdString();
+  project.coordinate_system = "right-handed Z-up";
+  project.length_unit = "m";
+  project.component_bindings.push_back({"motor", "geometry-revision", "Motor"});
+  project.engineering.geometry_status = "completed";
+  project.engineering.geometry_findings.push_back(
+      {"static_interference", "information", "information",
+       "Geometry remains independently recorded", "Geometry-only evidence", 0.0,
+       "m³", 0.0, 0.0, "Imported geometry", "", "", "motor", "base"});
+  return project;
+}
+
+QVariantMap scenarioDraft() {
+  return {
+      {"payload_mass_kg", 8.0},        {"arm_radius_m", 0.2},
+      {"rotation_degrees", 90.0},      {"move_duration_s", 1.2},
+      {"hold_duration_s", 4.0},        {"cycle_duration_s", 10.0},
+      {"ambient_temperature_c", 35.0},
+  };
+}
+
+QObject *requiredChild(QObject *root, const char *objectName) {
+  auto *child = root->findChild<QObject *>(QString::fromLatin1(objectName));
+  require(child != nullptr, std::string("QML object exists: ") + objectName);
+  return child;
+}
+
+void verifyAuthorityScan() {
+  const QString uiRoot = QStringLiteral(PROMETHEUS_UI_DIR);
+  const std::vector<QString> files{
+      uiRoot + "/Main.qml", uiRoot + "/ComponentPackagePanel.qml",
+      uiRoot + "/MotorScenarioDialog.qml", uiRoot + "/MotorRunPanel.qml",
+      uiRoot + "/RunHistoryPanel.qml"};
+  QString source;
+  for (const auto &path : files) {
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly),
+            "production QML workflow file exists: " + path.toStdString());
+    source += QString::fromUtf8(file.readAll());
+    source += '\n';
+  }
+
+  const std::vector<QRegularExpression> forbidden{
+      QRegularExpression(
+          QStringLiteral("\\bMath\\.(?:PI|pow|sin|cos|sqrt)\\b")),
+      QRegularExpression(QStringLiteral("(?:/\\s*180(?:\\.0)?\\b|"
+                                        "\\b180(?:\\.0)?\\s*/\\s*Math)")),
+      QRegularExpression(QStringLiteral("\\b(?:QByteArray|packageBytes|"
+                                        "exactPackageAcquired)\\b")),
+      QRegularExpression(QStringLiteral("\\b(?:gear_ratio|stall_torque_nm|"
+                                        "continuous_torque_nm|"
+                                        "torque_constant_nm_a|"
+                                        "thermal_resistance_k_w|"
+                                        "thermal_capacitance_j_k)\\b")),
+      QRegularExpression(QStringLiteral("\\bauto(?:matic)?Review\\b"),
+                         QRegularExpression::CaseInsensitiveOption),
+  };
+  for (const auto &pattern : forbidden) {
+    require(!pattern.match(source).hasMatch(),
+            "QML contains no engineering authority or raw package bytes: " +
+                pattern.pattern().toStdString());
+  }
+  require(!source.contains("Project works", Qt::CaseInsensitive),
+          "QML contains no unscoped project verdict");
+}
+
+void verifyPendingSaveAs(const QByteArray &motorA) {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "pending Save As test root exists");
+  const auto cadPath = temporary.filePath("pending-arm.step");
+  const QByteArray cadBytes("pending Save As CAD bytes");
+  writeBytes(cadPath, cadBytes);
+
+  CadController cad;
+  EngineeringController geometry;
+  ProjectController project(&cad, &geometry);
+  ExecutionController execution(&project);
+  cad.restoreCadState({
+      {"name", "Pending motor arm"},
+      {"cad_source", cadPath},
+      {"resolved_cad_source", cadPath},
+      {"assembly_artifact_hash", objectHash(cadBytes)},
+      {"coordinate_system", "right-handed Z-up"},
+      {"length_unit", "m"},
+      {"component_bindings",
+       QVariantList{QVariantMap{{"cad_entity_id", "motor"},
+                                {"revision_id", "geometry-revision"},
+                                {"label", "Motor"}}}},
+      {"placement_overrides", QVariantList{}},
+      {"connections", QVariantList{}},
+      {"interference_classifications", QVariantList{}},
+  });
+  execution.setPendingCadEntityId("motor");
+  execution.acceptExactPackage(motorA, objectHash(motorA));
+  require(execution.errorCode() == "save_as_required" &&
+              execution.property("pendingSaveAsAction").toString() ==
+                  "package_binding",
+          "first execution mutation is held behind explicit Save As");
+  project.saveAsVersion2(QUrl{});
+  require(project.errorCode() == "invalid_project_url" &&
+              execution.pendingSaveAsAction() == "package_binding" &&
+              !project.project().has_value(),
+          "failed Save As preserves but does not perform the pending action");
+  const auto projectPath = temporary.filePath("pending-arm.prometheus");
+  project.saveAsVersion2(QUrl::fromLocalFile(projectPath));
+  require(project.errorCode().isEmpty() && execution.errorCode().isEmpty() &&
+              execution.property("pendingSaveAsAction").toString().isEmpty() &&
+              project.project().has_value() &&
+              project.project()->execution.package_bindings.size() == 1,
+          "successful explicit Save As resumes the exact pending C++ action");
+
+  CadController cancelledCad;
+  EngineeringController cancelledGeometry;
+  ProjectController cancelledProject(&cancelledCad, &cancelledGeometry);
+  ExecutionController cancelledExecution(&cancelledProject);
+  cancelledExecution.setPendingCadEntityId("motor");
+  cancelledExecution.acceptExactPackage(motorA, objectHash(motorA));
+  require(QMetaObject::invokeMethod(&cancelledExecution,
+                                    "cancelPendingSaveAsAction"),
+          "pending Save As action exposes explicit cancellation");
+  require(
+      cancelledExecution.property("pendingSaveAsAction").toString().isEmpty() &&
+          !cancelledProject.project().has_value(),
+      "cancelled Save As performs no execution mutation");
+
+  CadController scenarioCad;
+  EngineeringController scenarioGeometry;
+  ProjectController scenarioProject(&scenarioCad, &scenarioGeometry);
+  ExecutionController scenarioExecution(&scenarioProject);
+  scenarioCad.restoreCadState({
+      {"name", "Pending scenario arm"},
+      {"cad_source", cadPath},
+      {"resolved_cad_source", cadPath},
+      {"assembly_artifact_hash", objectHash(cadBytes)},
+      {"coordinate_system", "right-handed Z-up"},
+      {"length_unit", "m"},
+      {"component_bindings",
+       QVariantList{QVariantMap{{"cad_entity_id", "motor"},
+                                {"revision_id", "geometry-revision"},
+                                {"label", "Motor"}}}},
+      {"placement_overrides", QVariantList{}},
+      {"connections", QVariantList{}},
+      {"interference_classifications", QVariantList{}},
+  });
+  scenarioExecution.setScenarioDraft(scenarioDraft());
+  scenarioExecution.previewScenarioDegrees();
+  scenarioExecution.confirmScenario(
+      "Persist the reviewed scenario only after explicit Save As.");
+  require(scenarioExecution.errorCode() == "save_as_required" &&
+              scenarioExecution.pendingSaveAsAction() ==
+                  "scenario_confirmation" &&
+              !scenarioExecution.scenarioConfirmed(),
+          "first scenario mutation is held behind explicit Save As");
+  const auto scenarioProjectPath =
+      temporary.filePath("pending-scenario.prometheus");
+  scenarioProject.saveAsVersion2(QUrl::fromLocalFile(scenarioProjectPath));
+  require(scenarioProject.errorCode().isEmpty() &&
+              scenarioExecution.errorCode().isEmpty() &&
+              scenarioExecution.pendingSaveAsAction().isEmpty() &&
+              scenarioExecution.scenarioConfirmed() &&
+              scenarioProject.project().has_value() &&
+              scenarioProject.project()->execution.current_scenario.has_value(),
+          "successful Save As resumes the exact pending scenario confirmation");
+
+  CadController cancelledScenarioCad;
+  EngineeringController cancelledScenarioGeometry;
+  ProjectController cancelledScenarioProject(&cancelledScenarioCad,
+                                             &cancelledScenarioGeometry);
+  ExecutionController cancelledScenarioExecution(&cancelledScenarioProject);
+  cancelledScenarioExecution.setScenarioDraft(scenarioDraft());
+  cancelledScenarioExecution.previewScenarioDegrees();
+  cancelledScenarioExecution.confirmScenario(
+      "This pending scenario will be cancelled.");
+  cancelledScenarioExecution.cancelPendingSaveAsAction();
+  require(cancelledScenarioExecution.pendingSaveAsAction().isEmpty() &&
+              !cancelledScenarioExecution.scenarioConfirmed() &&
+              !cancelledScenarioProject.project().has_value(),
+          "cancelled scenario Save As performs no execution mutation");
+}
+
+void verifyOffscreenWorkflow() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "QML workflow test root exists");
+  const auto cadPath = temporary.filePath("arm.step");
+  const QByteArray cadBytes("QML workflow exact CAD bytes");
+  writeBytes(cadPath, cadBytes);
+  const auto projectPath = temporary.filePath("arm.prometheus");
+  require(run_store::create_project_v2(
+              nativePath(projectPath),
+              projectFixture(cadPath, objectHash(cadBytes)))
+              .has_value(),
+          "QML workflow project creates");
+
+  CadController cad;
+  ServiceController service;
+  EngineeringController geometry;
+  ProjectController project(&cad, &geometry);
+  ExecutionController execution(&project, &service);
+  project.openProject(QUrl::fromLocalFile(projectPath));
+  require(project.errorCode().isEmpty(), "QML workflow project opens");
+  execution.setPendingCadEntityId("motor");
+
+  const QString contracts =
+      QStringLiteral(PROMETHEUS_REPOSITORY_ROOT) + "/fixtures/contracts/";
+  const auto motorA =
+      readBytes(contracts + "execution-component-v2.motor-a.jcs");
+  const auto motorB =
+      readBytes(contracts + "execution-component-v2.motor-b.jcs");
+  const auto blocked =
+      readBytes(contracts + "execution-component-v2.pm-36-gm.jcs");
+  execution.acceptExactPackage(blocked, objectHash(blocked));
+
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty("cadController", &cad);
+  engine.rootContext()->setContextProperty("serviceController", &service);
+  engine.rootContext()->setContextProperty("engineeringController", &geometry);
+  engine.rootContext()->setContextProperty("projectController", &project);
+  engine.rootContext()->setContextProperty("executionController", &execution);
+  engine.rootContext()->setContextProperty("demoResearch", false);
+  engine.rootContext()->setContextProperty("demoEngineering", false);
+  engine.rootContext()->setContextProperty("demoCadInspect", false);
+  engine.rootContext()->setContextProperty("demoPlacement", false);
+  engine.rootContext()->setContextProperty("startupStepPath", QString{});
+  QQmlComponent component(
+      &engine,
+      QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) + "/Main.qml"));
+  std::unique_ptr<QObject> root(component.create());
+  if (!root) {
+    for (const auto &error : component.errors()) {
+      std::cerr << error.toString().toStdString() << '\n';
+    }
+  }
+  require(root != nullptr, "production QML module instantiates offscreen");
+  root->setProperty("visible", false);
+  QCoreApplication::processEvents();
+
+  auto *runButton = requiredChild(root.get(), "runMotorButton");
+  auto *blockedReason = requiredChild(root.get(), "blockedReasonLabel");
+  require(!runButton->property("enabled").toBool(),
+          "Run motor analysis is disabled for a blocked package");
+  require(blockedReason->property("text").toString() ==
+              "Program 01A has no v2 package consumer or solver execution.",
+          "blocked package remains visible with its authoritative reason");
+
+  auto *identityValue = requiredChild(root.get(), "componentIdentityValue");
+  auto *payloadField = requiredChild(root.get(), "payloadMassField");
+  require(
+      !identityValue->property("readOnly").isValid() &&
+          !payloadField->property("readOnly").toBool(),
+      "component identity is display-only while scenario fields are editable");
+  requiredChild(root.get(), "armRadiusField")->setProperty("text", "0.2");
+  requiredChild(root.get(), "rotationDegreesField")->setProperty("text", "90");
+  requiredChild(root.get(), "moveDurationField")->setProperty("text", "1.2");
+  requiredChild(root.get(), "holdDurationField")->setProperty("text", "4");
+  requiredChild(root.get(), "cycleDurationField")->setProperty("text", "10");
+  requiredChild(root.get(), "ambientTemperatureField")
+      ->setProperty("text", "35");
+  auto *scenarioDialog = requiredChild(root.get(), "motorScenarioDialog");
+  require(QMetaObject::invokeMethod(scenarioDialog, "reviewTypedValues"),
+          "scenario review action invokes the QML adapter");
+  QCoreApplication::processEvents();
+  const auto radians = requiredChild(root.get(), "rotationRadiansValue")
+                           ->property("text")
+                           .toString();
+  require(radians.contains("1.5707963267948966") && radians.contains("rad"),
+          "scenario preview shows the exact C++ radians and unit");
+  requiredChild(root.get(), "scenarioIntentField")
+      ->setProperty("text", "Evaluate the reviewed QML motor-arm scenario.");
+  require(QMetaObject::invokeMethod(scenarioDialog, "confirmReviewedScenario"),
+          "separate scenario confirmation action is invokable");
+  require(execution.scenarioConfirmed() && !execution.canRun(),
+          "confirmed scenario does not override a blocked package");
+
+  execution.acceptExactPackage(motorA, objectHash(motorA));
+  QCoreApplication::processEvents();
+  require(
+      execution.canRun() && runButton->property("enabled").toBool(),
+      "Run motor analysis enables only with ready binding and confirmation");
+  require(QMetaObject::invokeMethod(runButton, "click"),
+          "enabled motor run button is callable");
+  require(waitUntil([&execution] { return !execution.busy(); }) &&
+              execution.errorCode().isEmpty(),
+          "Motor A run completes through the QML action");
+  execution.acceptExactPackage(motorB, objectHash(motorB));
+  execution.runAnalysis();
+  require(waitUntil([&execution] { return !execution.busy(); }) &&
+              execution.errorCode().isEmpty() &&
+              execution.runHistory().size() == 2,
+          "Motor B appends a second run with the same confirmed scenario");
+  execution.acceptExactPackage(motorA, objectHash(motorA));
+  QCoreApplication::processEvents();
+  auto *historyPanel = requiredChild(root.get(), "runHistoryPanel");
+  require(historyPanel->property("historyCount").toInt() == 2,
+          "Motor A/B history remains visible after switching packages");
+
+  const auto geometryText = requiredChild(root.get(), "geometryStatusLabel")
+                                ->property("text")
+                                .toString();
+  const auto motorText = requiredChild(root.get(), "motorStatusLabel")
+                             ->property("text")
+                             .toString();
+  require(geometryText.contains("completed", Qt::CaseInsensitive) &&
+              !motorText.isEmpty() && geometryText != motorText,
+          "geometry and motor capabilities retain independent status labels");
+
+  verifyPendingSaveAs(motorA);
+}
+
+} // namespace
+
+int main(int argc, char **argv) {
+  QGuiApplication application(argc, argv);
+  verifyAuthorityScan();
+  verifyOffscreenWorkflow();
+  return 0;
+}

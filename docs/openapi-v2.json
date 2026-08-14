@@ -225,6 +225,70 @@
         "title": "ContractIdentityResponseV2",
         "type": "object"
       },
+      "EvidenceSummaryResponseV2": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_class": {
+            "enum": [
+              "manufacturer_document",
+              "private_upload",
+              "user_measurement",
+              "derived_claim",
+              "validation_observation"
+            ],
+            "title": "Evidence Class",
+            "type": "string"
+          },
+          "evidence_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "physical_validation_status": {
+            "enum": [
+              "unvalidated",
+              "component_validated",
+              "system_validated"
+            ],
+            "title": "Physical Validation Status",
+            "type": "string"
+          },
+          "source_authority": {
+            "enum": [
+              "manufacturer",
+              "supplier",
+              "private_provider",
+              "user",
+              "prometheus_derivation",
+              "validation_activity",
+              "synthetic_fixture",
+              "unknown"
+            ],
+            "title": "Source Authority",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "evidence_class",
+          "source_authority",
+          "physical_validation_status",
+          "limitations"
+        ],
+        "title": "EvidenceSummaryResponseV2",
+        "type": "object"
+      },
       "FixtureIngestionRequestV2": {
         "additionalProperties": false,
         "properties": {
@@ -301,6 +365,29 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LimitationV2": {
+        "additionalProperties": false,
+        "properties": {
+          "limitation_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Limitation Id",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "limitation_id",
+          "statement"
+        ],
+        "title": "LimitationV2",
         "type": "object"
       },
       "ParameterResponseV2": {
@@ -510,6 +597,11 @@
             "title": "Capability Gates",
             "type": "array"
           },
+          "capability_id": {
+            "pattern": "^[a-z][a-z0-9_.:-]{0,127}$",
+            "title": "Capability Id",
+            "type": "string"
+          },
           "component": {
             "$ref": "#/components/schemas/ComponentIdentityResponseV2"
           },
@@ -521,11 +613,27 @@
             "title": "Draft Version",
             "type": "integer"
           },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceSummaryResponseV2"
+            },
+            "maxItems": 10000,
+            "title": "Evidence",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "title": "Id",
             "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "$ref": "#/components/schemas/LimitationV2"
+            },
+            "maxItems": 10000,
+            "title": "Limitations",
+            "type": "array"
           },
           "object_hash": {
             "anyOf": [
@@ -581,6 +689,9 @@
           "draft_version",
           "contract",
           "component",
+          "capability_id",
+          "evidence",
+          "limitations",
           "parameters",
           "capability_gates",
           "publication_integrity",

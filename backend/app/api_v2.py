@@ -19,10 +19,16 @@ from .contracts_v2 import (
     PACKAGE_MEDIA_TYPE,
     SCHEMA_ID,
     SCHEMA_VERSION,
+    CapabilityId,
     ContractV2,
+    EvidenceClass,
     HashId,
+    LimitationV2,
+    NonEmptyText,
+    PhysicalValidationStatus,
     PublicationRequestV2,
     ReviewRequestV2,
+    SourceAuthority,
     UtcDatetime,
     UuidV4,
 )
@@ -37,6 +43,7 @@ from .models_v2 import (
     CandidateClaimV2,
     CapabilityGateV2,
     ClaimSelectionV2,
+    EvidenceRecordV2,
     FixtureIngestionJobV2,
     ParameterSlotV2,
 )
@@ -123,12 +130,23 @@ class CapabilityGateResponseV2(ContractV2):
     reason: str | None
 
 
+class EvidenceSummaryResponseV2(ContractV2):
+    evidence_id: UuidV4
+    evidence_class: EvidenceClass
+    source_authority: SourceAuthority
+    physical_validation_status: PhysicalValidationStatus
+    limitations: list[NonEmptyText] = Field(max_length=1_000)
+
+
 class RevisionResponseV2(ContractV2):
     id: UuidV4
     status: Literal["draft", "published"]
     draft_version: Annotated[StrictInt, Field(ge=0)]
     contract: ContractIdentityResponseV2
     component: ComponentIdentityResponseV2
+    capability_id: CapabilityId
+    evidence: list[EvidenceSummaryResponseV2] = Field(max_length=10_000)
+    limitations: list[LimitationV2] = Field(max_length=10_000)
     parameters: list[ParameterResponseV2]
     capability_gates: list[CapabilityGateResponseV2]
     publication_integrity: Literal["v2_draft", "sealed_v2"]
@@ -296,6 +314,21 @@ def _revision_value(db: Session, revision_id: str) -> dict[str, object]:
         ),
         key=lambda gate: (gate_order.get(gate.required_review_type, 99), gate.id),
     )
+    capability_ids = {gate.capability_id for gate in gates}
+    if len(capability_ids) != 1:
+        raise _error(
+            409,
+            "revision_integrity_failure",
+            "The revision does not identify exactly one capability.",
+        )
+    evidence = sorted(
+        db.scalars(
+            sa.select(EvidenceRecordV2).where(
+                EvidenceRecordV2.revision_id == revision_id
+            )
+        ),
+        key=lambda record: record.id,
+    )
     return {
         "id": revision.id,
         "status": revision.status,
@@ -308,6 +341,18 @@ def _revision_value(db: Session, revision_id: str) -> dict[str, object]:
             "revision": revision.revision,
             "component_class": component.model_class,
         },
+        "capability_id": next(iter(capability_ids)),
+        "evidence": [
+            {
+                "evidence_id": record.id,
+                "evidence_class": record.evidence_class,
+                "source_authority": record.source_authority,
+                "physical_validation_status": record.physical_validation_status,
+                "limitations": list(record.limitations),
+            }
+            for record in evidence
+        ],
+        "limitations": list(revision.limitations),
         "parameters": parameters,
         "capability_gates": [
             {

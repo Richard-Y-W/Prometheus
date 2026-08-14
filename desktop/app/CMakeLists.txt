@@ -5,7 +5,17 @@ target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOU
 target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
-qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES ../ui/Main.qml)
+set_source_files_properties(../ui/ComponentPackagePanel.qml PROPERTIES QT_RESOURCE_ALIAS ComponentPackagePanel.qml)
+set_source_files_properties(../ui/MotorScenarioDialog.qml PROPERTIES QT_RESOURCE_ALIAS MotorScenarioDialog.qml)
+set_source_files_properties(../ui/MotorRunPanel.qml PROPERTIES QT_RESOURCE_ALIAS MotorRunPanel.qml)
+set_source_files_properties(../ui/RunHistoryPanel.qml PROPERTIES QT_RESOURCE_ALIAS RunHistoryPanel.qml)
+qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES
+  ../ui/Main.qml
+  ../ui/ComponentPackagePanel.qml
+  ../ui/MotorScenarioDialog.qml
+  ../ui/MotorRunPanel.qml
+  ../ui/RunHistoryPanel.qml
+)
 target_link_libraries(prometheus_desktop PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Quick3D Qt6::Concurrent prometheus_core prometheus_desktop_support)
 if(TARGET prometheus_cad)
   target_link_libraries(prometheus_desktop_support PUBLIC prometheus_cad)
@@ -79,6 +89,28 @@ if(BUILD_TESTING)
     prometheus_run_store_contention_helper
   )
   set_tests_properties(prometheus_execution_controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  )
+
+  add_executable(prometheus_qml_authority_tests
+    tests/qml_authority_tests.cpp
+  )
+  target_compile_definitions(prometheus_qml_authority_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+    PROMETHEUS_UI_DIR="${PROJECT_SOURCE_DIR}/desktop/ui"
+  )
+  target_link_libraries(prometheus_qml_authority_tests PRIVATE
+    Qt6::Gui
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Quick3D
+    prometheus_desktop_support
+  )
+  add_test(
+    NAME prometheus_qml_authority
+    COMMAND prometheus_qml_authority_tests
+  )
+  set_tests_properties(prometheus_qml_authority PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   )
 endif()

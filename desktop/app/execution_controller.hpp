@@ -38,6 +38,8 @@ class ExecutionController final : public QObject {
   Q_PROPERTY(int selectedRunIndex READ selectedRunIndex NOTIFY changed)
   Q_PROPERTY(QVariantMap selectedResult READ selectedResult NOTIFY changed)
   Q_PROPERTY(QString replayState READ replayState NOTIFY changed)
+  Q_PROPERTY(
+      QString pendingSaveAsAction READ pendingSaveAsAction NOTIFY changed)
 
 public:
   explicit ExecutionController(ProjectController *project,
@@ -60,6 +62,7 @@ public:
   int selectedRunIndex() const { return selected_run_index_; }
   QVariantMap selectedResult() const { return selected_result_; }
   QString replayState() const { return replay_state_; }
+  QString pendingSaveAsAction() const { return pending_save_as_action_; }
 
   Q_INVOKABLE void setPendingCadEntityId(const QString &entityId);
   Q_INVOKABLE void setScenarioDraft(const QVariantMap &draft);
@@ -70,6 +73,7 @@ public:
   Q_INVOKABLE void selectRun(int index);
   Q_INVOKABLE void replaySelected();
   Q_INVOKABLE void reloadProject();
+  Q_INVOKABLE void cancelPendingSaveAsAction();
 
 public slots:
   void acceptExactPackage(QByteArray bytes, QString expectedObjectHash);
@@ -81,6 +85,17 @@ private:
   struct RecordedRun final {
     prometheus::run_store::StoredObjectReference manifest;
     QVariantMap result;
+  };
+
+  struct PendingPackageBinding final {
+    QByteArray bytes;
+    QString expected_object_hash;
+    QString cad_entity_id;
+  };
+
+  struct PendingScenarioConfirmation final {
+    prometheus::execution::CanonicalObject object;
+    prometheus::execution::ScenarioPreview preview;
   };
 
   ProjectController *project_;
@@ -106,6 +121,9 @@ private:
   int selected_run_index_{-1};
   QVariantMap selected_result_;
   QString replay_state_;
+  QString pending_save_as_action_;
+  std::optional<PendingPackageBinding> pending_package_binding_;
+  std::optional<PendingScenarioConfirmation> pending_scenario_confirmation_;
   std::uint64_t generation_{0U};
   std::stop_source stop_source_;
 
@@ -116,4 +134,9 @@ private:
   void loadActiveBinding();
   void loadCurrentScenario();
   void loadRecordedRuns();
+  void clearPendingSaveAsAction();
+  void resumePendingSaveAsAction();
+  bool installConfirmedScenario(
+      const prometheus::execution::CanonicalObject &object,
+      const prometheus::execution::ScenarioPreview &preview);
 };
