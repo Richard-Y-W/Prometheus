@@ -23,6 +23,10 @@
 #include <variant>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+#endif
+
 namespace {
 
 namespace execution = prometheus::execution;
@@ -398,16 +402,8 @@ void test_unsupported_numeric_environment_has_no_objects() {
                             "unsupported_numeric_profile");
 }
 
+#if !defined(_WIN32)
 std::string shell_quote(const std::string &value) {
-#if defined(_WIN32)
-  std::string escaped = value;
-  std::size_t position = 0U;
-  while ((position = escaped.find('"', position)) != std::string::npos) {
-    escaped.insert(position, 1U, '\\');
-    position += 2U;
-  }
-  return "\"" + escaped + "\"";
-#else
   std::string escaped;
   escaped.reserve(value.size() + 2U);
   escaped.push_back('\'');
@@ -420,8 +416,8 @@ std::string shell_quote(const std::string &value) {
   }
   escaped.push_back('\'');
   return escaped;
-#endif
 }
+#endif
 
 void test_fresh_process_repeatability() {
   const auto value = fixture("motor-a");
@@ -446,6 +442,31 @@ void test_fresh_process_repeatability() {
   write_file(scenario_path, value.scenario.bytes);
   write_file(request_path, value.request.bytes);
 
+#if defined(_WIN32)
+  const auto widen_ascii = [](const std::string &value) {
+    return std::wstring(value.begin(), value.end());
+  };
+  const std::array<std::wstring, 9> arguments{
+      process_probe.wstring(),
+      package_path.wstring(),
+      widen_ascii(value.package_hash),
+      scenario_path.wstring(),
+      widen_ascii(value.scenario.object_hash),
+      request_path.wstring(),
+      widen_ascii(value.request.object_hash),
+      result_path.wstring(),
+      manifest_path.wstring(),
+  };
+  std::array<const wchar_t *, 10> argv{};
+  for (std::size_t index = 0U; index < arguments.size(); ++index) {
+    argv[index] = arguments[index].c_str();
+  }
+  const auto process_status =
+      _wspawnv(_P_WAIT, arguments.front().c_str(), argv.data());
+  require(process_status == 0,
+          "fresh helper process completes exact execution: status=" +
+              std::to_string(process_status));
+#else
   const std::array<std::string, 9> arguments{
       process_probe.string(),
       package_path.string(),
@@ -466,6 +487,7 @@ void test_fresh_process_repeatability() {
   }
   require(std::system(command.c_str()) == 0,
           "fresh helper process completes exact execution");
+#endif
   require(read_file(result_path) == completed.result.bytes &&
               read_file(manifest_path) == completed.manifest.bytes,
           "fresh-process result and manifest bytes match in-process output");

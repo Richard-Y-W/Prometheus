@@ -4,9 +4,15 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <string>
+
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace {
 
@@ -39,6 +45,12 @@ Json report_json(const replay::ReplayReport &report) {
 } // namespace
 
 int main(const int argc, char **argv) {
+#if defined(_WIN32)
+  if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+    std::cerr << "unable to configure machine-readable stdout\n";
+    return 74;
+  }
+#endif
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "Usage: prometheus_replay --project <project.prometheus> "
                  "--run <sha256:...>\n";
