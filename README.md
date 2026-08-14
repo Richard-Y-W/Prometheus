@@ -2,7 +2,7 @@
 
 Product goal: Prometheus is a local project compiler and solver-orchestration environment for heterogeneous engineering projects. It is intended to inventory project files, reconstruct a reviewable system model, compile requirements and scenarios into proof obligations, run bounded local analyses, and report failures, scoped successes, unknowns, and coverage with reproducible provenance.
 
-Current repository: this codebase is a fixture-backed electromechanical vertical demonstrator with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It cannot determine whether an arbitrary engineering project works.
+Current repository: this codebase is a Windows-first mechanical-project screening prototype with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It can inventory an arbitrary local folder and screen one STEP assembly, but it cannot determine whether an arbitrary engineering project works.
 
 ![Prometheus CAD workspace](docs/images/cad-workspace.png)
 
@@ -17,6 +17,8 @@ Current repository: this codebase is a fixture-backed electromechanical vertical
 - A bounded local object store publishes package, scenario, request, result, and run-manifest bytes transactionally. The desktop and headless replay CLI reopen the same records and compare exact result bytes when the recorded numeric execution identity is available.
 - The C++ decision core remains authoritative for project-summary reduction across verdict, coverage, and execution state. Geometry and motor results retain separate status, findings, and coverage; no UI label says that the whole project works.
 - The native Qt/C++ desktop imports real STEP/XDE through Open Cascade when that optional adapter is enabled, preserves hierarchy and persistent entity IDs, renders tessellation, supports inspected part placement, and performs exact static or explicitly sampled collision operations.
+- The desktop can recursively open a real project folder, account for hidden and nested files, record the byte count and SHA-256 digest of each readable regular file, classify recognized formats, and keep unsupported or unreadable entries visible. Exactly one STEP file loads automatically; multiple STEP files require an explicit choice. The inventory is session-only in this prototype.
+- After STEP import, the mechanical screen reports exact static B-Rep intersections or a bounded clear result only when that operation ran. Motion, material/mass, loads/restraints, and structural strength remain visible as `not_evaluated`; deferred large-assembly interference never becomes a clear result.
 - A separate synthetic motor-arm assembly remains available for deterministic conformance tests. Its bounded package-driven C++ checks cover torque, current, a one-node thermal model, and selected geometry behavior; they are not evidence of arbitrary mechanical or cross-domain engineering support.
 - V1 review, publication, and reconstructed package export are retired with structured `410 Gone` responses. Historical v1 metadata reads remain labeled; no production v2 route imports the old reconstruction path.
 - The React rough-V1 interface remains a labeled, non-executing geometry viewer.
@@ -25,7 +27,7 @@ Package integrity is a byte-identity claim only. A package remains reviewed inpu
 
 No external structural, thermal, electrical, CFD, or controls solver adapter exists. The repository makes no certification claim and no project-wide correctness claim. A failed, missing, nonconverged, or unsupported analysis must remain `indeterminate` or `not_evaluated`; it cannot become a pass.
 
-The [master roadmap](docs/program/00-master-roadmap.md) defines the gates from this trust kernel to general project intake, a semantic engineering graph, proof-obligation planning, a local solver SDK, six bounded domain slices, validation, and product hardening.
+The [master roadmap](docs/program/00-master-roadmap.md) now advances through project-value gates: real folder-to-finding workflows first, repeated projects second, one external structural solver third, and only then generalization and hardening supported by observed failures.
 
 ## Program 01B status — complete under the bounded contract-tested gate
 
@@ -33,7 +35,7 @@ Program 01B closed on 2026-08-13 at verified implementation and CI commit `dd5b9
 
 Under one identical reviewed scenario, synthetic Motor A's 0.208 N*m continuous rating failed the 0.224152 N*m holding requirement, while synthetic Motor B's 0.320 N*m rating passed. The other calculation outputs remained equal, both records survived save/reopen, and the shared C++ execution path reproduced their exact result hashes offline.
 
-This is evidence for one fixed four-obligation motor-arm backend and its reusable package/run boundary. It is not arbitrary project verification, general engineering coverage, physical validation, universal intake, external solver execution, or an assembly-wide verdict. Program 01C safe evidence acquisition is next and has not started.
+This is evidence for one fixed four-obligation motor-arm backend and its reusable package/run boundary. It is not arbitrary project verification, general engineering coverage, physical validation, universal intake, external solver execution, or an assembly-wide verdict. The next product gate is the Windows-first real-project screening workflow described below, not another monolithic trust-infrastructure phase.
 
 ## Program 01A status — complete under the amended contract-tested gate
 
@@ -84,6 +86,24 @@ cmake --build --preset windows-debug
 ctest --preset windows-debug --output-on-failure
 ./out/build/windows-debug/desktop/app/prometheus_desktop.exe
 ```
+
+In the application, choose **Open Folder** and select the root of a mechanical
+project. Prometheus inventories every discovered file. If the folder contains
+exactly one readable `.step` or `.stp` file, it loads automatically and opens
+the mechanical screen. If several STEP files exist, use **Load assembly** on
+the authoritative row. **Files N** reopens the complete inventory and **Screen
+Results** reopens the evaluated/unknown coverage view.
+
+For a deterministic startup trial on Windows PowerShell:
+
+```powershell
+$env:PROMETHEUS_STARTUP_PROJECT_FOLDER = "C:\path\to\engineering-project"
+./out/build/windows-debug/desktop/app/prometheus_desktop.exe
+```
+
+This folder workflow currently interprets STEP geometry only. PDF,
+spreadsheet/BOM, source-code, structured-data, proprietary CAD, and other files
+are hashed and shown but remain `not_evaluated` or `unsupported`.
 
 Set `PROMETHEUS_DEMO_RESEARCH=1` only to expose the exact synthetic fixture catalog for manual review. There is no auto-accept, auto-publish, or auto-run switch.
 
