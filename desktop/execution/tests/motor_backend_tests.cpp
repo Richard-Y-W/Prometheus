@@ -1,9 +1,13 @@
 #include <prometheus/simulation/motor_arm_builtin_v1.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cfenv>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -13,6 +17,7 @@
 namespace {
 
 namespace simulation = prometheus::simulation;
+using Json = nlohmann::json;
 
 void require(const bool condition, const std::string &message) {
   if (!condition) {
@@ -24,6 +29,12 @@ void require_near(const double actual, const double expected,
                   const double tolerance, const std::string &message) {
   require(std::isfinite(actual), message + ": actual value is not finite");
   require(std::abs(actual - expected) <= tolerance, message);
+}
+
+Json read_json(const std::filesystem::path &path) {
+  std::ifstream stream(path, std::ios::binary);
+  require(stream.is_open(), "open JSON fixture: " + path.string());
+  return Json::parse(stream, nullptr, true, true);
 }
 
 simulation::MotorComponentInput valid_motor(const double continuous_torque =
@@ -47,6 +58,119 @@ require_output(simulation::MotorArmBackendResult &&result,
   require(std::holds_alternative<simulation::MotorArmBackendOutput>(result),
           context + ": expected backend output");
   return std::get<simulation::MotorArmBackendOutput>(std::move(result));
+}
+
+void test_recorded_historical_parity_boundary() {
+  const auto fixture = read_json(
+      std::filesystem::path(PROMETHEUS_REPOSITORY_ROOT) /
+      "fixtures/conformance/program-01b/motor-parity-reference.json");
+  require(fixture.at("schema_version") == "1.0.0",
+          "parity fixture schema version");
+  require(fixture.at("source") == "historical_python_reference",
+          "parity fixture historical source");
+  require(fixture.at("authority") == "non_authoritative_parity_only",
+          "parity fixture authority boundary");
+  const auto &profile = fixture.at("tolerance_profile");
+  require(profile.at("profile_id") == "program-01b-parity-v1",
+          "parity fixture tolerance profile");
+  const auto tolerance = profile.at("absolute_tolerance").get<double>();
+  require(tolerance == 1e-12, "parity fixture absolute tolerance");
+
+  const auto &component_json = fixture.at("component_input");
+  auto component = valid_motor();
+  component.continuous_torque_nm =
+      component_json.at("continuous_torque_nm").get<double>();
+  component.driver_current_limit_a =
+      component_json.at("driver_current_limit_a").get<double>();
+  component.gear_ratio = component_json.at("gear_ratio").get<double>();
+  component.gearbox_efficiency =
+      component_json.at("gearbox_efficiency_nominal").get<double>();
+  component.stall_torque_nm =
+      component_json.at("stall_torque_nm").get<double>();
+  component.no_load_speed_rad_s =
+      component_json.at("no_load_speed_rad_s").get<double>();
+  component.no_load_current_a =
+      component_json.at("no_load_current_a").get<double>();
+  component.torque_constant_nm_a =
+      component_json.at("torque_constant_nm_a").get<double>();
+  component.winding_resistance_ohm =
+      component_json.at("winding_resistance_ohm").get<double>();
+  component.thermal_resistance_k_w =
+      component_json.at("thermal_resistance_k_w").get<double>();
+  component.thermal_capacitance_j_k =
+      component_json.at("thermal_capacitance_j_k").get<double>();
+  component.maximum_temperature_c =
+      component_json.at("maximum_temperature_c").get<double>();
+  const auto &efficiency_range =
+      component_json.at("gearbox_efficiency_range");
+  require(efficiency_range.at("minimum") == 0.55 &&
+              efficiency_range.at("maximum") == 0.82,
+          "historical random-efficiency input remains recorded");
+
+  const auto &scenario_json = fixture.at("scenario");
+  const auto rotation_degrees =
+      scenario_json.at("rotation_degrees").get<double>();
+  const simulation::MotorArmScenario scenario{
+      scenario_json.at("payload_mass_kg").get<double>(),
+      scenario_json.at("arm_radius_m").get<double>(),
+      rotation_degrees * std::acos(-1.0) / 180.0,
+      scenario_json.at("move_duration_s").get<double>(),
+      scenario_json.at("hold_duration_s").get<double>(),
+      scenario_json.at("cycle_duration_s").get<double>(),
+      scenario_json.at("ambient_temperature_c").get<double>(),
+  };
+  const auto output = require_output(
+      simulation::run_motor_arm_builtin_v1(component, scenario),
+      "recorded parity scenario");
+  const auto &value = output.calculations;
+  const auto &recorded = fixture.at("shared_quantities");
+  const auto compare = [&](const double actual, const std::string &name) {
+    require_near(actual, recorded.at(name).get<double>(), tolerance,
+                 "historical parity: " + name);
+  };
+  compare(value.peak_motor_speed_rad_s / component.gear_ratio,
+          "peak_arm_speed_rad_s");
+  compare(value.acceleration_load_torque_nm /
+              (scenario.payload_mass_kg * scenario.arm_radius_m *
+               scenario.arm_radius_m),
+          "angular_acceleration_rad_s2");
+  compare(value.holding_load_torque_nm, "holding_load_torque_nm");
+  compare(value.required_hold_motor_torque_nm,
+          "required_hold_motor_torque_nm");
+  compare(value.required_move_motor_torque_nm,
+          "required_move_motor_torque_nm");
+  compare(value.available_move_torque_nm, "available_move_torque_nm");
+  compare(value.peak_motor_speed_rad_s, "motor_speed_rad_s");
+  compare(value.estimated_move_current_a, "estimated_move_current_a");
+  compare(component.no_load_current_a +
+              value.required_hold_motor_torque_nm /
+                  component.torque_constant_nm_a,
+          "estimated_hold_current_a");
+
+  const auto &differences = fixture.at("intentional_differences");
+  require(differences.size() == 1,
+          "exactly one intentional parity difference");
+  const auto &thermal = differences.at(0);
+  require(thermal.at("quantity") == "estimated_peak_temperature_c",
+          "intentional difference is thermal only");
+  require_near(value.estimated_peak_temperature_c,
+               thermal.at("authoritative_cpp_value").get<double>(), tolerance,
+               "authoritative C++ thermal reference");
+  const auto historical =
+      thermal.at("historical_python_value").get<double>();
+  require(std::abs(value.estimated_peak_temperature_c - historical) >=
+              thermal.at("required_minimum_absolute_difference").get<double>(),
+          "thermal implementations remain explicitly distinguished");
+
+  const auto &excluded = fixture.at("excluded_outputs");
+  require(excluded.size() == 1 &&
+              excluded.at(0).at("output") ==
+                  "random_efficiency_percentiles",
+          "non-authoritative random percentiles remain excluded");
+  require(excluded.at(0).at("reason") ==
+              "The historical seeded Monte Carlo percentiles are not an "
+              "authoritative calculation and are deliberately not reproduced.",
+          "excluded random output retains its authority rationale");
 }
 
 void require_error(const simulation::MotorArmBackendResult &result,
@@ -205,6 +329,7 @@ void test_rounding_mode_and_margin_boundaries() {
 
 int main() {
   try {
+    test_recorded_historical_parity_boundary();
     test_fixed_acceptance_calculations();
     test_motor_a_b_and_efficiency_sensitivity();
     test_domains_and_nonfinite_rejection();

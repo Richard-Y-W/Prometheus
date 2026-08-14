@@ -10,6 +10,7 @@ from referencing import Registry, Resource
 
 from app.contracts_v1 import ExecutionComponentPackage
 from app.execution_packages import finalize_execution_component
+from app.schemas import ScenarioDefinition
 
 
 ROOT = Path(__file__).parents[2]
@@ -148,3 +149,16 @@ def test_execution_fixture_evidence_hashes_exact_source_bytes():
     assert {item["source_document_hash"] for item in package["evidence"]} == {
         expected
     }
+
+
+def test_scenario_rejects_a_cycle_shorter_than_move_and_hold():
+    with pytest.raises(PydanticValidationError):
+        ScenarioDefinition(
+            payload_kg=8,
+            arm_length_m=0.2,
+            rotation_deg=90,
+            movement_s=1.2,
+            hold_s=4,
+            cycle_s=4,
+            ambient_c=35,
+        )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from uuid import uuid4
 
@@ -87,7 +88,19 @@ def test_unversioned_analysis_retirement_behavior_is_unchanged():
 
 def test_production_v2_modules_never_import_historical_v1_contract_or_reconstruction():
     modules = sorted(APP_ROOT.glob("*v2.py")) + [APP_ROOT / "http_policy.py"]
-    forbidden = ("contracts_v1", "execution_packages")
+    forbidden = {"contracts_v1", "execution_packages"}
     for module in modules:
         source = module.read_text(encoding="utf-8")
-        assert all(name not in source for name in forbidden), module.name
+        imported_modules = set()
+        for node in ast.walk(ast.parse(source, filename=str(module))):
+            if isinstance(node, ast.Import):
+                imported_modules.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module is not None:
+                    imported_modules.add(node.module)
+                else:
+                    imported_modules.update(alias.name for alias in node.names)
+        assert not {
+            imported.rsplit(".", maxsplit=1)[-1]
+            for imported in imported_modules
+        }.intersection(forbidden), module.name

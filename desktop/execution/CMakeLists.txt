@@ -143,6 +143,12 @@ if(BUILD_TESTING)
     tests/motor_backend_tests.cpp
   )
   target_compile_features(prometheus_motor_backend_tests PRIVATE cxx_std_20)
+  target_include_directories(prometheus_motor_backend_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
+  target_compile_definitions(prometheus_motor_backend_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+  )
   target_link_libraries(prometheus_motor_backend_tests PRIVATE prometheus_core)
   add_test(NAME prometheus_motor_backend COMMAND prometheus_motor_backend_tests)
 
