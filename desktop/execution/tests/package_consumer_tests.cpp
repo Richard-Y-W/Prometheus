@@ -69,7 +69,10 @@ PackageBytes canonical_package(Json value) {
 Json &claim_by_slot(Json &package, const std::string_view slot_name) {
   const auto slot = std::find_if(
       package["parameter_slots"].begin(), package["parameter_slots"].end(),
-      [&](const Json &candidate) { return candidate.at("name") == slot_name; });
+      [&](const Json &candidate) {
+        return candidate.at("name").get<std::string>() ==
+               std::string(slot_name);
+      });
   require(slot != package["parameter_slots"].end(),
           "test fixture slot must exist");
   const auto claim_id = slot->at("selected_claim_id").get<std::string>();
@@ -134,7 +137,8 @@ void remove_slot_graph(Json &package, const std::string_view slot_name) {
   auto &slots = package["parameter_slots"];
   const auto slot = std::find_if(
       slots.begin(), slots.end(), [&](const Json &candidate) {
-        return candidate.at("name") == slot_name;
+        return candidate.at("name").get<std::string>() ==
+               std::string(slot_name);
       });
   require(slot != slots.end(), "remove fixture slot must exist");
   const auto claim_id = slot->at("selected_claim_id").get<std::string>();
