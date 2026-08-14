@@ -67,8 +67,13 @@ void require(const bool condition, const std::string &message) {
 std::string read_file(const fs::path &path) {
   std::ifstream stream(path, std::ios::binary);
   require(static_cast<bool>(stream), "open file: " + path.string());
-  return {std::istreambuf_iterator<char>(stream),
-          std::istreambuf_iterator<char>()};
+  try {
+    return {std::istreambuf_iterator<char>(stream),
+            std::istreambuf_iterator<char>()};
+  } catch (const std::exception &failure) {
+    throw std::runtime_error("read file " + path.string() + ": " +
+                             failure.what());
+  }
 }
 
 void write_file(const fs::path &path, const std::string_view bytes) {
@@ -76,6 +81,26 @@ void write_file(const fs::path &path, const std::string_view bytes) {
   require(static_cast<bool>(stream), "open file for writing: " + path.string());
   stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
   require(static_cast<bool>(stream), "write file: " + path.string());
+}
+
+bool can_create_test_symlinks(const fs::path &root) {
+  const auto target = root / "symlink-capability-target";
+  const auto link = root / "symlink-capability-link";
+  write_file(target, "probe\n");
+  std::error_code error;
+  fs::create_symlink(target, link, error);
+  std::error_code ignored;
+  fs::remove(link, ignored);
+  fs::remove(target, ignored);
+  if (error == std::errc::operation_not_permitted ||
+      error == std::errc::permission_denied ||
+      error == std::errc::function_not_supported ||
+      error == std::errc::operation_not_supported) {
+    std::cerr << "SKIP: replay symlink security checks require symlink privileges\n";
+    return false;
+  }
+  require(!error, "probe replay test symlink capability: " + error.message());
+  return true;
 }
 
 class TemporaryRoot final {
@@ -308,7 +333,14 @@ Snapshot snapshot_tree(const fs::path &root) {
     } else if (fs::is_directory(status)) {
       snapshot.emplace(key, "directory");
     } else if (fs::is_regular_file(status)) {
-      snapshot.emplace(key, "file:" + integrity::sha256_bytes(read_file(entry.path())));
+      if (entry.path().filename() == ".writer.lock") {
+        const auto size = fs::file_size(entry.path(), error);
+        require(!error, "inspect replay writer-lock snapshot");
+        snapshot.emplace(key, "writer-lock:" + std::to_string(size));
+      } else {
+        snapshot.emplace(
+            key, "file:" + integrity::sha256_bytes(read_file(entry.path())));
+      }
     } else {
       snapshot.emplace(key, "other");
     }
@@ -788,20 +820,22 @@ void test_missing_corrupt_and_symlinked_objects(
         write_file(object_path(fixture, reference), bytes);
       },
       std::nullopt);
-  mutate_result(
-      "symlink-object",
-      [](const Fixture &fixture,
-         const run_store::StoredObjectReference &reference) {
-        const auto destination = object_path(fixture, reference);
-        const auto decoy = fixture.root / "result-decoy.jcs";
-        write_file(decoy, object_bytes(fixture, reference));
-        std::error_code error;
-        fs::remove(destination, error);
-        require(!error, "remove object before symlink substitution");
-        fs::create_symlink(decoy, destination, error);
-        require(!error, "create result-object symlink substitution");
-      },
-      "unsafe_object_path");
+  if (can_create_test_symlinks(variant_root)) {
+    mutate_result(
+        "symlink-object",
+        [](const Fixture &fixture,
+           const run_store::StoredObjectReference &reference) {
+          const auto destination = object_path(fixture, reference);
+          const auto decoy = fixture.root / "result-decoy.jcs";
+          write_file(decoy, object_bytes(fixture, reference));
+          std::error_code error;
+          fs::remove(destination, error);
+          require(!error, "remove object before symlink substitution");
+          fs::create_symlink(decoy, destination, error);
+          require(!error, "create result-object symlink substitution");
+        },
+        "unsafe_object_path");
+  }
 }
 
 void test_external_cad_failures(const Fixture &base,
@@ -826,7 +860,7 @@ void test_external_cad_failures(const Fixture &base,
                            3, "verification_failed",
                            "assembly_hash_mismatch");
   }
-  {
+  if (can_create_test_symlinks(variant_root)) {
     const auto fixture = clone_fixture(base, variant_root / "symlink-cad");
     const auto cad = fixture.root / "motor-arm.step";
     const auto decoy = fixture.root / "motor-arm-decoy.step";

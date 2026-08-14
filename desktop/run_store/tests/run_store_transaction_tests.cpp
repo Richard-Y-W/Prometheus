@@ -732,6 +732,13 @@ void test_kernel_lock_contention_and_recovery() {
   fs::remove(lock_path, link_error);
   require(!link_error, "remove lock for substitution test");
   fs::create_symlink(lock_decoy, lock_path, link_error);
+  if (link_error == std::errc::operation_not_permitted ||
+      link_error == std::errc::permission_denied ||
+      link_error == std::errc::function_not_supported ||
+      link_error == std::errc::operation_not_supported) {
+    std::cerr << "SKIP: lock symlink substitution requires symlink privileges\n";
+    return;
+  }
   require(!link_error, "create substituted lock symlink");
   const auto substituted_lock = run_store::open_read_only(project_path);
   require_failure(substituted_lock, "unsafe_lock_path",

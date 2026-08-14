@@ -246,6 +246,14 @@ bool create_directory_symlink_checked(const std::filesystem::path &target,
                                       const std::string_view context) {
   std::error_code error;
   std::filesystem::create_directory_symlink(target, link, error);
+  if (error == std::errc::operation_not_permitted ||
+      error == std::errc::permission_denied ||
+      error == std::errc::function_not_supported ||
+      error == std::errc::operation_not_supported) {
+    std::cerr << "SKIP: " << context
+              << " symlink security check requires symlink privileges\n";
+    return false;
+  }
   check(!error, std::string(context) + " test symlink creation");
   return !error;
 }
@@ -255,6 +263,14 @@ bool create_file_symlink_checked(const std::filesystem::path &target,
                                  const std::string_view context) {
   std::error_code error;
   std::filesystem::create_symlink(target, link, error);
+  if (error == std::errc::operation_not_permitted ||
+      error == std::errc::permission_denied ||
+      error == std::errc::function_not_supported ||
+      error == std::errc::operation_not_supported) {
+    std::cerr << "SKIP: " << context
+              << " symlink security check requires symlink privileges\n";
+    return false;
+  }
   check(!error, std::string(context) + " test symlink creation");
   return !error;
 }
