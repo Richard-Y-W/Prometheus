@@ -29,6 +29,14 @@ jobs:
       - name: Verify vendored dependency bytes
         run: uv run --locked python ../scripts/verify-vendored-dependencies.py
         working-directory: backend
+      - name: Verify generated contract and fixture bytes
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run --locked python scripts/export_contract_schemas.py
+          uv run --locked python scripts/export_contract_fixture.py
+          uv run --locked python scripts/export_program_01b_fixtures.py
+          git diff --exit-code -- ../schemas ../fixtures/contracts
+        working-directory: backend
       - name: Run the full SQLite suite
         run: uv run --locked pytest -q
         working-directory: backend
@@ -101,20 +109,29 @@ jobs:
             os: ubuntu-latest
             qt_version: "6.8.3"
             headless_preset: headless-debug
+            headless_boundary_preset: headless-boundary-debug
             integrity_preset: integrity-debug
+            integrity_boundary_preset: integrity-boundary-debug
             desktop_preset: desktop-no-occt-debug
+            desktop_boundary_preset: desktop-no-occt-boundary-debug
           - label: macOS
             os: macos-latest
             qt_version: "6.11.1"
             headless_preset: headless-debug
+            headless_boundary_preset: headless-boundary-debug
             integrity_preset: integrity-debug
+            integrity_boundary_preset: integrity-boundary-debug
             desktop_preset: desktop-no-occt-debug
+            desktop_boundary_preset: desktop-no-occt-boundary-debug
           - label: Windows MSVC
             os: windows-2022
             qt_version: "6.8.3"
             headless_preset: windows-headless-debug
+            headless_boundary_preset: windows-headless-boundary-debug
             integrity_preset: windows-integrity-debug
+            integrity_boundary_preset: windows-integrity-boundary-debug
             desktop_preset: windows-desktop-no-occt-debug
+            desktop_boundary_preset: windows-desktop-no-occt-boundary-debug
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Qt ${{ matrix.qt_version }}
@@ -125,18 +142,24 @@ jobs:
           cache: true
       - name: Configure headless core
         run: cmake --preset ${{ matrix.headless_preset }}
+      - name: Assert headless Program 01B targets
+        run: cmake --build --preset ${{ matrix.headless_boundary_preset }}
       - name: Build headless core
         run: cmake --build --preset ${{ matrix.headless_preset }}
       - name: Test headless core
         run: ctest --preset ${{ matrix.headless_preset }}
       - name: Configure independent integrity verifier
         run: cmake --preset ${{ matrix.integrity_preset }}
+      - name: Assert integrity-only targets
+        run: cmake --build --preset ${{ matrix.integrity_boundary_preset }}
       - name: Build independent integrity verifier
         run: cmake --build --preset ${{ matrix.integrity_preset }}
       - name: Test independent integrity verifier
         run: ctest --preset ${{ matrix.integrity_preset }}
       - name: Configure desktop without Open Cascade
         run: cmake --preset ${{ matrix.desktop_preset }}
+      - name: Assert complete desktop Program 01B targets
+        run: cmake --build --preset ${{ matrix.desktop_boundary_preset }}
       - name: Build desktop without Open Cascade
         run: cmake --build --preset ${{ matrix.desktop_preset }}
       - name: Test desktop without Open Cascade

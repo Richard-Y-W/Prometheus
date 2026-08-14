@@ -14,6 +14,14 @@ try {
   Assert-NativeSuccess 'Backend dependency synchronization'
   uv run --locked python ../scripts/verify-vendored-dependencies.py
   Assert-NativeSuccess 'Vendored dependency verification'
+  uv run --locked python scripts/export_contract_schemas.py
+  Assert-NativeSuccess 'Contract schema generation'
+  uv run --locked python scripts/export_contract_fixture.py
+  Assert-NativeSuccess 'Contract fixture generation'
+  uv run --locked python scripts/export_program_01b_fixtures.py
+  Assert-NativeSuccess 'Program 01B fixture generation'
+  git diff --exit-code -- ../schemas ../fixtures/contracts
+  Assert-NativeSuccess 'Generated contract byte verification'
   uv run --locked pytest -q
   Assert-NativeSuccess 'Backend test suite'
 } finally { Pop-Location }
@@ -31,17 +39,28 @@ try {
 Push-Location $repo
 try {
   $requiredPresets = @(
-    'windows-headless-debug',
-    'windows-integrity-debug',
-    'windows-desktop-no-occt-debug'
+    @{
+      Name = 'windows-headless-debug'
+      Boundary = 'windows-headless-boundary-debug'
+    },
+    @{
+      Name = 'windows-integrity-debug'
+      Boundary = 'windows-integrity-boundary-debug'
+    },
+    @{
+      Name = 'windows-desktop-no-occt-debug'
+      Boundary = 'windows-desktop-no-occt-boundary-debug'
+    }
   )
   foreach ($preset in $requiredPresets) {
-    cmake --preset $preset
-    Assert-NativeSuccess "Configure preset $preset"
-    cmake --build --preset $preset
-    Assert-NativeSuccess "Build preset $preset"
-    ctest --preset $preset
-    Assert-NativeSuccess "Test preset $preset"
+    cmake --preset $preset.Name
+    Assert-NativeSuccess "Configure preset $($preset.Name)"
+    cmake --build --preset $preset.Boundary
+    Assert-NativeSuccess "Assert required targets with $($preset.Boundary)"
+    cmake --build --preset $preset.Name
+    Assert-NativeSuccess "Build preset $($preset.Name)"
+    ctest --preset $preset.Name
+    Assert-NativeSuccess "Test preset $($preset.Name)"
   }
 
   $ucrtQt = 'C:\msys64\ucrt64\lib\cmake\Qt6\Qt6Config.cmake'

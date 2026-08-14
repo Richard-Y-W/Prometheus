@@ -153,6 +153,73 @@
       "configurePreset": "desktop-no-occt-debug"
     },
     {
+      "name": "headless-boundary-debug",
+      "configurePreset": "headless-debug",
+      "targets": [
+        "prometheus_core",
+        "prometheus_core_tests",
+        "prometheus_project_summary_tests",
+        "prometheus_integrity",
+        "prometheus_integrity_tests",
+        "prometheus_execution",
+        "prometheus_execution_contracts_tests",
+        "prometheus_package_consumer_tests",
+        "prometheus_motor_backend_tests",
+        "prometheus_finding_compiler_tests",
+        "prometheus_execution_tests",
+        "prometheus_run_store",
+        "prometheus_run_store_project_tests",
+        "prometheus_legacy_project_v1_tests",
+        "prometheus_run_store_object_tests",
+        "prometheus_run_store_transaction_tests",
+        "prometheus_replay_support",
+        "prometheus_replay",
+        "prometheus_replay_cli_tests"
+      ]
+    },
+    {
+      "name": "integrity-boundary-debug",
+      "configurePreset": "integrity-debug",
+      "targets": [
+        "prometheus_integrity",
+        "prometheus_integrity_tests"
+      ]
+    },
+    {
+      "name": "desktop-no-occt-boundary-debug",
+      "inherits": "headless-boundary-debug",
+      "configurePreset": "desktop-no-occt-debug",
+      "targets": [
+        "prometheus_core",
+        "prometheus_core_tests",
+        "prometheus_project_summary_tests",
+        "prometheus_integrity",
+        "prometheus_integrity_tests",
+        "prometheus_execution",
+        "prometheus_execution_contracts_tests",
+        "prometheus_package_consumer_tests",
+        "prometheus_motor_backend_tests",
+        "prometheus_finding_compiler_tests",
+        "prometheus_execution_tests",
+        "prometheus_run_store",
+        "prometheus_run_store_project_tests",
+        "prometheus_legacy_project_v1_tests",
+        "prometheus_run_store_object_tests",
+        "prometheus_run_store_transaction_tests",
+        "prometheus_replay_support",
+        "prometheus_replay",
+        "prometheus_replay_cli_tests",
+        "prometheus_desktop_support",
+        "prometheus_desktop",
+        "prometheus_review_payload_tests",
+        "prometheus_exact_package_download_tests",
+        "prometheus_project_controller_tests",
+        "prometheus_execution_controller_tests",
+        "prometheus_qml_authority_tests",
+        "prometheus_cad_controller_no_occt_tests"
+      ]
+    },
+    {
       "name": "windows-headless-debug",
       "configurePreset": "windows-headless-debug",
       "configuration": "Debug"
@@ -164,6 +231,24 @@
     },
     {
       "name": "windows-desktop-no-occt-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-headless-boundary-debug",
+      "inherits": "headless-boundary-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-integrity-boundary-debug",
+      "inherits": "integrity-boundary-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-desktop-no-occt-boundary-debug",
+      "inherits": "desktop-no-occt-boundary-debug",
       "configurePreset": "windows-desktop-no-occt-debug",
       "configuration": "Debug"
     },
