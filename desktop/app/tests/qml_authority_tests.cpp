@@ -43,8 +43,12 @@ class FixtureCatalogProbe final : public QObject {
   Q_PROPERTY(QString executionReadiness READ executionReadiness CONSTANT)
   Q_PROPERTY(QString objectHash READ objectHash CONSTANT)
   Q_PROPERTY(QString publicationIntegrity READ publicationIntegrity CONSTANT)
+  Q_PROPERTY(int draftVersion READ draftVersion CONSTANT)
 
 public:
+  explicit FixtureCatalogProbe(const bool reviewMode = false)
+      : review_mode_(reviewMode) {}
+
   QVariantList fixtureChoices() const {
     return {QVariantMap{
         {"fixture_id", "prometheus.motor-a.fixture-1"},
@@ -52,14 +56,51 @@ public:
     }};
   }
   bool busy() const { return false; }
-  QVariantMap candidate() const { return {}; }
-  QVariantList parameters() const { return {}; }
-  QString status() const { return {}; }
+  QVariantMap candidate() const {
+    if (!review_mode_) {
+      return {};
+    }
+    return {
+        {"id", "review-candidate"},
+        {"limitations", QVariantList{}},
+    };
+  }
+  QVariantList parameters() const {
+    if (!review_mode_) {
+      return {};
+    }
+    const auto parameter = [](const QString &name, const QString &claimId) {
+      return QVariantMap{
+          {"name", name},
+          {"selected_claim",
+           QVariantMap{
+               {"claim_id", claimId},
+               {"claim_fingerprint", "sha256:test"},
+               {"evidence_ids", QVariantList{}},
+               {"provenance", "test"},
+               {"unit", "1"},
+               {"value",
+                QVariantMap{
+                    {"kind", "scalar"},
+                    {"value", 1.0},
+                }},
+           }},
+      };
+    };
+    return {
+        parameter("first_parameter", "claim-1"),
+        parameter("second_parameter", "claim-2"),
+    };
+  }
+  QString status() const {
+    return review_mode_ ? QStringLiteral("draft") : QString{};
+  }
   QString error() const { return {}; }
   QString errorCode() const { return {}; }
   QString executionReadiness() const { return {}; }
   QString objectHash() const { return {}; }
   QString publicationIntegrity() const { return {}; }
+  int draftVersion() const { return review_mode_ ? 0 : -1; }
   QString loadedFixtureId() const { return loaded_fixture_id_; }
 
   Q_INVOKABLE void loadFixture(const QString &fixtureId) {
@@ -70,6 +111,7 @@ signals:
   void changed();
 
 private:
+  bool review_mode_{};
   QString loaded_fixture_id_;
 };
 
@@ -411,6 +453,67 @@ void verifyOffscreenWorkflow() {
   require(fixtureCatalog.loadedFixtureId() ==
               "prometheus.motor-a.fixture-1",
           "default fixed catalog entry submits the exact Motor A identity");
+
+  FixtureCatalogProbe reviewCatalog(true);
+  QQmlComponent reviewPanel(
+      &engine, QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) +
+                                  "/ComponentPackagePanel.qml"));
+  std::unique_ptr<QObject> reviewPanelRoot(reviewPanel.createWithInitialProperties({
+      {"serviceController", QVariant::fromValue<QObject *>(&reviewCatalog)},
+      {"executionController", QVariant::fromValue<QObject *>(&execution)},
+      {"selectedEntityId", "motor"},
+      {"selectedEntityName", "Motor"},
+      {"width", 1040},
+      {"height", 780},
+  }));
+  if (!reviewPanelRoot) {
+    for (const auto &error : reviewPanel.errors()) {
+      std::cerr << error.toString().toStdString() << '\n';
+    }
+  }
+  require(reviewPanelRoot != nullptr,
+          "component package panel instantiates with two review claims");
+  require(QMetaObject::invokeMethod(&reviewCatalog, "changed"),
+          "review catalog change signal is callable");
+  QCoreApplication::processEvents();
+  require(reviewPanelRoot->property("reviewStateToken").toString() ==
+              "review-candidate:0",
+          "review catalog signal initializes the claim-review model");
+
+  require(QMetaObject::invokeMethod(reviewPanelRoot.get(),
+                                    "recordReviewDecision", Q_ARG(QVariant, 0),
+                                    Q_ARG(QVariant, 1)),
+          "first Accept decision records by explicit claim row");
+  require(QMetaObject::invokeMethod(reviewPanelRoot.get(),
+                                    "recordReviewDecision", Q_ARG(QVariant, 1),
+                                    Q_ARG(QVariant, 1)),
+          "second Accept decision records by explicit claim row");
+  for (const int row : {0, 1}) {
+    require(QMetaObject::invokeMethod(
+                reviewPanelRoot.get(), "recordReviewNote",
+                Q_ARG(QVariant, row),
+                Q_ARG(QVariant,
+                      QStringLiteral(
+                          "Accepted in the QML authority regression."))),
+            "review note records by explicit claim row");
+  }
+  QVariant reviewPayload;
+  require(QMetaObject::invokeMethod(
+              reviewPanelRoot.get(), "reviewDecisionPayload",
+              Q_RETURN_ARG(QVariant, reviewPayload)),
+          "normalized review payload is callable");
+  const auto decisions = reviewPayload.toList();
+  require(decisions.size() == 2,
+          "normalized review payload retains both displayed claims");
+  for (int row = 0; row < decisions.size(); ++row) {
+    const auto decision = decisions.at(row).toMap();
+    require(decision.value("claim_id").toString() ==
+                    QStringLiteral("claim-%1").arg(row + 1) &&
+                decision.value("status").toString() == "accepted" &&
+                decision.value("note").toString() ==
+                    "Accepted in the QML authority regression.",
+            "each decision activation updates its own claim-review row");
+  }
 
   auto *runButton = requiredChild(root.get(), "runMotorButton");
   auto *blockedReason = requiredChild(root.get(), "blockedReasonLabel");

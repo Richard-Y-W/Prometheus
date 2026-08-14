@@ -126,6 +126,26 @@ Item {
         reviewChoicesValid = valid
     }
 
+    function recordReviewDecision(rowIndex, choiceIndex) {
+        const row = Number(rowIndex)
+        const choice = Number(choiceIndex)
+        if (!Number.isInteger(row) || row < 0 || row >= reviewChoices.count)
+            return
+        const status = choice === 1 ? "accepted"
+                     : choice === 2 ? "ambiguous"
+                       : choice === 3 ? "rejected" : ""
+        reviewChoices.setProperty(row, "status", status)
+        validateReviewChoices()
+    }
+
+    function recordReviewNote(rowIndex, note) {
+        const row = Number(rowIndex)
+        if (!Number.isInteger(row) || row < 0 || row >= reviewChoices.count)
+            return
+        reviewChoices.setProperty(row, "note", String(note))
+        validateReviewChoices()
+    }
+
     function reviewDecisionPayload() {
         const result = []
         for (let index = 0; index < reviewChoices.count; ++index) {
@@ -381,6 +401,7 @@ Item {
             model: root.serviceController ? root.serviceController.parameters : []
             spacing: 3
             delegate: Rectangle {
+                id: claimRow
                 required property int index
                 required property var modelData
                 width: ListView.view.width
@@ -434,27 +455,23 @@ Item {
                             Layout.fillWidth: true
                             model: ["Select decision", "Accept", "Ambiguous", "Reject"]
                             enabled: root.serviceController.status === "draft" && !root.serviceController.busy
-                            currentIndex: reviewChoices.count > index
-                                          ? reviewChoices.get(index).status === "accepted" ? 1
-                                            : reviewChoices.get(index).status === "ambiguous" ? 2
-                                              : reviewChoices.get(index).status === "rejected" ? 3 : 0
+                            currentIndex: reviewChoices.count > claimRow.index
+                                          ? reviewChoices.get(claimRow.index).status === "accepted" ? 1
+                                            : reviewChoices.get(claimRow.index).status === "ambiguous" ? 2
+                                              : reviewChoices.get(claimRow.index).status === "rejected" ? 3 : 0
                                           : 0
-                            onActivated: {
-                                const status = currentIndex === 1 ? "accepted"
-                                             : currentIndex === 2 ? "ambiguous"
-                                               : currentIndex === 3 ? "rejected" : ""
-                                reviewChoices.setProperty(index, "status", status)
-                                root.validateReviewChoices()
+                            onActivated: function(choiceIndex) {
+                                root.recordReviewDecision(claimRow.index, choiceIndex)
                             }
                         }
                         TextField {
                             Layout.fillWidth: true
                             placeholderText: "Required review note"
                             enabled: root.serviceController.status === "draft" && !root.serviceController.busy
-                            text: reviewChoices.count > index ? reviewChoices.get(index).note : ""
+                            text: reviewChoices.count > claimRow.index
+                                  ? reviewChoices.get(claimRow.index).note : ""
                             onTextEdited: {
-                                reviewChoices.setProperty(index, "note", text)
-                                root.validateReviewChoices()
+                                root.recordReviewNote(claimRow.index, text)
                             }
                         }
                     }
