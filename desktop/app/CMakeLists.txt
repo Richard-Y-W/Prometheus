@@ -41,6 +41,22 @@ if(BUILD_TESTING)
     COMMAND prometheus_project_intake_tests
   )
 
+  add_executable(prometheus_engineering_controller_tests
+    tests/engineering_controller_tests.cpp
+    engineering_controller.cpp
+    engineering_controller.hpp
+  )
+  target_include_directories(prometheus_engineering_controller_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  target_link_libraries(prometheus_engineering_controller_tests PRIVATE
+    Qt6::Core
+  )
+  add_test(
+    NAME prometheus_engineering_controller
+    COMMAND prometheus_engineering_controller_tests
+  )
+
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)
   target_include_directories(prometheus_review_payload_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(prometheus_review_payload_tests PRIVATE Qt6::Core)
