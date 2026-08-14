@@ -168,8 +168,11 @@ int ProjectIntakeController::notEvaluatedCount() const {
 }
 
 int ProjectIntakeController::unsupportedCount() const {
-  return countState(result_.artifacts, "unsupported") +
-         countState(result_.artifacts, "unreadable");
+  return countState(result_.artifacts, "unsupported");
+}
+
+int ProjectIntakeController::unreadableCount() const {
+  return countState(result_.artifacts, "unreadable");
 }
 
 QString ProjectIntakeController::status() const {

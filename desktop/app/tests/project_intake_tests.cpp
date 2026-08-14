@@ -143,6 +143,7 @@ void controllerPublishesOnlySuccessfulInventory() {
               controller.readyCount() == 1 &&
               controller.notEvaluatedCount() == 0 &&
               controller.unsupportedCount() == 0 &&
+              controller.unreadableCount() == 0 &&
               controller.status() == "1 file accounted for",
           "controller publishes inventory summary");
 

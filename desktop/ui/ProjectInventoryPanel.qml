@@ -79,7 +79,8 @@ Item {
                     { label: "ACCOUNTED", value: root.projectIntakeController.totalCount, color: root.textColor },
                     { label: "READY", value: root.projectIntakeController.readyCount, color: "#70c99a" },
                     { label: "NOT EVALUATED", value: root.projectIntakeController.notEvaluatedCount, color: "#e0ac62" },
-                    { label: "UNSUPPORTED", value: root.projectIntakeController.unsupportedCount, color: "#e87972" }
+                    { label: "UNSUPPORTED", value: root.projectIntakeController.unsupportedCount, color: "#e87972" },
+                    { label: "UNREADABLE", value: root.projectIntakeController.unreadableCount, color: "#ef6f6c" }
                 ]
                 delegate: Rectangle {
                     required property var modelData
