@@ -1,81 +1,137 @@
 # Prometheus
 
-Prometheus is an evidence-driven compiler and debugger for small electromechanical products. The target V1 is a C++20/Qt 6 desktop engineering core with Open Cascade CAD ingestion and a Python component-research service.
+Product goal: Prometheus is a local project compiler and solver-orchestration environment for heterogeneous engineering projects. It is intended to inventory project files, reconstruct a reviewable system model, compile requirements and scenarios into proof obligations, run bounded local analyses, and report failures, scoped successes, unknowns, and coverage with reproducible provenance.
 
-> **Rough V1 / engineering preview:** Prometheus catches a useful subset of early design errors, but it is not a certification tool and does not replace physical testing or professional review.
+Current repository: this codebase is a Windows-first mechanical-project screening prototype with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It can inventory an arbitrary local folder and screen one STEP assembly, but it cannot determine whether an arbitrary engineering project works.
 
 ![Prometheus CAD workspace](docs/images/cad-workspace.png)
 
-| Evidence review | Engineering findings |
-| --- | --- |
-| ![Evidence-backed component review](docs/images/component-evidence-review.png) | ![Deterministic engineering findings](docs/images/engineering-findings.png) |
+## What is implemented
 
-## Repository status
+- The Python service ingests three exact checked-in synthetic fixtures: Motor A, Motor B, and the earlier `Prometheus Fixture Works / PM-36-GM`. It does not search the web, parse public datasheets, or run an LLM research provider.
+- A v2 draft contains revision-scoped parameter slots, finalized candidate claims, explicit selections, typed evidence, and capability-specific gates. Review uses stable claim IDs, claim fingerprints, required notes, append-only events, and optimistic draft versions.
+- Publication validates the reviewed graph, compiles an input-only execution-component value, stores exact RFC 8785 bytes under an external SHA-256 identity, and permanently binds the revision. Motor A and Motor B declare the exact `motor_arm_builtin_v1` consumer and can become execution-ready; the sealed PM-36 package remains blocked. Export verifies and returns stored bytes; it does not reconstruct them.
+- The independent C++ integrity library checks the shared canonicalization policy, exact bytes, object hash, and supported schema identity. It does not validate the package's engineering truth or execute an analysis.
+- The Qt workflow exposes the v2 draft version, selected claim identities, explicit per-claim decisions, a persistent publication retry key, publication state, and the separate execution-readiness state. It acquires exact published bytes, binds them to a selected assembly entity, previews typed scenario values, and keeps package review, scenario confirmation, and execution as separate actions. There is no accept-all path.
+- The Qt-free `prometheus_execution` library independently verifies and consumes the bound package, runs the sole authoritative `motor_arm_builtin_v1` calculation, and compiles typed findings. Neither Python, QML, desktop controllers, persistence, nor the replay CLI duplicates the motor calculation.
+- A bounded local object store publishes package, scenario, request, result, and run-manifest bytes transactionally. The desktop and headless replay CLI reopen the same records and compare exact result bytes when the recorded numeric execution identity is available.
+- The C++ decision core remains authoritative for project-summary reduction across verdict, coverage, and execution state. Geometry and motor results retain separate status, findings, and coverage; no UI label says that the whole project works.
+- The native Qt/C++ desktop imports real STEP/XDE through Open Cascade when that optional adapter is enabled, preserves hierarchy and persistent entity IDs, renders tessellation, supports inspected part placement, and performs exact static or explicitly sampled collision operations.
+- The desktop can recursively open a real project folder, account for hidden and nested files, record the byte count and SHA-256 digest of each readable regular file, classify recognized formats, and keep unsupported or unreadable entries visible. Exactly one STEP file loads automatically; multiple STEP files require an explicit choice. The inventory is session-only in this prototype.
+- After STEP import, the mechanical screen reports exact static B-Rep intersections or a bounded clear result only when that operation ran. Motion, material/mass, loads/restraints, and structural strength remain visible as `not_evaluated`; deferred large-assembly interference never becomes a clear result.
+- A separate synthetic motor-arm assembly remains available for deterministic conformance tests. Its bounded package-driven C++ checks cover torque, current, a one-node thermal model, and selected geometry behavior; they are not evidence of arbitrary mechanical or cross-domain engineering support.
+- V1 review, publication, and reconstructed package export are retired with structured `410 Gone` responses. Historical v1 metadata reads remain labeled; no production v2 route imports the old reconstruction path.
+- The React rough-V1 interface remains a labeled, non-executing geometry viewer.
 
-Milestones 0–15 have implemented vertical paths. The native Qt/QML shell imports real STEP/XDE, researches and publishes an evidence-backed fixture component, binds it to a part, confirms a revolute joint, compiles the motor-arm scenario, and produces deterministic geometry/torque/current/thermal/partial-COG findings. Project reopen preserves component, joint, scenario, findings, semantic connections, overlap classifications, and precise part translation/rotation.
+Package integrity is a byte-identity claim only. A package remains reviewed input and contains no requirement verdict or solver result. Program 01B makes the two synthetic motor packages consumable by one declared backend; it does not turn human acceptance into physical validation or make the older blocked package executable.
 
-The CAD viewport includes conventional orbit/pan/zoom, perspective and orthographic projection, standard views and shortcuts, lit tessellation, X-Ray, bounds/topology inspection, SI measurement, continuously draggable world/local-axis placement, snapping, transient dimensions, undo/redo, bounds-anchor snap-to-mate, joint-axis display, exact OCCT static interference, and asynchronous sampled joint-range collision checking.
+No external structural, thermal, electrical, CFD, or controls solver adapter exists. The repository makes no certification claim and no project-wide correctness claim. A failed, missing, nonconverged, or unsupported analysis must remain `indeterminate` or `not_evaluated`; it cannot become a pass.
 
-Qt and Open Cascade are installed through the documented MSYS2 UCRT64 bootstrap path on the current development machine. MuJoCo remains optional and uninstalled. Headless contract/core verification does not require these large native packages.
+The [master roadmap](docs/program/00-master-roadmap.md) now advances through project-value gates: real folder-to-finding workflows first, repeated projects second, one external structural solver third, and only then generalization and hardening supported by observed failures.
 
-The exact implemented, mocked, partial, and unsupported boundaries are tracked in [Rough V1 release status](docs/rough-v1-release-status.md).
+## Program 01B status — complete under the bounded contract-tested gate
 
-For a high-detail external demo, see the licensed [OpenArm 2.0 stress-test workflow](docs/external-openarm-demo.md).
+Program 01B closed on 2026-08-13 at verified implementation and CI commit `dd5b915ae0fa23f0d48fb7e4f8df4a9834c9816d`. The [completion record](docs/program/01-trust-kernel/01b-package-driven-execution-completion.md) cites the successful nine-job release run, local test counts, dependency identities, Motor A/Motor B package-request-result-manifest hashes, numeric profile, failure injection, and offline desktop/CLI replay.
 
-## Windows 11 prerequisites
+Under one identical reviewed scenario, synthetic Motor A's 0.208 N*m continuous rating failed the 0.224152 N*m holding requirement, while synthetic Motor B's 0.320 N*m rating passed. The other calculation outputs remained equal, both records survived save/reopen, and the shared C++ execution path reproduced their exact result hashes offline.
 
-- MSYS2 UCRT64 with GCC, Qt 6, and Open Cascade (current verified path), or a future pinned MSVC-equivalent toolchain
-- CMake 3.24+
-- Ninja
-- Qt 6.5+ (set `Qt6_DIR` or `CMAKE_PREFIX_PATH`)
-- Python 3.12-compatible runtime and `uv`
-- Node 20 for the reference frontend
+This is evidence for one fixed four-obligation motor-arm backend and its reusable package/run boundary. It is not arbitrary project verification, general engineering coverage, physical validation, universal intake, external solver execution, or an assembly-wide verdict. The next product gate is the Windows-first real-project screening workflow described below, not another monolithic trust-infrastructure phase.
 
-Open Cascade is enabled by the Windows native preset. MuJoCo remains a later optional adapter and its absence does not block the current build.
+## Program 01A status — complete under the amended contract-tested gate
 
-## Bootstrap and verify
+Program 01A closed on 2026-08-12 at verified implementation commit `2491df33ad6ae9032ea71f7994a3f137599e2dba`. The [amended completion record](docs/program/01-trust-kernel/01a-amended-completion.md) cites the successful nine-job GitHub release run, exact local and CI test counts, platform versions, manual byte audit, and residual risks. The [amended design](docs/superpowers/specs/2026-08-11-program-01a-amended-trust-boundary-design.md) and [v1-to-v2 migration guide](docs/migration/program-01a-v1-to-v2.md) remain the design and client-transition authorities.
+
+The [former completion record](docs/program/01-trust-kernel/01a-integrity-and-contracts.md) is retained as historical evidence for the superseded v1 gate. Its reconstructed package and field-name review claims do not satisfy the amended boundary. Program 01B builds on the amended v2 boundary without retroactively making the sealed PM-36 package execution-ready.
+
+The amended closure run verified:
+
+- the full SQLite suite on CPython 3.11, 3.12, 3.13, and 3.14;
+- the full semantic suite on PostgreSQL 17;
+- shared Python/C++ RFC 8785 conformance and exact-package verification;
+- headless decision-core, integrity, and OCCT-disabled Qt desktop builds on Linux, macOS, and Windows MSVC;
+- vendored-source, frontend, migration, concurrency, restart, failure-injection, and documentation checks.
+
+This gate establishes only the bounded synthetic-fixture, review, immutable-byte, and cross-language integrity claim. It does not establish package-driven engineering execution, physical-model validation, or arbitrary-project analysis.
+
+## Prerequisites
+
+- CMake 3.24+ and a C++20 compiler;
+- Qt 6.5+ with Qt Quick, Quick Controls 2, Quick 3D, Shader Tools, Concurrent, Network, and Test for desktop verification;
+- CPython 3.11 through 3.14 and `uv` for the backend;
+- Node 20 for the archived frontend;
+- optional Windows MSYS2 UCRT64 Open Cascade dependencies for the OCCT-enabled adapter path.
+
+The required CI matrix builds the desktop with Open Cascade disabled so the trust-boundary UI and explicit adapter-unavailable seam cannot disappear behind an optional dependency. The OCCT-enabled Windows path remains a separate native geometry check. MuJoCo is optional and uninstalled; it is not a current Prometheus analysis backend.
+
+## Verify the repository
+
+On Windows PowerShell with the required toolchains available:
 
 ```powershell
-.\scripts\bootstrap.ps1
-.\scripts\verify.ps1
+./scripts/bootstrap.ps1
+./scripts/verify.ps1
 ```
 
-The single verification command runs Python unit/integration/contract tests, reference frontend tests/build/audit, and the native headless C++ build/tests.
+The script verifies locked backend and frontend dependencies, the backend and frontend suites, the headless C++ core, package execution, run storage, replay, the independent integrity library, and the Qt desktop with Open Cascade disabled. If the UCRT64 Qt and Open Cascade packages are installed, it also runs the optional OCCT-enabled target.
 
-## Native desktop
+The GitHub Actions workflow defines the cross-platform and Python-version release matrix. A local run on one machine remains useful evidence but does not replace the successful matrices recorded in the Program 01A and Program 01B completion records.
+
+## Run the native desktop
 
 After installing the UCRT64 dependencies described in `scripts/bootstrap-native.ps1`:
 
 ```powershell
 cmake --preset windows-debug
 cmake --build --preset windows-debug
-.\out\build\windows-debug\desktop\app\prometheus_desktop.exe
+ctest --preset windows-debug --output-on-failure
+./out/build/windows-debug/desktop/app/prometheus_desktop.exe
 ```
 
-For headless CI or a machine without Qt:
+In the application, choose **Open Folder** and select the root of a mechanical
+project. Prometheus inventories every discovered file. If the folder contains
+exactly one readable `.step` or `.stp` file, it loads automatically and opens
+the mechanical screen. If several STEP files exist, use **Load assembly** on
+the authoritative row. **Files N** reopens the complete inventory and **Screen
+Results** reopens the evaluated/unknown coverage view.
+
+For a deterministic startup trial on Windows PowerShell:
 
 ```powershell
-cmake --preset headless-debug
-cmake --build --preset headless-debug
-ctest --preset headless-debug
+$env:PROMETHEUS_STARTUP_PROJECT_FOLDER = "C:\path\to\engineering-project"
+./out/build/windows-debug/desktop/app/prometheus_desktop.exe
 ```
 
-## Research service
+This folder workflow currently interprets STEP geometry only. PDF,
+spreadsheet/BOM, source-code, structured-data, proprietary CAD, and other files
+are hashed and shown but remain `not_evaluated` or `unsupported`.
+
+Set `PROMETHEUS_DEMO_RESEARCH=1` only to expose the exact synthetic fixture catalog for manual review. There is no auto-accept, auto-publish, or auto-run switch.
+
+## Run the versioned service
 
 ```powershell
-.\scripts\run-services.ps1
+./scripts/run-services.ps1
 ```
 
-The versioned health endpoint is `GET http://127.0.0.1:8000/v1/health`. The unversioned prototype API remains temporarily available during migration.
+The health endpoint is `GET http://127.0.0.1:8000/v1/health`. The trusted flow is `POST /api/v2/fixture-ingestions`, `POST /api/v2/revisions/{revision_id}/reviews`, `POST /api/v2/revisions/{revision_id}/publication`, then `GET /api/v2/revisions/{revision_id}/execution-package`. The accepted fixture IDs are the two Program 01B motors and the older blocked PM-36 fixture; this is a closed synthetic catalog, not general intake. Use the [migration guide](docs/migration/program-01a-v1-to-v2.md) for exact bodies, status codes, and retry rules.
 
-## Reference prototype
+## Archived React viewer
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173` with the research service running. This fixture path requires no API key.
+Open `http://localhost:5173` with the service running. The page can load the local fixture geometry; component research and engineering execution are visibly disabled.
 
-See [architecture](docs/architecture.md), [product scope](docs/product-scope.md), [validation policy](docs/validation-policy.md), and [threat model](docs/threat-model.md).
+## Design and policy
+
+- [Approved compiler/solver architecture](docs/superpowers/specs/2026-08-11-prometheus-general-engineering-platform-design.md)
+- [Architecture boundary](docs/architecture.md)
+- [Authoritative analysis backends](docs/adr/0006-authoritative-analysis-backends.md)
+- [Component model](docs/component-model.md)
+- [Product scope](docs/product-scope.md)
+- [Validation plan](docs/validation-plan.md)
+- [Validation policy](docs/validation-policy.md)
+- [Threat model](docs/threat-model.md)

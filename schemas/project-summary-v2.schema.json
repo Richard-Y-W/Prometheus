@@ -1,0 +1,368 @@
+{
+  "$defs": {
+    "DecisionCoreIdentityV2": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "prometheus_cpp",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "DecisionCoreIdentityV2",
+      "type": "object"
+    },
+    "ProjectCountsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "indeterminate": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "title": "Indeterminate",
+          "type": "integer"
+        },
+        "not_applicable": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "title": "Not Applicable",
+          "type": "integer"
+        },
+        "not_evaluated": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "title": "Not Evaluated",
+          "type": "integer"
+        },
+        "satisfied_within_scope": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "title": "Satisfied Within Scope",
+          "type": "integer"
+        },
+        "violated": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "title": "Violated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "satisfied_within_scope",
+        "violated",
+        "indeterminate",
+        "not_applicable",
+        "not_evaluated"
+      ],
+      "title": "ProjectCountsV2",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:project-summary:2.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "violated": {
+                "minimum": 1
+              }
+            },
+            "required": [
+              "violated"
+            ]
+          }
+        },
+        "required": [
+          "counts"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verdict": {
+            "const": "requirements_violated"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "requirements_violated"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "violated": {
+                "minimum": 1
+              }
+            },
+            "required": [
+              "violated"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "satisfied_within_scope"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "indeterminate": {
+                "const": 0
+              },
+              "not_evaluated": {
+                "const": 0
+              },
+              "satisfied_within_scope": {
+                "minimum": 1
+              },
+              "violated": {
+                "const": 0
+              }
+            },
+            "required": [
+              "satisfied_within_scope",
+              "violated",
+              "indeterminate",
+              "not_evaluated"
+            ]
+          },
+          "coverage": {
+            "const": "sufficient"
+          },
+          "execution_state": {
+            "const": "completed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "const": "not_assessed"
+          }
+        },
+        "required": [
+          "coverage"
+        ]
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "indeterminate": {
+                "const": 0
+              },
+              "not_evaluated": {
+                "const": 0
+              },
+              "satisfied_within_scope": {
+                "const": 0
+              },
+              "violated": {
+                "const": 0
+              }
+            },
+            "required": [
+              "satisfied_within_scope",
+              "violated",
+              "indeterminate",
+              "not_evaluated"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "const": "insufficient"
+          }
+        },
+        "required": [
+          "coverage"
+        ]
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "properties": {
+                  "indeterminate": {
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "indeterminate"
+                ]
+              },
+              {
+                "properties": {
+                  "not_evaluated": {
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "not_evaluated"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "const": "sufficient"
+          }
+        },
+        "required": [
+          "coverage"
+        ]
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "properties": {
+                  "satisfied_within_scope": {
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "satisfied_within_scope"
+                ]
+              },
+              {
+                "properties": {
+                  "violated": {
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "violated"
+                ]
+              }
+            ],
+            "properties": {
+              "indeterminate": {
+                "const": 0
+              },
+              "not_evaluated": {
+                "const": 0
+              }
+            },
+            "required": [
+              "indeterminate",
+              "not_evaluated"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "assessment_scope_id": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Assessment Scope Id",
+      "type": "string"
+    },
+    "counts": {
+      "$ref": "#/$defs/ProjectCountsV2"
+    },
+    "coverage": {
+      "enum": [
+        "sufficient",
+        "insufficient",
+        "not_assessed"
+      ],
+      "title": "Coverage",
+      "type": "string"
+    },
+    "decision_core": {
+      "$ref": "#/$defs/DecisionCoreIdentityV2"
+    },
+    "execution_state": {
+      "enum": [
+        "not_started",
+        "ready",
+        "running",
+        "blocked",
+        "completed",
+        "completed_with_blocked_work",
+        "failed",
+        "cancelled"
+      ],
+      "title": "Execution State",
+      "type": "string"
+    },
+    "obligation_total": {
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "title": "Obligation Total",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "2.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "satisfied_within_scope",
+        "requirements_violated",
+        "indeterminate"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "verdict",
+    "coverage",
+    "execution_state",
+    "counts",
+    "obligation_total",
+    "assessment_scope_id",
+    "decision_core"
+  ],
+  "title": "ProjectSummaryV2",
+  "type": "object"
+}

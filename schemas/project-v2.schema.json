@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:prometheus:schema:project:2.0.0",
+  "title": "PrometheusProjectV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "execution_store_version",
+    "name",
+    "cad_source",
+    "assembly_artifact_hash",
+    "coordinate_system",
+    "length_unit",
+    "component_bindings",
+    "placement_overrides",
+    "connections",
+    "interference_classifications",
+    "engineering",
+    "legacy_v1_engineering_state",
+    "execution"
+  ],
+  "properties": {
+    "$schema": {"const": "urn:prometheus:schema:project:2.0.0"},
+    "schema_version": {"const": "2.0.0"},
+    "execution_store_version": {"const": "1.0.0"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "cad_source": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "assembly_artifact_hash": {"$ref": "#/$defs/ObjectHash"},
+    "coordinate_system": {"type": "string", "minLength": 1, "maxLength": 512},
+    "length_unit": {"const": "m"},
+    "component_bindings": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/ComponentBindingV2"}
+    },
+    "placement_overrides": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/PlacementOverrideV2"}
+    },
+    "connections": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/ConnectionV2"}
+    },
+    "interference_classifications": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/InterferenceClassificationV2"}
+    },
+    "engineering": {"$ref": "#/$defs/EngineeringStateV2"},
+    "legacy_v1_engineering_state": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/LegacyV1EngineeringState"}
+      ]
+    },
+    "execution": {"$ref": "#/$defs/ExecutionIndexV1"}
+  },
+  "$defs": {
+    "ObjectHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "BoundedString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "Identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "StoredObjectReferenceV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_hash",
+        "byte_length",
+        "media_type",
+        "schema_id",
+        "schema_version"
+      ],
+      "properties": {
+        "object_hash": {"$ref": "#/$defs/ObjectHash"},
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "media_type": {"$ref": "#/$defs/Identifier"},
+        "schema_id": {"$ref": "#/$defs/Identifier"},
+        "schema_version": {"enum": ["1.0.0", "2.0.0"]}
+      }
+    },
+    "PackageReferenceV2": {
+      "allOf": [
+        {"$ref": "#/$defs/StoredObjectReferenceV1"},
+        {
+          "properties": {
+            "media_type": {
+              "const": "application/vnd.prometheus.execution-component+json;version=2.0.0"
+            },
+            "schema_id": {
+              "const": "urn:prometheus:schema:execution-component:2.0.0"
+            },
+            "schema_version": {"const": "2.0.0"}
+          }
+        }
+      ]
+    },
+    "ScenarioReferenceV1": {
+      "allOf": [
+        {"$ref": "#/$defs/StoredObjectReferenceV1"},
+        {
+          "properties": {
+            "media_type": {
+              "const": "application/vnd.prometheus.motor-arm-scenario+json;version=1.0.0"
+            },
+            "schema_id": {
+              "const": "urn:prometheus:schema:motor-arm-scenario:1.0.0"
+            },
+            "schema_version": {"const": "1.0.0"}
+          }
+        }
+      ]
+    },
+    "ManifestReferenceV1": {
+      "allOf": [
+        {"$ref": "#/$defs/StoredObjectReferenceV1"},
+        {
+          "properties": {
+            "media_type": {
+              "const": "application/vnd.prometheus.run-manifest+json;version=1.0.0"
+            },
+            "schema_id": {
+              "const": "urn:prometheus:schema:run-manifest:1.0.0"
+            },
+            "schema_version": {"const": "1.0.0"}
+          }
+        }
+      ]
+    },
+    "ComponentBindingV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cad_entity_id", "revision_id", "label"],
+      "properties": {
+        "cad_entity_id": {"$ref": "#/$defs/Identifier"},
+        "revision_id": {"$ref": "#/$defs/Identifier"},
+        "label": {"$ref": "#/$defs/BoundedString"}
+      }
+    },
+    "PlacementOverrideV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cad_entity_id",
+        "translation_x_m",
+        "translation_y_m",
+        "translation_z_m",
+        "rotation_x_deg",
+        "rotation_y_deg",
+        "rotation_z_deg",
+        "rotation_convention"
+      ],
+      "properties": {
+        "cad_entity_id": {"$ref": "#/$defs/Identifier"},
+        "translation_x_m": {"type": "number"},
+        "translation_y_m": {"type": "number"},
+        "translation_z_m": {"type": "number"},
+        "rotation_x_deg": {"type": "number"},
+        "rotation_y_deg": {"type": "number"},
+        "rotation_z_deg": {"type": "number"},
+        "rotation_convention": {"$ref": "#/$defs/Identifier"}
+      }
+    },
+    "ConnectionV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_part",
+        "source_name",
+        "source_anchor",
+        "target_part",
+        "target_name",
+        "target_anchor",
+        "connection_type",
+        "confirmed_by_user",
+        "anchor_origin",
+        "semantic_status"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/BoundedString"},
+        "source_part": {"$ref": "#/$defs/Identifier"},
+        "source_name": {"$ref": "#/$defs/BoundedString"},
+        "source_anchor": {"$ref": "#/$defs/Identifier"},
+        "target_part": {"$ref": "#/$defs/Identifier"},
+        "target_name": {"$ref": "#/$defs/BoundedString"},
+        "target_anchor": {"$ref": "#/$defs/Identifier"},
+        "connection_type": {"enum": ["fixed", "revolute", "sliding", "contact"]},
+        "confirmed_by_user": {"type": "boolean"},
+        "anchor_origin": {"$ref": "#/$defs/Identifier"},
+        "semantic_status": {"$ref": "#/$defs/Identifier"}
+      }
+    },
+    "InterferenceClassificationV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first_id", "second_id", "classification"],
+      "properties": {
+        "first_id": {"$ref": "#/$defs/Identifier"},
+        "second_id": {"$ref": "#/$defs/Identifier"},
+        "classification": {
+          "enum": ["unclassified", "intended_engagement", "prohibited"]
+        }
+      }
+    },
+    "RevoluteJointV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source_index",
+        "target_index",
+        "axis",
+        "minimum_deg",
+        "maximum_deg",
+        "pivot_x",
+        "pivot_y",
+        "pivot_z",
+        "confirmed_by_user"
+      ],
+      "properties": {
+        "type": {"const": "revolute"},
+        "source_index": {"type": "integer", "minimum": 0},
+        "target_index": {"type": "integer", "minimum": 0},
+        "axis": {"enum": ["X", "Y", "Z"]},
+        "minimum_deg": {"type": "number"},
+        "maximum_deg": {"type": "number"},
+        "pivot_x": {"type": "number"},
+        "pivot_y": {"type": "number"},
+        "pivot_z": {"type": "number"},
+        "confirmed_by_user": {"type": "boolean"}
+      }
+    },
+    "GeometryFindingV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_kind",
+        "status",
+        "severity",
+        "title",
+        "mechanism",
+        "calculated",
+        "unit",
+        "available",
+        "margin_fraction",
+        "evidence",
+        "assumption",
+        "estimated_range",
+        "first_id",
+        "second_id"
+      ],
+      "properties": {
+        "finding_kind": {"enum": ["static_interference", "sampled_joint_sweep"]},
+        "status": {"enum": ["information", "caution", "fail"]},
+        "severity": {"enum": ["information", "caution", "warning", "critical"]},
+        "title": {"$ref": "#/$defs/BoundedString"},
+        "mechanism": {"$ref": "#/$defs/BoundedString"},
+        "calculated": {"type": "number"},
+        "unit": {"enum": ["m³", "samples"]},
+        "available": {"type": "number"},
+        "margin_fraction": {"type": "number"},
+        "evidence": {"$ref": "#/$defs/BoundedString"},
+        "assumption": {"type": "string", "maxLength": 4096},
+        "estimated_range": {"type": "string", "maxLength": 4096},
+        "first_id": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/Identifier"}]
+        },
+        "second_id": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/Identifier"}]
+        }
+      }
+    },
+    "EngineeringStateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["joint", "geometry_findings", "geometry_status"],
+      "properties": {
+        "joint": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/RevoluteJointV2"}]
+        },
+        "geometry_findings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/GeometryFindingV2"}
+        },
+        "geometry_status": {"enum": ["not_evaluated", "completed", "failed"]}
+      }
+    },
+    "LegacyV1EngineeringState": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 4,
+      "properties": {
+        "joint": {"type": "object", "maxProperties": 64},
+        "scenario": {"type": "object", "maxProperties": 64},
+        "findings": {"type": "array", "maxItems": 256},
+        "run_status": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "PackageBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "cad_entity_id",
+        "package"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "cad_entity_id": {"$ref": "#/$defs/Identifier"},
+        "package": {"$ref": "#/$defs/PackageReferenceV2"}
+      }
+    },
+    "EventV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "event_kind",
+        "status",
+        "related_hash",
+        "occurred_at_utc",
+        "diagnostic_code"
+      ],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "event_kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$"},
+        "status": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$"},
+        "related_hash": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/ObjectHash"}]
+        },
+        "occurred_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        },
+        "diagnostic_code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,127}$"
+        }
+      }
+    },
+    "ExecutionIndexV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_bindings", "current_scenario", "committed_runs", "events"],
+      "properties": {
+        "package_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/PackageBindingV1"}
+        },
+        "current_scenario": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/ScenarioReferenceV1"}]
+        },
+        "committed_runs": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/ManifestReferenceV1"}
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {"$ref": "#/$defs/EventV1"}
+        }
+      }
+    }
+  }
+}

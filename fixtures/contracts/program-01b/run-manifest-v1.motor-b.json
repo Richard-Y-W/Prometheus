@@ -1,0 +1,63 @@
+{
+  "$schema": "urn:prometheus:schema:run-manifest:1.0.0",
+  "assembly_artifact_hash": "sha256:377302b669b12b89e2c020dc4c29e1c63c4920587920eb8f02ff54ca73bf977d",
+  "backend_contract_version": "1.0.0",
+  "backend_id": "motor_arm_builtin_v1",
+  "manifest_kind": "completed_analysis_run",
+  "numeric_profile": {
+    "backend_build_fingerprint": "sha256:6f84af265b771aeb3381fca944f2003774c13354aa60dfeb8b46185afb15385a",
+    "compiler": {
+      "id": "AppleClang",
+      "version": "21.0.0.21000101"
+    },
+    "floating_point": {
+      "contraction": "disabled",
+      "fast_math": false,
+      "rounding_mode": "to_nearest"
+    },
+    "math_runtime": {
+      "id": "apple-libSystem",
+      "version": "1356.0.0"
+    },
+    "numeric_serialization_version": "1.0.0",
+    "operating_system": {
+      "architecture": "arm64",
+      "name": "macos",
+      "release": "25.5.0"
+    },
+    "standard_library": {
+      "id": "libc++",
+      "version": "210106"
+    }
+  },
+  "package": {
+    "byte_length": 37321,
+    "media_type": "application/vnd.prometheus.execution-component+json;version=2.0.0",
+    "object_hash": "sha256:ef661e701477d1af01a9157c54f433c109984638a0925c847ae17e6dec2279d9",
+    "schema_id": "urn:prometheus:schema:execution-component:2.0.0",
+    "schema_version": "2.0.0"
+  },
+  "package_consumer_contract_hash": "sha256:e185ee08c987b30cf20d69af06a8754224f25068e499b052a49566c137bd0155",
+  "request": {
+    "byte_length": 747,
+    "media_type": "application/vnd.prometheus.analysis-request+json;version=1.0.0",
+    "object_hash": "sha256:82d3c596fa1b59d4de95dfbbc1658ba71f935939114d2ebe13630d07dde6775a",
+    "schema_id": "urn:prometheus:schema:analysis-request:1.0.0",
+    "schema_version": "1.0.0"
+  },
+  "result": {
+    "byte_length": 11357,
+    "media_type": "application/vnd.prometheus.analysis-result+json;version=1.0.0",
+    "object_hash": "sha256:bb65cec7d9cdeb51d3c7c964ae268e16b71f3b2b16b0c4a6e68fff6ecb9862b0",
+    "schema_id": "urn:prometheus:schema:analysis-result:1.0.0",
+    "schema_version": "1.0.0"
+  },
+  "scenario": {
+    "byte_length": 578,
+    "media_type": "application/vnd.prometheus.motor-arm-scenario+json;version=1.0.0",
+    "object_hash": "sha256:133c2692a36e53e51be3583c225619d0e227a4848e4df33ab4b03b480a7389e4",
+    "schema_id": "urn:prometheus:schema:motor-arm-scenario:1.0.0",
+    "schema_version": "1.0.0"
+  },
+  "schema_version": "1.0.0"
+}

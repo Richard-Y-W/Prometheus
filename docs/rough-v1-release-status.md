@@ -1,45 +1,38 @@
-# Rough V1 release status
+# Rough-V1 release status
 
-This repository is an engineering preview demonstrating the complete Prometheus thesis: import real CAD, compile traceable component evidence, describe a scenario, execute deterministic checks, and report understandable findings. It is not a safety certification product.
+The rough V1 is an electromechanical conformance demonstrator plus CAD interaction work. Its original Program 01A boundary is historical; the amended v2 boundary closed under its bounded `contract_tested` gate after immutable stored input bytes and independent C++ integrity verification passed the required matrix. The repository does not implement the complete Prometheus architecture and cannot determine whether an arbitrary engineering project works.
 
-## 1. Physics
+## Status matrix
 
-Implemented and tested: motor torque-speed, acceleration torque, current estimate, continuous holding, periodic one-node thermal RC, center-of-gravity primitive, rectangular support-polygon tipping primitive with effective gravity, exact static solid interference, and sampled revolute-range collision.
+| Area | Implemented | Boundary |
+| --- | --- | --- |
+| CAD | Real STEP/XDE import, B-Rep metadata, tessellation, persistent entity IDs, placement, exact static common-volume checks, and sampled revolute collision | The synthetic motor-arm fixture is a separate artifact. Sampled motion is not continuous-clearance proof; bounds anchors are not authoritative interfaces. |
+| Component intake | Exact lookup of checked-in `Prometheus Fixture Works / PM-36-GM` synthetic JSON with source-byte hashing | No public search, remote acquisition, datasheet/PDF parsing, OCR, chart digitization, or LLM research provider exists. |
+| Evidence review | Revision-scoped slots, finalized claims and fingerprints, typed source-linked evidence, append-only claim-ID decisions with required notes, optimistic draft versions, and separate publication | Human acceptance records a local decision; it does not physically validate the value, and reviewer labels are not authenticated. |
+| Published input | V2 stores exact RFC 8785 execution-component bytes under an external SHA-256 identity, binds them to a sealed revision, verifies stored-byte export, and provides an independent C++ byte/hash/schema-ID verifier | The package is reviewed input and contains no finding or requirement verdict. Program 01B has not connected it to C++ engineering execution. |
+| C++ checks | Fixed-input motor-arm torque, current, one-node thermal, selected COG primitives, and geometry conformance checks | The checker does not consume the published package until Program 01B. These recipes are not general mechanical or arbitrary engineering support. |
+| Python | Fixture acquisition, candidate persistence, review API, package construction, and OpenAPI | The old confirm/plan/run endpoints are retired. Python is not an engineering decision authority and no production route imports the historical physics module. |
+| Numerical solvers | None | No CalculiX, Elmer, ngspice, OpenFOAM, Modelica, MuJoCo, or other external analysis adapter is installed or implemented as a Prometheus capability. |
+| Product claims | Historical former-gate evidence, completed amended v2 input boundary, and CAD/conformance demonstrations | Program 01A completion establishes reviewed-input integrity only. No certification, safety assurance, physical validation, package-driven execution, or project-wide correctness claim is made. |
 
-Partial: the desktop motor-arm flow reports payload COG but does not yet provide complete per-part mass/support-polygon authoring. Shaft, beam/bracket, bearing, general retention, and general constraint-Jacobian checks remain unsupported in the desktop flow.
+## Geometry and assembly detail
 
-## 2. Electrical compatibility
+The Qt/Open Cascade path imports real STEP/XDE separately from the local motor-arm fixture. It exposes hierarchy, instance names, persistent IDs, bounds, volume, surface area, face/edge counts, tessellation, selection, visibility, camera controls, SI measurement, placement transforms, undo/redo, bounds-anchor snapping, and user-confirmed semantic connection records.
 
-Implemented in the motor fixture path: driver current-limit evaluation and evidence-backed motor electrical parameters. General voltage, connector, power-path, supply/battery current, and battery-sag workflows remain future work.
+Static interference first rejects separated bounding boxes and then evaluates B-Rep common volume. Joint motion checks 19 deterministic samples and excludes the connected pair. A clear sample set does not establish continuous clearance between samples. Material, mass, support geometry, contacts, fasteners, retention, and load paths remain unknown unless supplied and reviewed.
 
-## 3. Component intelligence
+The optional OpenArm workflow is a licensed import stress test. Successful import of a large assembly measures parser and viewport behavior; it does not establish semantic understanding or engineering correctness.
 
-Implemented: normalized versioned research entities, evidence claims, source metadata, review-before-publication, immutable published revisions, cached reuse, and a mock/offline research provider that works without an API key.
+## Component and execution detail
 
-Mocked: public manufacturer search, live PDF parsing, chart digitization, and live LLM providers. The fixture provider never claims public research occurred.
+Fixture intake is deterministic lookup of `prometheus.pm-36-gm.fixture-2`. Unsupported or Unicode-lookalike fixture identities and caller attempts to substitute source identity fail without creating records. Each parameter slot selects a finalized typed claim with original text, unit, validity conditions, evidence links, and a stable fingerprint. Publication requires one effective accepted review for every selected claim and satisfied capability-specific publication gates; object installation, revision binding, and durable response storage commit together. The current execution-only package-consumer gate remains blocked.
 
-## 4. CAD usability
+The C++ motor-arm path still uses fixed PM-36 constants. The UI labels it as a conformance demo, and the React predecessor cannot launch it. Program 01B must provide two reviewed packages, remove those constants, prove result sensitivity to the bound revision, and reproduce the run after reopen.
 
-Implemented: STEP/XDE import, hierarchy extraction, persistent IDs, transforms, tessellation, topology/volume/bounds metadata, selection, hide/isolate, standard cameras, world/local move and rotate, snapping increments, transient dimensions, undo/redo, bounds-derived snap-to-mate, measurement, and project round-tripping.
+## Failure semantics
 
-An optional OpenArm 2.0 stress-test workflow validates import of a 47.8 MB, 596,190-triangle external assembly. Compound STEP leaves are expanded into 607 selectable solids so detailed geometry can be inspected independently. Large files use coarser display tessellation and defer eager all-pairs exact interference so geometry becomes inspectable first; that deferral is reported in the desktop status bar. Large-assembly transforms remain interactive while collision is deferred.
+Unsupported identity, incomplete review, invalid value shape, package validation failure, hash mismatch, retired route, and unavailable authoritative execution have distinct error codes. A missing parser, missing backend, invalid output, failed process, unresolved boundary condition, or nonconverged solve cannot become a pass or `satisfied` result.
 
-The viewport now uses an assembly-scaled ground grid, opens imports in a consistent upright isometric view, supports right-drag or Shift+middle camera panning, and preserves the user's camera through part transforms.
+## Verification entry points
 
-Partial: bounds anchors are placement aids, not authoritative mounting ports. Rotation rings, box/multi-selection, section planes, production drafting, sketches, and parametric feature history remain unsupported.
-
-## 5. Constraints and assembly semantics
-
-Implemented: persisted user-confirmed fixed/revolute/sliding/contact graph edges, revolute axis/limits for the motor-arm test, overlap classification, and sampled collision with connected-pair exclusion.
-
-Partial: general degree-of-freedom counting, missing axial/radial retention, load-path analysis, power-path analysis, and authoritative interface compatibility remain future work.
-
-## 6. Product hardening
-
-Implemented: environment-based configuration, request validation, normalized persistence, atomic native project save, file/hash/version metadata, CI, dependency audit, and a unified verification script.
-
-Partial: production CAD/PDF process sandboxing, active parser interruption, comprehensive URL acquisition/SSRF enforcement, packaged crash reporting, signed Windows installer, and automated desktop pointer-event E2E tests remain release-hardening work.
-
-## Reproduce the verified build
-
-Run `./scripts/verify.ps1` from PowerShell. Native Windows users with the documented MSYS2 Qt/OpenCascade prerequisites can launch `./out/build/windows-debug/desktop/app/prometheus_desktop.exe` after building the `windows-debug` preset.
+`scripts/verify.ps1` runs backend tests, frontend tests/build/audit, headless C++ tests, the independent integrity target, and the Qt desktop with Open Cascade disabled. The optional native Open Cascade path requires the Windows UCRT64 toolchain. The [amended completion record](program/01-trust-kernel/01a-amended-completion.md) contains the closing release evidence; the [former record](program/01-trust-kernel/01a-integrity-and-contracts.md) remains historical.

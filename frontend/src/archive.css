@@ -1,0 +1,28 @@
+.archived-app {
+  grid-template-rows: 28px 52px auto 1fr 25px;
+}
+
+.archive-banner {
+  background: #5b3b18;
+  color: #f2d7ac;
+  border-top: 1px solid #9b6a2f;
+  border-bottom: 1px solid #9b6a2f;
+  padding: 8px 14px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.archived-welcome .archive-banner {
+  position: fixed;
+  inset: 0 0 auto;
+}
+
+.archived-limit {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.error-toast {
+  color: #ffd1ce;
+  border-color: #884844;
+}

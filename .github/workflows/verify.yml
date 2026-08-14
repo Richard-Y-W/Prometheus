@@ -1,24 +1,166 @@
 name: verify
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
-  headless:
+  backend-sqlite:
+    name: Backend SQLite / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          working-directory: backend
+          cache-suffix: python-${{ matrix.python-version }}
+      - name: Synchronize locked backend dependencies
+        run: uv sync --locked --extra dev
+        working-directory: backend
+      - name: Verify vendored dependency bytes
+        run: uv run --locked python ../scripts/verify-vendored-dependencies.py
+        working-directory: backend
+      - name: Verify generated contract and fixture bytes
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run --locked python scripts/export_contract_schemas.py
+          uv run --locked python scripts/export_contract_fixture.py
+          uv run --locked python scripts/export_program_01b_fixtures.py
+          git diff --exit-code -- ../schemas ../fixtures/contracts
+        working-directory: backend
+      - name: Run the full SQLite suite
+        run: uv run --locked pytest -q
+        working-directory: backend
+
+  backend-postgres:
+    name: Backend PostgreSQL 17 / Python 3.12
+    runs-on: ubuntu-latest
+    env:
+      PROMETHEUS_TEST_POSTGRES_URL: postgresql+psycopg://prometheus:prometheus@127.0.0.1:5432/prometheus_test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: prometheus_test
+          POSTGRES_USER: prometheus
+          POSTGRES_PASSWORD: prometheus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prometheus -d prometheus_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          working-directory: backend
+          cache-suffix: postgres-17-python-3.12
+      - name: Synchronize locked backend dependencies
+        run: uv sync --locked --extra dev
+        working-directory: backend
+      - name: Run the full PostgreSQL suite
+        run: uv run --locked pytest -q
+        working-directory: backend
+
+  frontend:
+    name: Frontend / Node 20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with: {python-version: '3.12'}
-      - uses: actions/setup-node@v4
-        with: {node-version: '20', cache: npm, cache-dependency-path: frontend/package-lock.json}
-      - run: uv sync --extra dev
-        working-directory: backend
-      - run: uv run pytest -q
-        working-directory: backend
-      - run: npm ci
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
         working-directory: frontend
-      - run: npm test
+      - name: Run frontend tests
+        run: npm test
         working-directory: frontend
-      - run: npm run build
+      - name: Build frontend
+        run: npm run build
         working-directory: frontend
-      - run: cmake --preset headless-debug
-      - run: cmake --build --preset headless-debug
-      - run: ctest --preset headless-debug
+      - name: Reject high-severity dependency advisories
+        run: npm audit --audit-level=high
+        working-directory: frontend
+
+  native:
+    name: Native / ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux
+            os: ubuntu-latest
+            qt_version: "6.8.3"
+            headless_preset: headless-debug
+            headless_boundary_preset: headless-boundary-debug
+            integrity_preset: integrity-debug
+            integrity_boundary_preset: integrity-boundary-debug
+            desktop_preset: desktop-no-occt-debug
+            desktop_boundary_preset: desktop-no-occt-boundary-debug
+          - label: macOS
+            os: macos-latest
+            qt_version: "6.11.1"
+            headless_preset: headless-debug
+            headless_boundary_preset: headless-boundary-debug
+            integrity_preset: integrity-debug
+            integrity_boundary_preset: integrity-boundary-debug
+            desktop_preset: desktop-no-occt-debug
+            desktop_boundary_preset: desktop-no-occt-boundary-debug
+          - label: Windows MSVC
+            os: windows-2022
+            qt_version: "6.8.3"
+            headless_preset: windows-headless-debug
+            headless_boundary_preset: windows-headless-boundary-debug
+            integrity_preset: windows-integrity-debug
+            integrity_boundary_preset: windows-integrity-boundary-debug
+            desktop_preset: windows-desktop-no-occt-debug
+            desktop_boundary_preset: windows-desktop-no-occt-boundary-debug
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Qt ${{ matrix.qt_version }}
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: ${{ matrix.qt_version }}
+          modules: "qtquick3d qtshadertools"
+          cache: true
+      - name: Configure headless core
+        run: cmake --preset ${{ matrix.headless_preset }}
+      - name: Assert headless Program 01B targets
+        run: cmake --build --preset ${{ matrix.headless_boundary_preset }}
+      - name: Build headless core
+        run: cmake --build --preset ${{ matrix.headless_preset }}
+      - name: Test headless core
+        run: ctest --preset ${{ matrix.headless_preset }}
+      - name: Configure independent integrity verifier
+        run: cmake --preset ${{ matrix.integrity_preset }}
+      - name: Assert integrity-only targets
+        run: cmake --build --preset ${{ matrix.integrity_boundary_preset }}
+      - name: Build independent integrity verifier
+        run: cmake --build --preset ${{ matrix.integrity_preset }}
+      - name: Test independent integrity verifier
+        run: ctest --preset ${{ matrix.integrity_preset }}
+      - name: Configure desktop without Open Cascade
+        run: cmake --preset ${{ matrix.desktop_preset }}
+      - name: Assert complete desktop Program 01B targets
+        run: cmake --build --preset ${{ matrix.desktop_boundary_preset }}
+      - name: Build desktop without Open Cascade
+        run: cmake --build --preset ${{ matrix.desktop_preset }}
+      - name: Test desktop without Open Cascade
+        run: ctest --preset ${{ matrix.desktop_preset }}

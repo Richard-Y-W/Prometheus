@@ -1,0 +1,18 @@
+{
+  "$schema": "urn:prometheus:schema:project:2.0.0",
+  "schema_version": "2.0.0",
+  "execution_store_version": "1.0.0",
+  "name": "Motor arm",
+  "cad_source": "motor-arm.step",
+  "assembly_artifact_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "coordinate_system": "right-handed Z-up",
+  "length_unit": "m",
+  "component_bindings": [],
+  "placement_overrides": [],
+  "connections": [],
+  "interference_classifications": [],
+  "engineering": {"joint": null, "geometry_findings": [], "geometry_status": "not_evaluated"},
+  "legacy_v1_engineering_state": null,
+  "execution": {"package_bindings": [], "current_scenario": null, "committed_runs": [], "events": []},
+  "overall_project_works": true
+}

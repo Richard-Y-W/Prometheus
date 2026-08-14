@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "ClaimReviewDecisionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "ambiguous"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "status",
+        "note"
+      ],
+      "title": "ClaimReviewDecisionV2",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:review-request:2.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "decisions": {
+      "items": {
+        "$ref": "#/$defs/ClaimReviewDecisionV2"
+      },
+      "maxItems": 1000,
+      "minItems": 1,
+      "title": "Decisions",
+      "type": "array"
+    },
+    "expected_draft_version": {
+      "minimum": 0,
+      "title": "Expected Draft Version",
+      "type": "integer"
+    },
+    "reviewed_by": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Reviewed By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_draft_version",
+    "reviewed_by",
+    "decisions"
+  ],
+  "title": "ReviewRequestV2",
+  "type": "object"
+}

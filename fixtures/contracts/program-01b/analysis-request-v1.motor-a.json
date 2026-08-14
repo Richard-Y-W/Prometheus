@@ -1,0 +1,18 @@
+{
+  "$schema": "urn:prometheus:schema:analysis-request:1.0.0",
+  "assembly_artifact_hash": "sha256:377302b669b12b89e2c020dc4c29e1c63c4920587920eb8f02ff54ca73bf977d",
+  "backend_contract_version": "1.0.0",
+  "backend_id": "motor_arm_builtin_v1",
+  "bound_cad_entity_id": "motor",
+  "obligation_ids": [
+    "motor_arm.move_torque_speed",
+    "motor_arm.hold_continuous_torque",
+    "motor_arm.driver_current_limit",
+    "motor_arm.thermal_peak"
+  ],
+  "package_consumer_contract_hash": "sha256:e185ee08c987b30cf20d69af06a8754224f25068e499b052a49566c137bd0155",
+  "package_hash": "sha256:2457664fa7eb16432af89ca7e91e00dfdde78ea9a4fb024d118749ef317c286d",
+  "request_kind": "motor_arm_analysis",
+  "scenario_hash": "sha256:133c2692a36e53e51be3583c225619d0e227a4848e4df33ab4b03b480a7389e4",
+  "schema_version": "1.0.0"
+}

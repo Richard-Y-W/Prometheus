@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "KilogramsQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "kg",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "gt": 0,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "KilogramsQuantityV1",
+      "type": "object"
+    },
+    "MetresQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "m",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "gt": 0,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "MetresQuantityV1",
+      "type": "object"
+    },
+    "NonNegativeSecondsQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "s",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "ge": 0,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "NonNegativeSecondsQuantityV1",
+      "type": "object"
+    },
+    "PositiveSecondsQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "s",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "gt": 0,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "PositiveSecondsQuantityV1",
+      "type": "object"
+    },
+    "RadiansQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "rad",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "gt": 0,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "RadiansQuantityV1",
+      "type": "object"
+    },
+    "ScenarioReviewV1": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmed_by_user": {
+          "title": "Confirmed By User",
+          "type": "boolean"
+        },
+        "intent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Intent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirmed_by_user",
+        "intent"
+      ],
+      "title": "ScenarioReviewV1",
+      "type": "object"
+    },
+    "TemperatureQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "const": "degC",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "TemperatureQuantityV1",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:motor-arm-scenario:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:prometheus:schema:motor-arm-scenario:1.0.0",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "ambient_temperature": {
+      "$ref": "#/$defs/TemperatureQuantityV1"
+    },
+    "arm_radius": {
+      "$ref": "#/$defs/MetresQuantityV1"
+    },
+    "cycle_duration": {
+      "$ref": "#/$defs/PositiveSecondsQuantityV1"
+    },
+    "hold_duration": {
+      "$ref": "#/$defs/NonNegativeSecondsQuantityV1"
+    },
+    "motion_profile": {
+      "const": "symmetric_triangular_velocity",
+      "title": "Motion Profile",
+      "type": "string"
+    },
+    "move_duration": {
+      "$ref": "#/$defs/PositiveSecondsQuantityV1"
+    },
+    "payload_mass": {
+      "$ref": "#/$defs/KilogramsQuantityV1"
+    },
+    "review": {
+      "$ref": "#/$defs/ScenarioReviewV1"
+    },
+    "rotation": {
+      "$ref": "#/$defs/RadiansQuantityV1"
+    },
+    "scenario_kind": {
+      "const": "motor_arm",
+      "title": "Scenario Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "scenario_kind",
+    "payload_mass",
+    "arm_radius",
+    "rotation",
+    "move_duration",
+    "hold_duration",
+    "cycle_duration",
+    "ambient_temperature",
+    "motion_profile",
+    "review"
+  ],
+  "title": "MotorArmScenarioV1",
+  "type": "object"
+}
