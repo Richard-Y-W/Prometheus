@@ -399,6 +399,21 @@ void test_qt_free_integrity_boundary() {
   }
 }
 
+void test_program_01b_assembly_fixture_identity() {
+  const auto assembly =
+      repository_root / "fixtures/assemblies/motor-arm.step";
+  const auto assembly_hash = sha256_file(assembly);
+  for (const std::string_view motor : {"motor-a", "motor-b"}) {
+    const auto request = json::parse(read_file(
+        repository_root / "fixtures/contracts/program-01b" /
+        ("analysis-request-v1." + std::string(motor) + ".jcs")));
+    require(assembly_hash ==
+                request.at("assembly_artifact_hash").get<std::string>(),
+            "Program 01B assembly bytes match the frozen " +
+                std::string(motor) + " request identity");
+  }
+}
+
 void test_complete_execution_component() {
   const auto package_path =
       repository_root / "fixtures/contracts/execution-component-v2.pm-36-gm.jcs";
@@ -618,6 +633,7 @@ int main() {
     test_policy_edges();
     test_raw_sha256_and_file_hashing();
     test_qt_free_integrity_boundary();
+    test_program_01b_assembly_fixture_identity();
     test_complete_execution_component();
     test_execution_component_graph_verification();
     std::cout << "All independent canonical JSON tests passed.\n";

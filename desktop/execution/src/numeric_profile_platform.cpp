@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <version>
 
@@ -77,14 +78,10 @@ std::optional<std::string> windows_release() {
          std::to_string(version.dwBuildNumber);
 }
 
-std::optional<std::string> ucrt_file_version() {
-  const auto ucrt = GetModuleHandleW(L"ucrtbase.dll");
-  if (ucrt == nullptr) {
-    return std::nullopt;
-  }
+std::optional<std::string> windows_module_file_version(const HMODULE module) {
   std::wstring path(32768U, L'\0');
   const auto length =
-      GetModuleFileNameW(ucrt, path.data(), static_cast<DWORD>(path.size()));
+      GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
   if (length == 0U || static_cast<std::size_t>(length) >= path.size()) {
     return std::nullopt;
   }
@@ -132,6 +129,32 @@ std::optional<std::string> ucrt_file_version() {
          std::to_string(HIWORD(fixed->dwFileVersionLS)) + "." +
          std::to_string(LOWORD(fixed->dwFileVersionLS));
 }
+
+std::optional<ToolIdentity> ucrt_identity() {
+#if defined(_DEBUG)
+  auto module = GetModuleHandleW(L"ucrtbased.dll");
+  auto identity = std::string("ucrtbased");
+  if (module == nullptr) {
+    module = GetModuleHandleW(L"ucrtbase.dll");
+    identity = "ucrtbase";
+  }
+#else
+  auto module = GetModuleHandleW(L"ucrtbase.dll");
+  auto identity = std::string("ucrtbase");
+  if (module == nullptr) {
+    module = GetModuleHandleW(L"ucrtbased.dll");
+    identity = "ucrtbased";
+  }
+#endif
+  if (module == nullptr) {
+    return std::nullopt;
+  }
+  const auto version = windows_module_file_version(module);
+  if (!version.has_value()) {
+    return std::nullopt;
+  }
+  return ToolIdentity{std::move(identity), *version};
+}
 #endif
 
 } // namespace
@@ -174,15 +197,15 @@ std::optional<PlatformRuntimeIdentity> platform_runtime_identity() {
 #elif defined(_WIN32)
   const auto release = windows_release();
   const auto architecture = windows_architecture();
-  const auto ucrt_version = ucrt_file_version();
+  const auto ucrt = ucrt_identity();
   if (!release.has_value() || architecture.empty() ||
-      !ucrt_version.has_value()) {
+      !ucrt.has_value()) {
     return std::nullopt;
   }
   return PlatformRuntimeIdentity{
       PlatformIdentity{"windows", *release, architecture},
       *standard_library,
-      ToolIdentity{"ucrtbase", *ucrt_version},
+      *ucrt,
   };
 #else
   return std::nullopt;

@@ -1,3 +1,4 @@
+fixtures/** text eol=lf
 fixtures/evidence/pm-36-gm.synthetic-v2.json text eol=lf
 third_party/** text eol=lf
 third_party/nlohmann-json/LICENSE.MIT whitespace=-trailing-space
