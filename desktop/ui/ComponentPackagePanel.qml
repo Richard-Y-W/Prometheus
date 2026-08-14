@@ -41,6 +41,24 @@ Item {
         return text.length > 24 ? text.substring(0, 15) + "…" + text.substring(text.length - 8) : text
     }
 
+    function selectedFixtureId() {
+        const roleValue = fixtureChoice.currentValue
+        if (roleValue !== undefined && roleValue !== null
+                && String(roleValue) !== "")
+            return String(roleValue)
+        if (!serviceController)
+            return ""
+        const choices = serviceController.fixtureChoices || []
+        const index = fixtureChoice.currentIndex
+        if (index < 0 || index >= choices.length)
+            return ""
+        const choice = choices[index]
+        if (!choice || choice.fixture_id === undefined
+                || choice.fixture_id === null)
+            return ""
+        return String(choice.fixture_id)
+    }
+
     function renderEngineeringValue(parameter) {
         const claim = parameter.selected_claim || {}
         const value = claim.value || {}
@@ -248,9 +266,14 @@ Item {
             }
             Button {
                 text: "Load evidence"
-                enabled: root.serviceController && !root.serviceController.busy && fixtureChoice.currentIndex >= 0
+                enabled: root.serviceController && !root.serviceController.busy
+                         && root.selectedFixtureId() !== ""
                 Layout.alignment: Qt.AlignBottom
-                onClicked: root.serviceController.loadFixture(fixtureChoice.currentValue)
+                onClicked: {
+                    const fixtureId = root.selectedFixtureId()
+                    if (fixtureId !== "")
+                        root.serviceController.loadFixture(fixtureId)
+                }
             }
         }
 

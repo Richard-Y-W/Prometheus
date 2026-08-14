@@ -21,6 +21,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -29,6 +30,48 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+class FixtureCatalogProbe final : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QVariantList fixtureChoices READ fixtureChoices CONSTANT)
+  Q_PROPERTY(bool busy READ busy CONSTANT)
+  Q_PROPERTY(QVariantMap candidate READ candidate CONSTANT)
+  Q_PROPERTY(QVariantList parameters READ parameters CONSTANT)
+  Q_PROPERTY(QString status READ status CONSTANT)
+  Q_PROPERTY(QString error READ error CONSTANT)
+  Q_PROPERTY(QString errorCode READ errorCode CONSTANT)
+  Q_PROPERTY(QString executionReadiness READ executionReadiness CONSTANT)
+  Q_PROPERTY(QString objectHash READ objectHash CONSTANT)
+  Q_PROPERTY(QString publicationIntegrity READ publicationIntegrity CONSTANT)
+
+public:
+  QVariantList fixtureChoices() const {
+    return {QVariantMap{
+        {"fixture_id", "prometheus.motor-a.fixture-1"},
+        {"label", "Motor A — synthetic execution-ready input"},
+    }};
+  }
+  bool busy() const { return false; }
+  QVariantMap candidate() const { return {}; }
+  QVariantList parameters() const { return {}; }
+  QString status() const { return {}; }
+  QString error() const { return {}; }
+  QString errorCode() const { return {}; }
+  QString executionReadiness() const { return {}; }
+  QString objectHash() const { return {}; }
+  QString publicationIntegrity() const { return {}; }
+  QString loadedFixtureId() const { return loaded_fixture_id_; }
+
+  Q_INVOKABLE void loadFixture(const QString &fixtureId) {
+    loaded_fixture_id_ = fixtureId;
+  }
+
+signals:
+  void changed();
+
+private:
+  QString loaded_fixture_id_;
+};
 
 namespace {
 
@@ -115,6 +158,19 @@ QObject *requiredChild(QObject *root, const char *objectName) {
   auto *child = root->findChild<QObject *>(QString::fromLatin1(objectName));
   require(child != nullptr, std::string("QML object exists: ") + objectName);
   return child;
+}
+
+QObject *requiredPropertyChild(QObject *root, const char *propertyName,
+                               const QString &expectedValue) {
+  const auto children = root->findChildren<QObject *>();
+  const auto found = std::find_if(
+      children.cbegin(), children.cend(), [&](const QObject *candidate) {
+        return candidate->property(propertyName).toString() == expectedValue;
+      });
+  require(found != children.cend(),
+          "QML object exists with " + std::string(propertyName) + "=" +
+              expectedValue.toStdString());
+  return *found;
 }
 
 void verifyAuthorityScan() {
@@ -326,6 +382,36 @@ void verifyOffscreenWorkflow() {
   root->setProperty("visible", false);
   QCoreApplication::processEvents();
 
+  FixtureCatalogProbe fixtureCatalog;
+  QQmlComponent packagePanel(
+      &engine, QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) +
+                                  "/ComponentPackagePanel.qml"));
+  std::unique_ptr<QObject> packagePanelRoot(packagePanel.createWithInitialProperties({
+      {"serviceController", QVariant::fromValue<QObject *>(&fixtureCatalog)},
+      {"executionController", QVariant::fromValue<QObject *>(&execution)},
+      {"selectedEntityId", "motor"},
+      {"selectedEntityName", "Motor"},
+  }));
+  if (!packagePanelRoot) {
+    for (const auto &error : packagePanel.errors()) {
+      std::cerr << error.toString().toStdString() << '\n';
+    }
+  }
+  require(packagePanelRoot != nullptr,
+          "component package panel instantiates with a fixed catalog");
+  QCoreApplication::processEvents();
+  auto *fixtureSelector =
+      requiredPropertyChild(packagePanelRoot.get(), "valueRole", "fixture_id");
+  fixtureSelector->setProperty("valueRole", "unavailable_fixture_id");
+  QCoreApplication::processEvents();
+  auto *loadEvidence =
+      requiredPropertyChild(packagePanelRoot.get(), "text", "Load evidence");
+  require(QMetaObject::invokeMethod(loadEvidence, "click"),
+          "fixed catalog load action is callable");
+  require(fixtureCatalog.loadedFixtureId() ==
+              "prometheus.motor-a.fixture-1",
+          "default fixed catalog entry submits the exact Motor A identity");
+
   auto *runButton = requiredChild(root.get(), "runMotorButton");
   auto *blockedReason = requiredChild(root.get(), "blockedReasonLabel");
   require(!runButton->property("enabled").toBool(),
@@ -406,3 +492,5 @@ int main(int argc, char **argv) {
   verifyOffscreenWorkflow();
   return 0;
 }
+
+#include "qml_authority_tests.moc"
