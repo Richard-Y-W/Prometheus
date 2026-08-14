@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "id": "9d6a9e40-e752-4a4e-97e1-4c77f75cfa89",
+  "obligation_status": "indeterminate",
+  "execution_status": "backend_unavailable",
+  "severity": "high",
+  "title": "Structural obligation is indeterminate",
+  "mechanism": "The declared CalculiX backend is unavailable, so stress was not evaluated.",
+  "entities": ["bracket_1"],
+  "signed_margin_fraction": null,
+  "confidence_grade": "unknown",
+  "method": "calculix_static_structural_v1",
+  "solver_version": "unavailable",
+  "assumptions": [],
+  "missing_information": ["CalculiX backend installation and version"],
+  "evidence_ids": [],
+  "suggested_actions": ["Install or configure the declared CalculiX backend, then rerun the obligation."],
+  "dependency_keys": ["component:bracket_1", "scenario:static_load_1"]
+}

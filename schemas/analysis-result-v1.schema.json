@@ -1,0 +1,709 @@
+{
+  "$defs": {
+    "CalculationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "calculation_id": {
+          "pattern": "^[a-z][a-z0-9_]{0,127}$",
+          "title": "Calculation Id",
+          "type": "string"
+        },
+        "unit": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "calculation_id",
+        "value",
+        "unit"
+      ],
+      "title": "CalculationV1",
+      "type": "object"
+    },
+    "ConsumedInputV1": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "input_use": {
+          "enum": [
+            "calculation_input",
+            "validation_input",
+            "available_but_unused"
+          ],
+          "title": "Input Use",
+          "type": "string"
+        },
+        "slot_name": {
+          "pattern": "^[a-z][a-z0-9_]{0,127}$",
+          "title": "Slot Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_name",
+        "claim_id",
+        "input_use"
+      ],
+      "title": "ConsumedInputV1",
+      "type": "object"
+    },
+    "ConsumedInputsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "available_but_unused": {
+          "items": {
+            "$ref": "#/$defs/ConsumedInputV1"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Available But Unused",
+          "type": "array"
+        },
+        "calculation_inputs": {
+          "items": {
+            "$ref": "#/$defs/ConsumedInputV1"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Calculation Inputs",
+          "type": "array"
+        },
+        "validation_inputs": {
+          "items": {
+            "$ref": "#/$defs/ConsumedInputV1"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Validation Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "calculation_inputs",
+        "validation_inputs",
+        "available_but_unused"
+      ],
+      "title": "ConsumedInputsV1",
+      "type": "object"
+    },
+    "CoverageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/OutcomeCountsV1"
+        },
+        "evaluated_obligations": {
+          "const": 4,
+          "title": "Evaluated Obligations",
+          "type": "integer"
+        },
+        "known_uncovered_questions": {
+          "items": {
+            "$ref": "#/$defs/MissingInformationV1"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "title": "Known Uncovered Questions",
+          "type": "array"
+        },
+        "requested_obligations": {
+          "const": 4,
+          "title": "Requested Obligations",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested_obligations",
+        "evaluated_obligations",
+        "counts",
+        "known_uncovered_questions"
+      ],
+      "title": "CoverageV1",
+      "type": "object"
+    },
+    "EfficiencyRangeSensitivityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "crosses_zero": {
+          "title": "Crosses Zero",
+          "type": "boolean"
+        },
+        "hold_margin_at_maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Hold Margin At Maximum"
+        },
+        "hold_margin_at_minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Hold Margin At Minimum"
+        },
+        "maximum_efficiency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "ge": 0,
+          "le": 1,
+          "title": "Maximum Efficiency"
+        },
+        "minimum_efficiency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "ge": 0,
+          "le": 1,
+          "title": "Minimum Efficiency"
+        },
+        "sensitivity_id": {
+          "const": "gearbox_efficiency_range",
+          "title": "Sensitivity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sensitivity_id",
+        "claim_id",
+        "minimum_efficiency",
+        "maximum_efficiency",
+        "hold_margin_at_minimum",
+        "hold_margin_at_maximum",
+        "crosses_zero"
+      ],
+      "title": "EfficiencyRangeSensitivityV1",
+      "type": "object"
+    },
+    "ExecutionBackendV1": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_id": {
+          "const": "motor_arm_builtin_v1",
+          "title": "Backend Id",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1.0.0",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "numeric_profile": {
+          "$ref": "#/$defs/NumericProfileV1"
+        }
+      },
+      "required": [
+        "backend_id",
+        "contract_version",
+        "numeric_profile"
+      ],
+      "title": "ExecutionBackendV1",
+      "type": "object"
+    },
+    "FloatingPointPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "contraction": {
+          "const": "disabled",
+          "title": "Contraction",
+          "type": "string"
+        },
+        "fast_math": {
+          "title": "Fast Math",
+          "type": "boolean"
+        },
+        "rounding_mode": {
+          "const": "to_nearest",
+          "title": "Rounding Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contraction",
+        "fast_math",
+        "rounding_mode"
+      ],
+      "title": "FloatingPointPolicyV1",
+      "type": "object"
+    },
+    "MissingInformationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "title": "Question Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question_id",
+        "reason"
+      ],
+      "title": "MissingInformationV1",
+      "type": "object"
+    },
+    "NumericProfileV1": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_build_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Backend Build Fingerprint",
+          "type": "string"
+        },
+        "compiler": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        },
+        "floating_point": {
+          "$ref": "#/$defs/FloatingPointPolicyV1"
+        },
+        "math_runtime": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        },
+        "numeric_serialization_version": {
+          "const": "1.0.0",
+          "title": "Numeric Serialization Version",
+          "type": "string"
+        },
+        "operating_system": {
+          "$ref": "#/$defs/PlatformIdentityV1"
+        },
+        "standard_library": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        }
+      },
+      "required": [
+        "operating_system",
+        "compiler",
+        "standard_library",
+        "math_runtime",
+        "backend_build_fingerprint",
+        "floating_point",
+        "numeric_serialization_version"
+      ],
+      "title": "NumericProfileV1",
+      "type": "object"
+    },
+    "ObligationOutcomeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "calculated_quantity": {
+          "$ref": "#/$defs/ReportedQuantityV1"
+        },
+        "comparison_operator": {
+          "const": ">=",
+          "title": "Comparison Operator",
+          "type": "string"
+        },
+        "comparison_quantity": {
+          "$ref": "#/$defs/ReportedQuantityV1"
+        },
+        "consumed_claim_ids": {
+          "items": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Consumed Claim Ids",
+          "type": "array"
+        },
+        "finding_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "mechanism": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "obligation_id": {
+          "title": "Obligation Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "pass",
+            "fail",
+            "indeterminate",
+            "not_evaluated"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "package_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Package Hash",
+          "type": "string"
+        },
+        "request_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Request Hash",
+          "type": "string"
+        },
+        "scenario_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Scenario Hash",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "caution",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "signed_margin": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Signed Margin"
+        },
+        "title": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "obligation_id",
+        "outcome",
+        "severity",
+        "title",
+        "mechanism",
+        "calculated_quantity",
+        "comparison_quantity",
+        "comparison_operator",
+        "signed_margin",
+        "package_hash",
+        "request_hash",
+        "scenario_hash",
+        "consumed_claim_ids",
+        "assumptions",
+        "limitations"
+      ],
+      "title": "ObligationOutcomeV1",
+      "type": "object"
+    },
+    "OutcomeCountsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "fail": {
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Fail",
+          "type": "integer"
+        },
+        "indeterminate": {
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Indeterminate",
+          "type": "integer"
+        },
+        "not_evaluated": {
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Not Evaluated",
+          "type": "integer"
+        },
+        "pass": {
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Pass",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pass",
+        "fail",
+        "indeterminate",
+        "not_evaluated"
+      ],
+      "title": "OutcomeCountsV1",
+      "type": "object"
+    },
+    "PlatformIdentityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Architecture",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "release": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Release",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "release",
+        "architecture"
+      ],
+      "title": "PlatformIdentityV1",
+      "type": "object"
+    },
+    "ReportedQuantityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "ReportedQuantityV1",
+      "type": "object"
+    },
+    "ToolIdentityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "ToolIdentityV1",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:analysis-result:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:prometheus:schema:analysis-result:1.0.0",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "applicability": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 6,
+      "minItems": 6,
+      "title": "Applicability",
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "backend": {
+      "$ref": "#/$defs/ExecutionBackendV1"
+    },
+    "calculations": {
+      "items": {
+        "$ref": "#/$defs/CalculationV1"
+      },
+      "maxItems": 8,
+      "minItems": 8,
+      "title": "Calculations",
+      "type": "array"
+    },
+    "consumed_inputs": {
+      "$ref": "#/$defs/ConsumedInputsV1"
+    },
+    "coverage": {
+      "$ref": "#/$defs/CoverageV1"
+    },
+    "execution_disposition": {
+      "const": "completed",
+      "title": "Execution Disposition",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Limitations",
+      "type": "array"
+    },
+    "missing_information": {
+      "items": {
+        "$ref": "#/$defs/MissingInformationV1"
+      },
+      "maxItems": 256,
+      "title": "Missing Information",
+      "type": "array"
+    },
+    "obligation_outcomes": {
+      "items": {
+        "$ref": "#/$defs/ObligationOutcomeV1"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Obligation Outcomes",
+      "type": "array"
+    },
+    "package_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Package Hash",
+      "type": "string"
+    },
+    "request_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Request Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivities": {
+      "items": {
+        "$ref": "#/$defs/EfficiencyRangeSensitivityV1"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "title": "Sensitivities",
+      "type": "array"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "execution_disposition",
+    "request_hash",
+    "package_hash",
+    "backend",
+    "calculations",
+    "consumed_inputs",
+    "sensitivities",
+    "obligation_outcomes",
+    "missing_information",
+    "assumptions",
+    "limitations",
+    "applicability",
+    "coverage"
+  ],
+  "title": "AnalysisResultV1",
+  "type": "object"
+}

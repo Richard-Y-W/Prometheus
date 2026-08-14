@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "FloatingPointPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "contraction": {
+          "const": "disabled",
+          "title": "Contraction",
+          "type": "string"
+        },
+        "fast_math": {
+          "title": "Fast Math",
+          "type": "boolean"
+        },
+        "rounding_mode": {
+          "const": "to_nearest",
+          "title": "Rounding Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contraction",
+        "fast_math",
+        "rounding_mode"
+      ],
+      "title": "FloatingPointPolicyV1",
+      "type": "object"
+    },
+    "NumericProfileV1": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_build_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Backend Build Fingerprint",
+          "type": "string"
+        },
+        "compiler": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        },
+        "floating_point": {
+          "$ref": "#/$defs/FloatingPointPolicyV1"
+        },
+        "math_runtime": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        },
+        "numeric_serialization_version": {
+          "const": "1.0.0",
+          "title": "Numeric Serialization Version",
+          "type": "string"
+        },
+        "operating_system": {
+          "$ref": "#/$defs/PlatformIdentityV1"
+        },
+        "standard_library": {
+          "$ref": "#/$defs/ToolIdentityV1"
+        }
+      },
+      "required": [
+        "operating_system",
+        "compiler",
+        "standard_library",
+        "math_runtime",
+        "backend_build_fingerprint",
+        "floating_point",
+        "numeric_serialization_version"
+      ],
+      "title": "NumericProfileV1",
+      "type": "object"
+    },
+    "PlatformIdentityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Architecture",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "release": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Release",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "release",
+        "architecture"
+      ],
+      "title": "PlatformIdentityV1",
+      "type": "object"
+    },
+    "StoredObjectReferenceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_length": {
+          "exclusiveMinimum": 0,
+          "maximum": 8388608,
+          "title": "Byte Length",
+          "type": "integer"
+        },
+        "media_type": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "object_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Object Hash",
+          "type": "string"
+        },
+        "schema_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            "1.0.0",
+            "2.0.0"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object_hash",
+        "byte_length",
+        "media_type",
+        "schema_id",
+        "schema_version"
+      ],
+      "title": "StoredObjectReferenceV1",
+      "type": "object"
+    },
+    "ToolIdentityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "ToolIdentityV1",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:run-manifest:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:prometheus:schema:run-manifest:1.0.0",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "assembly_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Assembly Artifact Hash",
+      "type": "string"
+    },
+    "backend_contract_version": {
+      "const": "1.0.0",
+      "title": "Backend Contract Version",
+      "type": "string"
+    },
+    "backend_id": {
+      "const": "motor_arm_builtin_v1",
+      "title": "Backend Id",
+      "type": "string"
+    },
+    "manifest_kind": {
+      "const": "completed_analysis_run",
+      "title": "Manifest Kind",
+      "type": "string"
+    },
+    "numeric_profile": {
+      "$ref": "#/$defs/NumericProfileV1"
+    },
+    "package": {
+      "$ref": "#/$defs/StoredObjectReferenceV1"
+    },
+    "package_consumer_contract_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Package Consumer Contract Hash",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/StoredObjectReferenceV1"
+    },
+    "result": {
+      "$ref": "#/$defs/StoredObjectReferenceV1"
+    },
+    "scenario": {
+      "$ref": "#/$defs/StoredObjectReferenceV1"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "manifest_kind",
+    "package",
+    "scenario",
+    "request",
+    "result",
+    "assembly_artifact_hash",
+    "backend_id",
+    "backend_contract_version",
+    "package_consumer_contract_hash",
+    "numeric_profile"
+  ],
+  "title": "RunManifestV1",
+  "type": "object"
+}

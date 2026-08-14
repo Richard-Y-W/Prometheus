@@ -11,7 +11,7 @@ class Record(Base):
     __abstract__ = True
     id: Mapped[str] = mapped_column(String, primary_key=True, default=uid)
     created_at: Mapped[str] = mapped_column(String, default=now)
-    updated_at: Mapped[str] = mapped_column(String, default=now)
+    updated_at: Mapped[str] = mapped_column(String, default=now, onupdate=now)
 
 class Project(Record):
     __tablename__="projects"; name: Mapped[str]=mapped_column(String); description: Mapped[str]=mapped_column(Text,default=""); unit_system: Mapped[str]=mapped_column(String,default="SI")

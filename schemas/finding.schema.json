@@ -1,1 +1,108 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://prometheus.local/schemas/finding/v1","type":"object","additionalProperties":false,"required":["schema_version","id","status","severity","title","mechanism","entities","confidence_grade","method","solver_version","assumptions","missing_information","evidence_ids","suggested_actions","dependency_keys"],"properties":{"schema_version":{"const":"1.0.0"},"id":{"type":"string","format":"uuid"},"status":{"enum":["pass","warning","fail","indeterminate","not_applicable","not_run"]},"severity":{"enum":["critical","high","medium","low","information"]},"title":{"type":"string"},"mechanism":{"type":"string"},"entities":{"type":"array","items":{"type":"string"}},"calculated":{"$ref":"#/$defs/quantity"},"allowable_or_required":{"$ref":"#/$defs/quantity"},"signed_margin_fraction":{"type":["number","null"]},"confidence_grade":{"enum":["high","medium_high","medium","low","unknown"]},"method":{"type":"string"},"solver_version":{"type":"string"},"assumptions":{"type":"array","items":{"type":"string"}},"missing_information":{"type":"array","items":{"type":"string"}},"evidence_ids":{"type":"array","items":{"type":"string"}},"suggested_actions":{"type":"array","items":{"type":"string"}},"dependency_keys":{"type":"array","items":{"type":"string"}}},"$defs":{"quantity":{"type":["object","null"],"required":["value","unit"],"properties":{"value":{"type":"number"},"unit":{"type":"string"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prometheus.local/schemas/finding/v1",
+  "title": "Prometheus engineering finding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "obligation_status",
+    "execution_status",
+    "severity",
+    "title",
+    "mechanism",
+    "entities",
+    "confidence_grade",
+    "method",
+    "solver_version",
+    "assumptions",
+    "missing_information",
+    "evidence_ids",
+    "suggested_actions",
+    "dependency_keys"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"type": "string", "format": "uuid"},
+    "obligation_status": {
+      "enum": [
+        "satisfied",
+        "violated",
+        "indeterminate",
+        "not_applicable",
+        "not_evaluated"
+      ]
+    },
+    "execution_status": {
+      "enum": [
+        "not_started",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "timed_out",
+        "backend_unavailable",
+        "nonconverged"
+      ]
+    },
+    "severity": {"enum": ["critical", "high", "medium", "low", "information"]},
+    "title": {"type": "string", "minLength": 1},
+    "mechanism": {"type": "string", "minLength": 1},
+    "entities": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "calculated": {"$ref": "#/$defs/quantity"},
+    "allowable_or_required": {"$ref": "#/$defs/quantity"},
+    "signed_margin_fraction": {"type": ["number", "null"]},
+    "confidence_grade": {
+      "enum": ["high", "medium_high", "medium", "low", "unknown"]
+    },
+    "method": {"type": "string", "minLength": 1},
+    "solver_version": {"type": "string", "minLength": 1},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "missing_information": {"type": "array", "items": {"type": "string"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "suggested_actions": {"type": "array", "items": {"type": "string"}},
+    "dependency_keys": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"execution_status": {"enum": ["not_started", "running"]}},
+        "required": ["execution_status"]
+      },
+      "then": {
+        "properties": {"obligation_status": {"const": "not_evaluated"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_status": {
+            "enum": [
+              "failed",
+              "cancelled",
+              "timed_out",
+              "backend_unavailable",
+              "nonconverged"
+            ]
+          }
+        },
+        "required": ["execution_status"]
+      },
+      "then": {
+        "properties": {"obligation_status": {"const": "indeterminate"}}
+      }
+    }
+  ],
+  "$defs": {
+    "quantity": {
+      "type": ["object", "null"],
+      "required": ["value", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "number"},
+        "unit": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

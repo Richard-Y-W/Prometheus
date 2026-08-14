@@ -1,0 +1,237 @@
+{
+  "$defs": {
+    "AcceptedPackageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "const": "component_input.dc_gearmotor_v1",
+          "title": "Capability",
+          "type": "string"
+        },
+        "package_kind": {
+          "const": "component_execution_input",
+          "title": "Package Kind",
+          "type": "string"
+        },
+        "schema_id": {
+          "const": "urn:prometheus:schema:execution-component:2.0.0",
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "2.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_id",
+        "schema_version",
+        "package_kind",
+        "capability"
+      ],
+      "title": "AcceptedPackageV1",
+      "type": "object"
+    },
+    "BackendContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_id": {
+          "const": "motor_arm_builtin_v1",
+          "title": "Backend Id",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1.0.0",
+          "title": "Contract Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend_id",
+        "contract_version"
+      ],
+      "title": "BackendContractV1",
+      "type": "object"
+    },
+    "ConsumerSlotV1": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_unit": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Canonical Unit",
+          "type": "string"
+        },
+        "dimension": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "engineering_quantity": {
+          "pattern": "^[a-z][a-z0-9_]{0,127}$",
+          "title": "Engineering Quantity",
+          "type": "string"
+        },
+        "slot_name": {
+          "pattern": "^[a-z][a-z0-9_]{0,127}$",
+          "title": "Slot Name",
+          "type": "string"
+        },
+        "value_shape": {
+          "enum": [
+            "scalar",
+            "range",
+            "curve",
+            "scalar_or_unknown"
+          ],
+          "title": "Value Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_name",
+        "engineering_quantity",
+        "dimension",
+        "value_shape",
+        "canonical_unit"
+      ],
+      "title": "ConsumerSlotV1",
+      "type": "object"
+    },
+    "SupportedScenarioV1": {
+      "additionalProperties": false,
+      "properties": {
+        "motion_profiles": {
+          "items": {
+            "const": "symmetric_triangular_velocity",
+            "type": "string"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "title": "Motion Profiles",
+          "type": "array"
+        },
+        "scenario_kind": {
+          "const": "motor_arm",
+          "title": "Scenario Kind",
+          "type": "string"
+        },
+        "schema_id": {
+          "const": "urn:prometheus:schema:motor-arm-scenario:1.0.0",
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_id",
+        "schema_version",
+        "scenario_kind",
+        "motion_profiles"
+      ],
+      "title": "SupportedScenarioV1",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:package-consumer-contract:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:prometheus:schema:package-consumer-contract:1.0.0",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "accepted_package": {
+      "$ref": "#/$defs/AcceptedPackageV1"
+    },
+    "applicability_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 6,
+      "minItems": 6,
+      "title": "Applicability Ids",
+      "type": "array"
+    },
+    "available_but_unused_slots": {
+      "items": {
+        "$ref": "#/$defs/ConsumerSlotV1"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Available But Unused Slots",
+      "type": "array"
+    },
+    "backend": {
+      "$ref": "#/$defs/BackendContractV1"
+    },
+    "contract_kind": {
+      "const": "package_consumer",
+      "title": "Contract Kind",
+      "type": "string"
+    },
+    "obligation_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Obligation Ids",
+      "type": "array"
+    },
+    "required_slots": {
+      "items": {
+        "$ref": "#/$defs/ConsumerSlotV1"
+      },
+      "maxItems": 12,
+      "minItems": 12,
+      "title": "Required Slots",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "supported_scenario": {
+      "$ref": "#/$defs/SupportedScenarioV1"
+    },
+    "validation_level": {
+      "const": "synthetic_conformance_only",
+      "title": "Validation Level",
+      "type": "string"
+    },
+    "validation_slots": {
+      "items": {
+        "$ref": "#/$defs/ConsumerSlotV1"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Validation Slots",
+      "type": "array"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "contract_kind",
+    "backend",
+    "accepted_package",
+    "required_slots",
+    "validation_slots",
+    "available_but_unused_slots",
+    "supported_scenario",
+    "obligation_ids",
+    "applicability_ids",
+    "validation_level"
+  ],
+  "title": "PackageConsumerContractV1",
+  "type": "object"
+}

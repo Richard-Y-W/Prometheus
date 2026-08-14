@@ -1,0 +1,833 @@
+{
+  "$defs": {
+    "DerivedClaimEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "derivation_method": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Derivation Method",
+          "type": "string"
+        },
+        "evidence_class": {
+          "const": "derived_claim",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "ge": 0,
+              "le": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "parent_claim_ids": {
+          "items": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "title": "Parent Claim Ids",
+          "type": "array"
+        },
+        "parent_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "title": "Parent Evidence Ids",
+          "type": "array"
+        },
+        "physical_validation_status": {
+          "enum": [
+            "unvalidated",
+            "component_validated",
+            "system_validated"
+          ],
+          "title": "Physical Validation Status",
+          "type": "string"
+        },
+        "revision_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "const": "prometheus_derivation",
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "source_uri": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uri"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "revision_id",
+        "evidence_class",
+        "source_authority",
+        "physical_validation_status",
+        "limitations",
+        "derivation_method",
+        "parent_claim_ids",
+        "parent_evidence_ids"
+      ],
+      "title": "DerivedClaimEvidenceV2",
+      "type": "object"
+    },
+    "ManufacturerDocumentEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "document_identity": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Document Identity",
+          "type": "string"
+        },
+        "evidence_class": {
+          "const": "manufacturer_document",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "ge": 0,
+              "le": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "physical_validation_status": {
+          "enum": [
+            "unvalidated",
+            "component_validated",
+            "system_validated"
+          ],
+          "title": "Physical Validation Status",
+          "type": "string"
+        },
+        "revision_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "enum": [
+            "manufacturer",
+            "supplier"
+          ],
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "source_uri": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uri"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "revision_id",
+        "evidence_class",
+        "source_authority",
+        "physical_validation_status",
+        "limitations",
+        "artifact_hash",
+        "document_identity"
+      ],
+      "title": "ManufacturerDocumentEvidenceV2",
+      "type": "object"
+    },
+    "PrivateUploadEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "evidence_class": {
+          "const": "private_upload",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "ge": 0,
+              "le": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "local_provenance": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Local Provenance",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "physical_validation_status": {
+          "enum": [
+            "unvalidated",
+            "component_validated",
+            "system_validated"
+          ],
+          "title": "Physical Validation Status",
+          "type": "string"
+        },
+        "revision_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "enum": [
+            "private_provider",
+            "synthetic_fixture",
+            "user"
+          ],
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "source_uri": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uri"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "revision_id",
+        "evidence_class",
+        "source_authority",
+        "physical_validation_status",
+        "limitations",
+        "artifact_hash",
+        "local_provenance"
+      ],
+      "title": "PrivateUploadEvidenceV2",
+      "type": "object"
+    },
+    "UserMeasurementEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "evidence_class": {
+          "const": "user_measurement",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "ge": 0,
+              "le": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "measurement_method": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Measurement Method",
+          "type": "string"
+        },
+        "measurement_unit": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Measurement Unit",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "physical_validation_status": {
+          "enum": [
+            "unvalidated",
+            "component_validated",
+            "system_validated"
+          ],
+          "title": "Physical Validation Status",
+          "type": "string"
+        },
+        "recorded_observation": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Observation"
+        },
+        "revision_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "const": "user",
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "source_uri": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uri"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "revision_id",
+        "evidence_class",
+        "source_authority",
+        "physical_validation_status",
+        "limitations",
+        "measurement_method",
+        "measurement_unit",
+        "observed_at"
+      ],
+      "title": "UserMeasurementEvidenceV2",
+      "type": "object"
+    },
+    "ValidationObservationEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "evidence_class": {
+          "const": "validation_observation",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "evidence_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "ge": 0,
+              "le": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "limitations": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "physical_validation_status": {
+          "enum": [
+            "unvalidated",
+            "component_validated",
+            "system_validated"
+          ],
+          "title": "Physical Validation Status",
+          "type": "string"
+        },
+        "recorded_observation": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Recorded Observation",
+          "type": "string"
+        },
+        "revision_id": {
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "source_authority": {
+          "enum": [
+            "validation_activity",
+            "user"
+          ],
+          "title": "Source Authority",
+          "type": "string"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "source_uri": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uri"
+        },
+        "test_provenance": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Test Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "revision_id",
+        "evidence_class",
+        "source_authority",
+        "physical_validation_status",
+        "limitations",
+        "test_provenance",
+        "observed_at",
+        "recorded_observation"
+      ],
+      "title": "ValidationObservationEvidenceV2",
+      "type": "object"
+    }
+  },
+  "$id": "urn:prometheus:schema:evidence-record:2.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "derived_claim": "#/$defs/DerivedClaimEvidenceV2",
+      "manufacturer_document": "#/$defs/ManufacturerDocumentEvidenceV2",
+      "private_upload": "#/$defs/PrivateUploadEvidenceV2",
+      "user_measurement": "#/$defs/UserMeasurementEvidenceV2",
+      "validation_observation": "#/$defs/ValidationObservationEvidenceV2"
+    },
+    "propertyName": "evidence_class"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ManufacturerDocumentEvidenceV2"
+    },
+    {
+      "$ref": "#/$defs/PrivateUploadEvidenceV2"
+    },
+    {
+      "$ref": "#/$defs/UserMeasurementEvidenceV2"
+    },
+    {
+      "$ref": "#/$defs/DerivedClaimEvidenceV2"
+    },
+    {
+      "$ref": "#/$defs/ValidationObservationEvidenceV2"
+    }
+  ]
+}

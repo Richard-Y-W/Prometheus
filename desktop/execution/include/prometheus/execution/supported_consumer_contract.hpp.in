@@ -1,0 +1,15 @@
+#pragma once
+
+#include <cstddef>
+#include <string_view>
+
+namespace prometheus::execution::detail {
+
+inline constexpr std::string_view supported_consumer_contract_hash =
+    "@PROMETHEUS_SUPPORTED_CONSUMER_HASH@";
+inline constexpr std::size_t supported_consumer_contract_byte_length =
+    @PROMETHEUS_SUPPORTED_CONSUMER_BYTE_LENGTH@U;
+inline constexpr std::string_view supported_consumer_contract_media_type =
+    "application/vnd.prometheus.package-consumer-contract+json;version=1.0.0";
+
+} // namespace prometheus::execution::detail

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prometheus.local/schemas/evidence-record/v1",
+  "title": "Evidence record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "evidence_class",
+    "source_document_id",
+    "source_document_hash",
+    "source_uri",
+    "source_locator",
+    "excerpt",
+    "confidence",
+    "extraction_method",
+    "review"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "id": {"type": "string", "format": "uuid"},
+    "evidence_class": {
+      "enum": [
+        "physically_validated",
+        "system_validated",
+        "manufacturer_stated",
+        "supplier_stated",
+        "user_measured",
+        "user_provided",
+        "derived",
+        "llm_inferred",
+        "synthetic_fixture",
+        "unknown"
+      ]
+    },
+    "source_document_id": {"type": "string", "format": "uuid"},
+    "source_document_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_uri": {"type": "string", "format": "uri"},
+    "source_locator": {"type": "string", "minLength": 1},
+    "excerpt": {"type": "string", "minLength": 1},
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "extraction_method": {"type": "string", "minLength": 1},
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewed_by", "reviewed_at", "note"],
+      "properties": {
+        "status": {"enum": ["pending", "accepted", "rejected", "ambiguous"]},
+        "reviewed_by": {"type": ["string", "null"], "pattern": "\\S"},
+        "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+        "note": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "pending"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reviewed_by": {"type": "null"},
+              "reviewed_at": {"type": "null"},
+              "note": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "accepted"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reviewed_by": {"type": "string", "minLength": 1},
+              "reviewed_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"enum": ["rejected", "ambiguous"]}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "reviewed_by": {"type": "string", "minLength": 1},
+              "reviewed_at": {"type": "string", "format": "date-time"},
+              "note": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "package_kind": "component_execution_input",
+  "revision_id": "11111111-1111-4111-8111-111111111111",
+  "content_hash": "sha256:c1b8a037390fc7c7f27c05080460aa9e3358a2e667db299dcbc57fcd852c31be",
+  "component": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "manufacturer": "Prometheus Fixture Works",
+    "part_number": "PM-36-GM",
+    "revision": "fixture-1",
+    "component_class": "gearmotor"
+  },
+  "certification": {
+    "tier": "provisional",
+    "status": "published",
+    "published_at": "2026-08-11T00:00:00Z"
+  },
+  "parameters": [
+    {"name": "continuous_torque_nm", "quantity": "torque", "dimension": "torque", "value": {"kind": "scalar", "value": 0.208}, "unit": "N*m", "original_value": "0.208", "original_unit": "N*m", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "driver_current_limit_a", "quantity": "electric_current_limit", "dimension": "electric_current", "value": {"kind": "scalar", "value": 4.0}, "unit": "A", "original_value": "4.0", "original_unit": "A", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "gear_ratio", "quantity": "ratio", "dimension": "dimensionless", "value": {"kind": "scalar", "value": 100.0}, "unit": "1", "original_value": "100.0", "original_unit": "1", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "gearbox_efficiency_nominal", "quantity": "efficiency", "dimension": "dimensionless", "value": {"kind": "scalar", "value": 0.7}, "unit": "1", "original_value": "0.70", "original_unit": "1", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "gearbox_efficiency_range", "quantity": "efficiency", "dimension": "dimensionless", "value": {"kind": "range", "minimum": 0.55, "maximum": 0.82}, "unit": "1", "original_value": "0.55-0.82", "original_unit": "1", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "gearbox_lifetime", "quantity": "service_life", "dimension": "time", "value": {"kind": "unknown", "reason": "synthetic fixture does not define gearbox lifetime"}, "unit": "h", "original_value": "not stated", "original_unit": "h", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "maximum_temperature_c", "quantity": "temperature_limit", "dimension": "temperature", "value": {"kind": "scalar", "value": 125.0}, "unit": "degC", "original_value": "125.0", "original_unit": "degC", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "no_load_current_a", "quantity": "electric_current", "dimension": "electric_current", "value": {"kind": "scalar", "value": 0.18}, "unit": "A", "original_value": "0.18", "original_unit": "A", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "no_load_speed_rad_s", "quantity": "angular_velocity", "dimension": "angle/time", "value": {"kind": "scalar", "value": 418.879}, "unit": "rad/s", "original_value": "418.879", "original_unit": "rad/s", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "nominal_voltage_v", "quantity": "voltage", "dimension": "electric_potential", "value": {"kind": "scalar", "value": 36.0}, "unit": "V", "original_value": "36.0", "original_unit": "V", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "stall_torque_nm", "quantity": "torque", "dimension": "torque", "value": {"kind": "scalar", "value": 1.92}, "unit": "N*m", "original_value": "1.92", "original_unit": "N*m", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "supply_current_limit_a", "quantity": "electric_current_limit", "dimension": "electric_current", "value": {"kind": "scalar", "value": 5.0}, "unit": "A", "original_value": "5.0", "original_unit": "A", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "thermal_capacitance_j_k", "quantity": "heat_capacity", "dimension": "energy/temperature", "value": {"kind": "scalar", "value": 110.0}, "unit": "J/K", "original_value": "110.0", "original_unit": "J/K", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "thermal_resistance_k_w", "quantity": "thermal_resistance", "dimension": "temperature/power", "value": {"kind": "scalar", "value": 3.2}, "unit": "K/W", "original_value": "3.2", "original_unit": "K/W", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "torque_constant_nm_a", "quantity": "torque_constant", "dimension": "torque/electric_current", "value": {"kind": "scalar", "value": 0.0749}, "unit": "N*m/A", "original_value": "0.0749", "original_unit": "N*m/A", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "torque_speed_curve", "quantity": "torque_by_angular_velocity", "dimension": "torque", "value": {"kind": "curve", "independent_quantity": "angular_velocity", "independent_unit": "rad/s", "interpolation": "linear", "points": [{"x": 0.0, "y": 1.92}, {"x": 418.879, "y": 0.0}]}, "unit": "N*m", "original_value": "(0.0,1.92);(418.879,0.0)", "original_unit": "rad/s,N*m", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]},
+    {"name": "winding_resistance_ohm", "quantity": "electrical_resistance", "dimension": "electric_resistance", "value": {"kind": "scalar", "value": 1.4}, "unit": "ohm", "original_value": "1.4", "original_unit": "ohm", "validity_conditions": ["synthetic conformance fixture only"], "evidence_ids": ["33333333-3333-4333-8333-333333333333"]}
+  ],
+  "evidence": [
+    {
+      "schema_version": "1.0.0",
+      "id": "33333333-3333-4333-8333-333333333333",
+      "evidence_class": "synthetic_fixture",
+      "source_document_id": "44444444-4444-4444-8444-444444444444",
+      "source_document_hash": "sha256:f491e24540b86d20424ac212ad8abcdcbc5647bf8860d75f8062a2dbd0fb65b2",
+      "source_uri": "fixture://prometheus/pm-36-gm/fixture-1",
+      "source_locator": "parameters",
+      "excerpt": "Synthetic PM-36-GM conformance parameter table.",
+      "confidence": null,
+      "extraction_method": "fixture_json_v1",
+      "review": {
+        "status": "accepted",
+        "reviewed_by": "contract-fixture-reviewer",
+        "reviewed_at": "2026-08-11T00:00:00Z",
+        "note": null
+      }
+    }
+  ],
+  "supported_recipes": ["motor_continuous_hold", "motor_current", "motor_thermal_rc", "motor_torque_speed"],
+  "missing_information": [
+    {"field_name": "gearbox_lifetime", "reason": "synthetic fixture does not define gearbox lifetime"}
+  ],
+  "limitations": [
+    "Synthetic conformance data; not a real manufacturer's datasheet and not suitable for a physical design decision."
+  ],
+  "authority": {
+    "package_role": "reviewed_input",
+    "engineering_decision_authority": "prometheus_cpp"
+  }
+}

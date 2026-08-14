@@ -1,0 +1,270 @@
+{
+  "schema_version": "1.0.0",
+  "canonicalization": "RFC8785+prometheus-negative-zero-rejection",
+  "limits": {
+    "max_raw_bytes": 8388608,
+    "max_depth": 64,
+    "max_nodes": 100000,
+    "max_object_members": 10000,
+    "max_array_elements": 10000,
+    "max_string_bytes": 1048576,
+    "safe_integer_min": -9007199254740991,
+    "safe_integer_max": 9007199254740991
+  },
+  "success_cases": [
+    {
+      "id": "empty-object",
+      "input": "input/empty-object.json",
+      "canonical": "canonical/empty-object.jcs",
+      "sha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "id": "rfc-literals",
+      "input": "input/rfc-literals.json",
+      "canonical": "canonical/rfc-literals.jcs",
+      "sha256": "sha256:37257214f22b92121c5ff4d7e29ed2d31b3f1129ee698e96e581ec05cb2e3cf7"
+    },
+    {
+      "id": "rfc-strings",
+      "input": "input/rfc-strings.json",
+      "canonical": "canonical/rfc-strings.jcs",
+      "sha256": "sha256:ca355c6f913afd1af684476e56a97043696f617c7e34c84221c5643b66842a63"
+    },
+    {
+      "id": "rfc-numbers",
+      "input": "input/rfc-numbers.json",
+      "canonical": "canonical/rfc-numbers.jcs",
+      "sha256": "sha256:7c6bc86d861387d823ae596b79ca0b26567dddc22a77acb1f4e06d441f555adf"
+    },
+    {
+      "id": "utf16-property-order",
+      "input": "input/utf16-property-order.json",
+      "canonical": "canonical/utf16-property-order.jcs",
+      "sha256": "sha256:5e321556d22018a9656991a9e94f77ec175fa193e52a2429d312f8419ec8b08c"
+    },
+    {
+      "id": "unicode-values",
+      "input": "input/unicode-values.json",
+      "canonical": "canonical/unicode-values.jcs",
+      "sha256": "sha256:80600f6ca213e3484d3f89f6eca100beaf23fed1f223a9289487d8131b1f5f28"
+    },
+    {
+      "id": "control-escapes",
+      "input": "input/control-escapes.json",
+      "canonical": "canonical/control-escapes.jcs",
+      "sha256": "sha256:68144f0b76939eca93e2ce31d9e1cf2fdb8d4fe8c8da0b0f56d85cba5ecffcbb"
+    },
+    {
+      "id": "nfc",
+      "input": "input/nfc.json",
+      "canonical": "canonical/nfc.jcs",
+      "sha256": "sha256:69e46f3f0688000ab7eeb9e40e6a516a254268cd644a24f4f69cf7ad063cf479"
+    },
+    {
+      "id": "nfd",
+      "input": "input/nfd.json",
+      "canonical": "canonical/nfd.jcs",
+      "sha256": "sha256:1b986c631da83257beca64c93ff3e5174908d558af7bb9dfb36b25a6198f7c38"
+    },
+    {
+      "id": "nested-order",
+      "input": "input/nested-order.json",
+      "canonical": "canonical/nested-order.jcs",
+      "sha256": "sha256:4bc08b196ca8e8875a2e52bb91d29ba5e5a734ae5cf53c030d7f932ee245a439"
+    },
+    {
+      "id": "array-order",
+      "input": "input/array-order.json",
+      "canonical": "canonical/array-order.jcs",
+      "sha256": "sha256:65ef5b973c9d03ff1cf361cdc7f8417f30cac238557e5766bb3740d3c44227fd"
+    },
+    {
+      "id": "safe-integer-min",
+      "input": "input/safe-integer-min.json",
+      "canonical": "canonical/safe-integer-min.jcs",
+      "sha256": "sha256:4c933a456bb8f2e9894b2d0b26480439cd72d52fb8a27cbf8fd7f323f22c7815"
+    },
+    {
+      "id": "safe-integer-max",
+      "input": "input/safe-integer-max.json",
+      "canonical": "canonical/safe-integer-max.jcs",
+      "sha256": "sha256:f40b423c2dd95ff2b2f027e22208f438cf7242862e5e746860e697308c9add26"
+    },
+    {
+      "id": "smallest-subnormal",
+      "input": "input/smallest-subnormal.json",
+      "canonical": "canonical/smallest-subnormal.jcs",
+      "sha256": "sha256:c46e7ca1be4c8734f373a56530787288fa2058d73d07855e9247e949f811a42a"
+    },
+    {
+      "id": "largest-finite",
+      "input": "input/largest-finite.json",
+      "canonical": "canonical/largest-finite.jcs",
+      "sha256": "sha256:c2784e1abd6317452708f3fbf9641c16b959561bc621a1d408c23a20aa2cb585"
+    },
+    {
+      "id": "fixed-threshold-low",
+      "input": "input/fixed-threshold-low.json",
+      "canonical": "canonical/fixed-threshold-low.jcs",
+      "sha256": "sha256:159fb29a827ad04b260aa6c8ab6d8637f8f2b38af5c4f3cb49d6a21205e040f8"
+    },
+    {
+      "id": "fixed-threshold-high",
+      "input": "input/fixed-threshold-high.json",
+      "canonical": "canonical/fixed-threshold-high.jcs",
+      "sha256": "sha256:c24dbe9f4f70ca038fd039610a4f025eaee1a1dea48929bc9e30ebe0e4d6edb9"
+    },
+    {
+      "id": "scientific-positive",
+      "input": "input/scientific-positive.json",
+      "canonical": "canonical/scientific-positive.jcs",
+      "sha256": "sha256:241c4643fa70b1dcde1205b71be4e3bebb17e9f880c8e1a33d0ead6c27271d3c"
+    },
+    {
+      "id": "scientific-negative",
+      "input": "input/scientific-negative.json",
+      "canonical": "canonical/scientific-negative.jcs",
+      "sha256": "sha256:5b33e02f2c5103a05d32f6ba9cb058294452bfbf393967f68bb30c1bdcbbab22"
+    }
+  ],
+  "failure_cases": [
+    {
+      "id": "duplicate-key",
+      "input": "input/duplicate-key.json",
+      "error_code": "duplicate_key"
+    },
+    {
+      "id": "duplicate-decoded-key",
+      "input": "input/duplicate-decoded-key.json",
+      "error_code": "duplicate_key"
+    },
+    {
+      "id": "invalid-utf8",
+      "input": {
+        "kind": "hex",
+        "data": "7b2276616c7565223a22ff227d"
+      },
+      "error_code": "invalid_utf8"
+    },
+    {
+      "id": "utf8-bom",
+      "input": {
+        "kind": "hex",
+        "data": "efbbbf7b7d"
+      },
+      "error_code": "utf8_bom"
+    },
+    {
+      "id": "unescaped-control-character",
+      "input": {
+        "kind": "hex",
+        "data": "7b2276616c7565223a221f227d"
+      },
+      "error_code": "invalid_json"
+    },
+    {
+      "id": "lone-high-surrogate",
+      "input": "input/lone-high-surrogate.json",
+      "error_code": "invalid_unicode"
+    },
+    {
+      "id": "lone-low-surrogate",
+      "input": "input/lone-low-surrogate.json",
+      "error_code": "invalid_unicode"
+    },
+    {
+      "id": "negative-zero",
+      "input": "input/negative-zero.json",
+      "error_code": "negative_zero"
+    },
+    {
+      "id": "unsafe-integer-low",
+      "input": "input/unsafe-integer-low.json",
+      "error_code": "unsafe_integer"
+    },
+    {
+      "id": "unsafe-integer-high",
+      "input": "input/unsafe-integer-high.json",
+      "error_code": "unsafe_integer"
+    },
+    {
+      "id": "nan",
+      "input": "input/nan.json",
+      "error_code": "non_finite_number"
+    },
+    {
+      "id": "positive-infinity",
+      "input": "input/positive-infinity.json",
+      "error_code": "non_finite_number"
+    },
+    {
+      "id": "negative-infinity",
+      "input": "input/negative-infinity.json",
+      "error_code": "non_finite_number"
+    },
+    {
+      "id": "overflow",
+      "input": "input/overflow.json",
+      "error_code": "number_overflow"
+    },
+    {
+      "id": "nonzero-underflow",
+      "input": "input/nonzero-underflow.json",
+      "error_code": "number_underflow"
+    },
+    {
+      "id": "depth-65",
+      "input": {
+        "kind": "generated",
+        "generator": "nested_arrays",
+        "depth": 65
+      },
+      "error_code": "max_depth_exceeded"
+    },
+    {
+      "id": "nodes-100001",
+      "input": {
+        "kind": "generated",
+        "generator": "node_tree",
+        "scalar_count": 99990
+      },
+      "error_code": "max_nodes_exceeded"
+    },
+    {
+      "id": "members-10001",
+      "input": {
+        "kind": "generated",
+        "generator": "object_members",
+        "count": 10001
+      },
+      "error_code": "max_object_members_exceeded"
+    },
+    {
+      "id": "array-10001",
+      "input": {
+        "kind": "generated",
+        "generator": "array_elements",
+        "count": 10001
+      },
+      "error_code": "max_array_elements_exceeded"
+    },
+    {
+      "id": "string-1048577",
+      "input": {
+        "kind": "generated",
+        "generator": "string_bytes",
+        "count": 1048577
+      },
+      "error_code": "max_string_bytes_exceeded"
+    },
+    {
+      "id": "bytes-8388609",
+      "input": {
+        "kind": "generated",
+        "generator": "raw_bytes",
+        "count": 8388609
+      },
+      "error_code": "max_raw_bytes_exceeded"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "$id": "urn:prometheus:schema:analysis-request:1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:prometheus:schema:analysis-request:1.0.0",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "assembly_artifact_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Assembly Artifact Hash",
+      "type": "string"
+    },
+    "backend_contract_version": {
+      "const": "1.0.0",
+      "title": "Backend Contract Version",
+      "type": "string"
+    },
+    "backend_id": {
+      "const": "motor_arm_builtin_v1",
+      "title": "Backend Id",
+      "type": "string"
+    },
+    "bound_cad_entity_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Bound Cad Entity Id",
+      "type": "string"
+    },
+    "obligation_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Obligation Ids",
+      "type": "array"
+    },
+    "package_consumer_contract_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Package Consumer Contract Hash",
+      "type": "string"
+    },
+    "package_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Package Hash",
+      "type": "string"
+    },
+    "request_kind": {
+      "const": "motor_arm_analysis",
+      "title": "Request Kind",
+      "type": "string"
+    },
+    "scenario_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Scenario Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "$schema",
+    "schema_version",
+    "request_kind",
+    "package_hash",
+    "scenario_hash",
+    "assembly_artifact_hash",
+    "bound_cad_entity_id",
+    "backend_id",
+    "backend_contract_version",
+    "package_consumer_contract_hash",
+    "obligation_ids"
+  ],
+  "title": "AnalysisRequestV1",
+  "type": "object"
+}

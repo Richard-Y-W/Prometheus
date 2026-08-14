@@ -1,420 +1,495 @@
 {
-  "openapi": "3.1.0",
+  "components": {
+    "schemas": {
+      "Body_import_cad_projects__project_id__cad_imports_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "title": "Body_import_cad_projects__project_id__cad_imports_post",
+        "type": "object"
+      },
+      "ConnectionCreate": {
+        "properties": {
+          "axis": {
+            "default": [
+              0,
+              0,
+              1
+            ],
+            "items": {
+              "type": "number"
+            },
+            "title": "Axis",
+            "type": "array"
+          },
+          "connection_type": {
+            "default": "revolute",
+            "enum": [
+              "fixed",
+              "revolute",
+              "sliding"
+            ],
+            "title": "Connection Type",
+            "type": "string"
+          },
+          "limits_deg": {
+            "default": [
+              0,
+              90
+            ],
+            "items": {
+              "type": "number"
+            },
+            "title": "Limits Deg",
+            "type": "array"
+          },
+          "source_part": {
+            "title": "Source Part",
+            "type": "string"
+          },
+          "target_part": {
+            "title": "Target Part",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_part",
+          "target_part"
+        ],
+        "title": "ConnectionCreate",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ProjectCreate": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "unit_system": {
+            "default": "SI",
+            "enum": [
+              "SI",
+              "US"
+            ],
+            "title": "Unit System",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ProjectCreate",
+        "type": "object"
+      },
+      "ResearchCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "manufacturer": {
+            "minLength": 1,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "part_number": {
+            "minLength": 1,
+            "title": "Part Number",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "part_number"
+        ],
+        "title": "ResearchCreate",
+        "type": "object"
+      },
+      "ReviewDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "field_name": {
+            "minLength": 1,
+            "title": "Field Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "ambiguous"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field_name",
+          "status"
+        ],
+        "title": "ReviewDecision",
+        "type": "object"
+      },
+      "ReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "reviewed_by": {
+            "minLength": 1,
+            "title": "Reviewed By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewed_by",
+          "decisions"
+        ],
+        "title": "ReviewRequest",
+        "type": "object"
+      },
+      "ScenarioCreate": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/ScenarioDefinition"
+          },
+          "name": {
+            "default": "Motor arm duty cycle",
+            "title": "Name",
+            "type": "string"
+          },
+          "natural_language_description": {
+            "title": "Natural Language Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "natural_language_description",
+          "definition"
+        ],
+        "title": "ScenarioCreate",
+        "type": "object"
+      },
+      "ScenarioDefinition": {
+        "properties": {
+          "ambient_c": {
+            "maximum": 150.0,
+            "minimum": -40.0,
+            "title": "Ambient C",
+            "type": "number"
+          },
+          "arm_length_m": {
+            "exclusiveMinimum": 0.0,
+            "title": "Arm Length M",
+            "type": "number"
+          },
+          "cycle_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Cycle S",
+            "type": "number"
+          },
+          "hold_s": {
+            "minimum": 0.0,
+            "title": "Hold S",
+            "type": "number"
+          },
+          "movement_s": {
+            "exclusiveMinimum": 0.0,
+            "title": "Movement S",
+            "type": "number"
+          },
+          "payload_kg": {
+            "exclusiveMinimum": 0.0,
+            "title": "Payload Kg",
+            "type": "number"
+          },
+          "rotation_deg": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 360.0,
+            "title": "Rotation Deg",
+            "type": "number"
+          },
+          "safety_factor": {
+            "default": 1.2,
+            "minimum": 1.0,
+            "title": "Safety Factor",
+            "type": "number"
+          }
+        },
+        "required": [
+          "payload_kg",
+          "arm_length_m",
+          "rotation_deg",
+          "movement_s",
+          "hold_s",
+          "cycle_s",
+          "ambient_c"
+        ],
+        "title": "ScenarioDefinition",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "Prometheus API",
     "version": "0.1.0"
   },
+  "openapi": "3.1.0",
   "paths": {
-    "/v1/components/search": {
+    "/component-packages/{package_id}": {
       "get": {
-        "summary": "Search Components",
-        "operationId": "search_components_v1_components_search_get",
+        "operationId": "get_package_component_packages__package_id__get",
         "parameters": [
           {
-            "name": "q",
-            "in": "query",
-            "required": false,
+            "in": "path",
+            "name": "package_id",
+            "required": true,
             "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Q"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 1,
-              "title": "Page"
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 20,
-              "title": "Page Size"
+              "title": "Package Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
-          }
-        }
-      }
-    },
-    "/v1/components/{component_id}": {
-      "get": {
-        "summary": "Component Detail",
-        "operationId": "component_detail_v1_components__component_id__get",
-        "parameters": [
-          {
-            "name": "component_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Component Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/components/{component_id}/revisions/{revision_id}": {
-      "get": {
-        "summary": "Get Revision",
-        "operationId": "get_revision_v1_components__component_id__revisions__revision_id__get",
-        "parameters": [
-          {
-            "name": "component_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Component Id"
-            }
-          },
-          {
-            "name": "revision_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Revision Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/research-jobs": {
-      "post": {
-        "summary": "Create Research Job",
-        "operationId": "create_research_job_v1_research_jobs_post",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Idempotency-Key"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResearchCreate"
-              }
-            }
+            },
+            "description": "Validation Error"
           }
         },
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
+        "summary": "Get Package"
       }
     },
-    "/v1/research-jobs/{job_id}": {
-      "get": {
-        "summary": "Get Job",
-        "operationId": "get_job_v1_research_jobs__job_id__get",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/research-jobs/{job_id}/events": {
-      "get": {
-        "summary": "Get Events",
-        "operationId": "get_events_v1_research_jobs__job_id__events_get",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/research-jobs/{job_id}/review": {
+    "/component-packages/{package_id}/confirm": {
       "post": {
-        "summary": "Review",
-        "operationId": "review_v1_research_jobs__job_id__review_post",
+        "operationId": "confirm_package_component_packages__package_id__confirm_post",
         "parameters": [
           {
-            "name": "job_id",
             "in": "path",
+            "name": "package_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Job Id"
+              "title": "Package Id",
+              "type": "string"
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReviewRequest"
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
+        "summary": "Confirm Package"
       }
     },
-    "/v1/research-jobs/{job_id}/publish": {
+    "/component-research": {
       "post": {
-        "summary": "Publish",
-        "operationId": "publish_v1_research_jobs__job_id__publish_post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Idempotency-Key"
-            }
-          }
-        ],
+        "operationId": "research_component_component_research_post",
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
+            },
+            "description": "Successful Response"
           }
-        }
+        },
+        "summary": "Research Component"
       }
     },
     "/health": {
       "get": {
-        "summary": "Health",
         "operationId": "health_health_get",
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           }
-        }
+        },
+        "summary": "Health"
       }
     },
-    "/v1/health": {
+    "/jobs/{job_id}": {
       "get": {
-        "tags": [
-          "service"
+        "operationId": "get_job_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
         ],
-        "summary": "Versioned Health",
-        "operationId": "versioned_health_v1_health_get",
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Get Job"
       }
     },
     "/projects": {
       "get": {
-        "summary": "List Projects",
         "operationId": "list_projects_projects_get",
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           }
-        }
+        },
+        "summary": "List Projects"
       },
       "post": {
-        "summary": "Create Project",
         "operationId": "create_project_projects_post",
         "requestBody": {
           "content": {
@@ -428,85 +503,85 @@
         },
         "responses": {
           "201": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Create Project"
       }
     },
     "/projects/{project_id}": {
       "get": {
-        "summary": "Get Project",
         "operationId": "get_project_projects__project_id__get",
         "parameters": [
           {
-            "name": "project_id",
             "in": "path",
+            "name": "project_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Project Id"
+              "title": "Project Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Get Project"
       }
     },
     "/projects/{project_id}/cad-imports": {
       "post": {
-        "summary": "Import Cad",
         "operationId": "import_cad_projects__project_id__cad_imports_post",
         "parameters": [
           {
-            "name": "project_id",
             "in": "path",
+            "name": "project_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Project Id"
+              "title": "Project Id",
+              "type": "string"
             }
           },
           {
-            "name": "fixture",
             "in": "query",
+            "name": "fixture",
             "required": false,
             "schema": {
-              "type": "boolean",
               "default": true,
-              "title": "Fixture"
+              "title": "Fixture",
+              "type": "boolean"
             }
           }
         ],
@@ -521,35 +596,488 @@
         },
         "responses": {
           "202": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
+            },
+            "description": "Validation Error"
           }
-        }
+        },
+        "summary": "Import Cad"
       }
     },
-    "/component-research": {
+    "/projects/{project_id}/connections": {
       "post": {
-        "summary": "Research Component",
-        "operationId": "research_component_component_research_post",
+        "operationId": "create_connection_projects__project_id__connections_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ResearchRequest"
+                "$ref": "#/components/schemas/ConnectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Connection"
+      }
+    },
+    "/projects/{project_id}/scenarios": {
+      "post": {
+        "operationId": "create_scenario_projects__project_id__scenarios_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Scenario"
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run"
+      }
+    },
+    "/runs/{run_id}/findings": {
+      "get": {
+        "operationId": "get_findings_runs__run_id__findings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Findings"
+      }
+    },
+    "/scenarios/{scenario_id}/compile": {
+      "post": {
+        "operationId": "compile_scenario_scenarios__scenario_id__compile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compile Scenario"
+      }
+    },
+    "/scenarios/{scenario_id}/runs": {
+      "post": {
+        "operationId": "run_checks_scenarios__scenario_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Checks"
+      }
+    },
+    "/v1/component-revisions/{revision_id}/execution-package": {
+      "get": {
+        "operationId": "get_execution_package_v1_component_revisions__revision_id__execution_package_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Execution Package"
+      }
+    },
+    "/v1/components/search": {
+      "get": {
+        "operationId": "search_components_v1_components_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Components"
+      }
+    },
+    "/v1/components/{component_id}": {
+      "get": {
+        "operationId": "component_detail_v1_components__component_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Component Detail"
+      }
+    },
+    "/v1/components/{component_id}/revisions/{revision_id}": {
+      "get": {
+        "operationId": "get_revision_v1_components__component_id__revisions__revision_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Revision"
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "versioned_health_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Versioned Health",
+        "tags": [
+          "service"
+        ]
+      }
+    },
+    "/v1/research-jobs": {
+      "post": {
+        "operationId": "create_research_job_v1_research_jobs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchCreate"
               }
             }
           },
@@ -557,711 +1085,192 @@
         },
         "responses": {
           "202": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
-            }
-          }
-        }
-      }
-    },
-    "/component-packages/{package_id}": {
-      "get": {
-        "summary": "Get Package",
-        "operationId": "get_package_component_packages__package_id__get",
-        "parameters": [
-          {
-            "name": "package_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Package Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/component-packages/{package_id}/confirm": {
-      "post": {
-        "summary": "Confirm Package",
-        "operationId": "confirm_package_component_packages__package_id__confirm_post",
-        "parameters": [
-          {
-            "name": "package_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Package Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/projects/{project_id}/connections": {
-      "post": {
-        "summary": "Create Connection",
-        "operationId": "create_connection_projects__project_id__connections_post",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConnectionCreate"
-              }
-            }
+            },
+            "description": "Validation Error"
           }
         },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
+        "summary": "Create Research Job"
       }
     },
-    "/projects/{project_id}/scenarios": {
-      "post": {
-        "summary": "Create Scenario",
-        "operationId": "create_scenario_projects__project_id__scenarios_post",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScenarioCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/scenarios/{scenario_id}/compile": {
-      "post": {
-        "summary": "Compile Scenario",
-        "operationId": "compile_scenario_scenarios__scenario_id__compile_post",
-        "parameters": [
-          {
-            "name": "scenario_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Scenario Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/scenarios/{scenario_id}/runs": {
-      "post": {
-        "summary": "Run Checks",
-        "operationId": "run_checks_scenarios__scenario_id__runs_post",
-        "parameters": [
-          {
-            "name": "scenario_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Scenario Id"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/runs/{run_id}": {
+    "/v1/research-jobs/{job_id}": {
       "get": {
-        "summary": "Get Run",
-        "operationId": "get_run_runs__run_id__get",
+        "operationId": "get_job_v1_research_jobs__job_id__get",
         "parameters": [
           {
-            "name": "run_id",
             "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Run Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/runs/{run_id}/findings": {
-      "get": {
-        "summary": "Get Findings",
-        "operationId": "get_findings_runs__run_id__findings_get",
-        "parameters": [
-          {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Run Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/jobs/{job_id}": {
-      "get": {
-        "summary": "Get Job",
-        "operationId": "get_job_jobs__job_id__get",
-        "parameters": [
-          {
             "name": "job_id",
-            "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "title": "Job Id"
+              "title": "Job Id",
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
               }
-            }
+            },
+            "description": "Successful Response"
           },
           "422": {
-            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job"
+      }
+    },
+    "/v1/research-jobs/{job_id}/events": {
+      "get": {
+        "operationId": "get_events_v1_research_jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
             }
           }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Body_import_cad_projects__project_id__cad_imports_post": {
-        "properties": {
-          "file": {
-            "anyOf": [
-              {
-                "type": "string",
-                "contentMediaType": "application/octet-stream"
-              },
-              {
-                "type": "null"
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
               }
-            ],
-            "title": "File"
-          }
-        },
-        "type": "object",
-        "title": "Body_import_cad_projects__project_id__cad_imports_post"
-      },
-      "ConnectionCreate": {
-        "properties": {
-          "source_part": {
-            "type": "string",
-            "title": "Source Part"
-          },
-          "target_part": {
-            "type": "string",
-            "title": "Target Part"
-          },
-          "connection_type": {
-            "type": "string",
-            "enum": [
-              "fixed",
-              "revolute",
-              "sliding"
-            ],
-            "title": "Connection Type",
-            "default": "revolute"
-          },
-          "axis": {
-            "items": {
-              "type": "number"
             },
-            "type": "array",
-            "title": "Axis",
-            "default": [
-              0,
-              0,
-              1
-            ]
+            "description": "Successful Response"
           },
-          "limits_deg": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "title": "Limits Deg",
-            "default": [
-              0,
-              90
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "source_part",
-          "target_part"
-        ],
-        "title": "ConnectionCreate"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
-      },
-      "ProjectCreate": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "default": ""
-          },
-          "unit_system": {
-            "type": "string",
-            "enum": [
-              "SI",
-              "US"
-            ],
-            "title": "Unit System",
-            "default": "SI"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "ProjectCreate"
-      },
-      "ResearchCreate": {
-        "properties": {
-          "manufacturer": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Manufacturer"
-          },
-          "part_number": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Part Number"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "manufacturer",
-          "part_number"
-        ],
-        "title": "ResearchCreate"
-      },
-      "ResearchRequest": {
-        "properties": {
-          "manufacturer": {
-            "type": "string",
-            "title": "Manufacturer",
-            "default": "Prometheus Fixture Works"
-          },
-          "part_number": {
-            "type": "string",
-            "title": "Part Number",
-            "default": "PM-36-GM"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          }
-        },
-        "type": "object",
-        "title": "ResearchRequest"
-      },
-      "ReviewDecision": {
-        "properties": {
-          "field_name": {
-            "type": "string",
-            "title": "Field Name"
-          },
-          "status": {
-            "type": "string",
-            "pattern": "^(accepted|rejected)$",
-            "title": "Status"
-          }
-        },
-        "type": "object",
-        "required": [
-          "field_name",
-          "status"
-        ],
-        "title": "ReviewDecision"
-      },
-      "ReviewRequest": {
-        "properties": {
-          "reviewed_by": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Reviewed By"
-          },
-          "decisions": {
-            "items": {
-              "$ref": "#/components/schemas/ReviewDecision"
-            },
-            "type": "array",
-            "title": "Decisions"
-          }
-        },
-        "type": "object",
-        "required": [
-          "reviewed_by",
-          "decisions"
-        ],
-        "title": "ReviewRequest"
-      },
-      "ScenarioCreate": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "default": "Motor arm duty cycle"
-          },
-          "natural_language_description": {
-            "type": "string",
-            "title": "Natural Language Description"
-          },
-          "definition": {
-            "$ref": "#/components/schemas/ScenarioDefinition"
-          }
-        },
-        "type": "object",
-        "required": [
-          "natural_language_description",
-          "definition"
-        ],
-        "title": "ScenarioCreate"
-      },
-      "ScenarioDefinition": {
-        "properties": {
-          "payload_kg": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Payload Kg"
-          },
-          "arm_length_m": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Arm Length M"
-          },
-          "rotation_deg": {
-            "type": "number",
-            "maximum": 360.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Rotation Deg"
-          },
-          "movement_s": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Movement S"
-          },
-          "hold_s": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Hold S"
-          },
-          "cycle_s": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Cycle S"
-          },
-          "ambient_c": {
-            "type": "number",
-            "maximum": 150.0,
-            "minimum": -40.0,
-            "title": "Ambient C"
-          },
-          "safety_factor": {
-            "type": "number",
-            "minimum": 1.0,
-            "title": "Safety Factor",
-            "default": 1.2
-          }
-        },
-        "type": "object",
-        "required": [
-          "payload_kg",
-          "arm_length_m",
-          "rotation_deg",
-          "movement_s",
-          "hold_s",
-          "cycle_s",
-          "ambient_c"
-        ],
-        "title": "ScenarioDefinition"
-      },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              ]
+              }
             },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
+            "description": "Validation Error"
           }
         },
-        "type": "object",
-        "required": [
-          "loc",
-          "msg",
-          "type"
+        "summary": "Get Events"
+      }
+    },
+    "/v1/research-jobs/{job_id}/publish": {
+      "post": {
+        "operationId": "publish_v1_research_jobs__job_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
         ],
-        "title": "ValidationError"
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish"
+      }
+    },
+    "/v1/research-jobs/{job_id}/review": {
+      "post": {
+        "operationId": "review_v1_research_jobs__job_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review"
       }
     }
   }

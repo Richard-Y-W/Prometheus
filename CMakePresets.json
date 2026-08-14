@@ -1,1 +1,318 @@
-{"version":6,"cmakeMinimumRequired":{"major":3,"minor":24,"patch":0},"configurePresets":[{"name":"windows-ucrt-base","hidden":true,"generator":"Ninja","environment":{"PATH":"C:\\msys64\\ucrt64\\bin;$penv{PATH}"},"cacheVariables":{"CMAKE_CXX_COMPILER":"C:/msys64/ucrt64/bin/g++.exe","CMAKE_PREFIX_PATH":"C:/msys64/ucrt64","PROMETHEUS_BUILD_DESKTOP":"ON","PROMETHEUS_ENABLE_OCCT":"ON"}},{"name":"windows-debug","inherits":"windows-ucrt-base","displayName":"Windows UCRT64 Debug","binaryDir":"${sourceDir}/out/build/windows-debug","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug"}},{"name":"headless-debug","displayName":"Headless Core Debug","generator":"Ninja","binaryDir":"${sourceDir}/out/build/headless-debug","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","PROMETHEUS_BUILD_DESKTOP":"OFF","PROMETHEUS_ENABLE_OCCT":"OFF"}},{"name":"windows-release","inherits":"windows-ucrt-base","displayName":"Windows UCRT64 Release","binaryDir":"${sourceDir}/out/build/windows-release","cacheVariables":{"CMAKE_BUILD_TYPE":"Release"}}],"buildPresets":[{"name":"headless-debug","configurePreset":"headless-debug"},{"name":"windows-debug","configurePreset":"windows-debug"},{"name":"windows-release","configurePreset":"windows-release"}],"testPresets":[{"name":"headless-debug","configurePreset":"headless-debug","output":{"outputOnFailure":true}},{"name":"windows-debug","configurePreset":"windows-debug","output":{"outputOnFailure":true}}]}
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-ucrt-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "environment": {
+        "PATH": "C:\\msys64\\ucrt64\\bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "C:/msys64/ucrt64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/msys64/ucrt64/bin/g++.exe",
+        "CMAKE_PREFIX_PATH": "C:/msys64/ucrt64",
+        "PROMETHEUS_BUILD_DESKTOP": "ON",
+        "PROMETHEUS_ENABLE_OCCT": "ON"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "inherits": "windows-ucrt-base",
+      "displayName": "Windows UCRT64 Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "headless-debug",
+      "displayName": "Headless Core Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/headless-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
+        "PROMETHEUS_BUILD_REPLAY": "ON",
+        "PROMETHEUS_ENABLE_OCCT": "OFF"
+      }
+    },
+    {
+      "name": "integrity-debug",
+      "displayName": "Independent Integrity Verifier Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/integrity-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "OFF",
+        "PROMETHEUS_BUILD_RUN_STORE": "OFF",
+        "PROMETHEUS_BUILD_REPLAY": "OFF",
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
+    },
+    {
+      "name": "desktop-no-occt-debug",
+      "displayName": "Desktop Without Open Cascade Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/desktop-no-occt-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PROMETHEUS_BUILD_DESKTOP": "ON",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
+        "PROMETHEUS_BUILD_REPLAY": "ON",
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc-no-occt-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
+    },
+    {
+      "name": "windows-headless-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Headless Core Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-headless-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
+        "PROMETHEUS_BUILD_REPLAY": "ON"
+      }
+    },
+    {
+      "name": "windows-integrity-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Independent Integrity Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-integrity-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "OFF",
+        "PROMETHEUS_BUILD_RUN_STORE": "OFF",
+        "PROMETHEUS_BUILD_REPLAY": "OFF"
+      }
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "inherits": "windows-msvc-no-occt-base",
+      "displayName": "Windows MSVC Desktop Without Open Cascade Debug",
+      "binaryDir": "${sourceDir}/out/build/windows-desktop-no-occt-debug",
+      "cacheVariables": {
+        "PROMETHEUS_BUILD_DESKTOP": "ON",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "ON",
+        "PROMETHEUS_BUILD_RUN_STORE": "ON",
+        "PROMETHEUS_BUILD_REPLAY": "ON"
+      }
+    },
+    {
+      "name": "windows-release",
+      "inherits": "windows-ucrt-base",
+      "displayName": "Windows UCRT64 Release",
+      "binaryDir": "${sourceDir}/out/build/windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "headless-debug",
+      "configurePreset": "headless-debug"
+    },
+    {
+      "name": "integrity-debug",
+      "configurePreset": "integrity-debug"
+    },
+    {
+      "name": "desktop-no-occt-debug",
+      "configurePreset": "desktop-no-occt-debug"
+    },
+    {
+      "name": "headless-boundary-debug",
+      "configurePreset": "headless-debug",
+      "targets": [
+        "prometheus_core",
+        "prometheus_core_tests",
+        "prometheus_project_summary_tests",
+        "prometheus_integrity",
+        "prometheus_integrity_tests",
+        "prometheus_execution",
+        "prometheus_execution_contracts_tests",
+        "prometheus_package_consumer_tests",
+        "prometheus_motor_backend_tests",
+        "prometheus_finding_compiler_tests",
+        "prometheus_execution_tests",
+        "prometheus_run_store",
+        "prometheus_run_store_project_tests",
+        "prometheus_legacy_project_v1_tests",
+        "prometheus_run_store_object_tests",
+        "prometheus_run_store_transaction_tests",
+        "prometheus_replay_support",
+        "prometheus_replay",
+        "prometheus_replay_cli_tests"
+      ]
+    },
+    {
+      "name": "integrity-boundary-debug",
+      "configurePreset": "integrity-debug",
+      "targets": [
+        "prometheus_integrity",
+        "prometheus_integrity_tests"
+      ]
+    },
+    {
+      "name": "desktop-no-occt-boundary-debug",
+      "inherits": "headless-boundary-debug",
+      "configurePreset": "desktop-no-occt-debug",
+      "targets": [
+        "prometheus_core",
+        "prometheus_core_tests",
+        "prometheus_project_summary_tests",
+        "prometheus_integrity",
+        "prometheus_integrity_tests",
+        "prometheus_execution",
+        "prometheus_execution_contracts_tests",
+        "prometheus_package_consumer_tests",
+        "prometheus_motor_backend_tests",
+        "prometheus_finding_compiler_tests",
+        "prometheus_execution_tests",
+        "prometheus_run_store",
+        "prometheus_run_store_project_tests",
+        "prometheus_legacy_project_v1_tests",
+        "prometheus_run_store_object_tests",
+        "prometheus_run_store_transaction_tests",
+        "prometheus_replay_support",
+        "prometheus_replay",
+        "prometheus_replay_cli_tests",
+        "prometheus_desktop_support",
+        "prometheus_desktop",
+        "prometheus_review_payload_tests",
+        "prometheus_exact_package_download_tests",
+        "prometheus_project_controller_tests",
+        "prometheus_execution_controller_tests",
+        "prometheus_qml_authority_tests",
+        "prometheus_cad_controller_no_occt_tests"
+      ]
+    },
+    {
+      "name": "windows-headless-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-integrity-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-headless-boundary-debug",
+      "inherits": "headless-boundary-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-integrity-boundary-debug",
+      "inherits": "integrity-boundary-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-desktop-no-occt-boundary-debug",
+      "inherits": "desktop-no-occt-boundary-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "headless-debug",
+      "configurePreset": "headless-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "integrity-debug",
+      "configurePreset": "integrity-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-no-occt-debug",
+      "configurePreset": "desktop-no-occt-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-headless-debug",
+      "configurePreset": "windows-headless-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-integrity-debug",
+      "configurePreset": "windows-integrity-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-desktop-no-occt-debug",
+      "configurePreset": "windows-desktop-no-occt-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

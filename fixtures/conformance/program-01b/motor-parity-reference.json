@@ -1,0 +1,65 @@
+{
+  "authority": "non_authoritative_parity_only",
+  "component_input": {
+    "continuous_torque_nm": 0.208,
+    "driver_current_limit_a": 4.0,
+    "gear_ratio": 100.0,
+    "gearbox_efficiency_nominal": 0.7,
+    "gearbox_efficiency_range": {
+      "maximum": 0.82,
+      "minimum": 0.55
+    },
+    "maximum_temperature_c": 125.0,
+    "no_load_current_a": 0.18,
+    "no_load_speed_rad_s": 418.879,
+    "stall_torque_nm": 1.92,
+    "torque_constant_nm_a": 0.0749,
+    "winding_resistance_ohm": 1.4,
+    "thermal_resistance_k_w": 3.2,
+    "thermal_capacitance_j_k": 110.0
+  },
+  "excluded_outputs": [
+    {
+      "output": "random_efficiency_percentiles",
+      "reason": "The historical seeded Monte Carlo percentiles are not an authoritative calculation and are deliberately not reproduced."
+    }
+  ],
+  "intentional_differences": [
+    {
+      "authoritative_cpp_method": "Movement current is applied across the whole active interval in the closed-form periodic one-node RC model.",
+      "authoritative_cpp_value": 62.73923846782907,
+      "historical_python_method": "Separate movement and holding currents are integrated in 0.1 second time steps for 120 cycles.",
+      "historical_python_value": 58.423729595943975,
+      "quantity": "estimated_peak_temperature_c",
+      "required_minimum_absolute_difference": 1.0,
+      "unit": "degC"
+    }
+  ],
+  "reference_id": "program-01b.motor-arm.historical-python-v1",
+  "scenario": {
+    "ambient_temperature_c": 35.0,
+    "arm_radius_m": 0.2,
+    "cycle_duration_s": 10.0,
+    "hold_duration_s": 4.0,
+    "move_duration_s": 1.2,
+    "payload_mass_kg": 8.0,
+    "rotation_degrees": 90.0
+  },
+  "schema_version": "1.0.0",
+  "shared_quantities": {
+    "angular_acceleration_rad_s2": 4.363323129985824,
+    "available_move_torque_nm": 0.7199999413330177,
+    "estimated_hold_current_a": 3.172683578104139,
+    "estimated_move_current_a": 3.4389935917595778,
+    "holding_load_torque_nm": 15.69064,
+    "motor_speed_rad_s": 261.79938779914943,
+    "peak_arm_speed_rad_s": 2.6179938779914944,
+    "required_hold_motor_torque_nm": 0.224152,
+    "required_move_motor_torque_nm": 0.24409862002279234
+  },
+  "source": "historical_python_reference",
+  "tolerance_profile": {
+    "absolute_tolerance": 1e-12,
+    "profile_id": "program-01b-parity-v1"
+  }
+}

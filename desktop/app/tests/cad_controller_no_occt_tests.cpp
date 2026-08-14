@@ -1,0 +1,95 @@
+#include "cad_controller.hpp"
+
+#include <prometheus/integrity/canonical_json.hpp>
+
+#include <QCoreApplication>
+#include <QFile>
+#include <QGuiApplication>
+#include <QSignalSpy>
+#include <QTemporaryDir>
+
+#include <cstdlib>
+#include <cstddef>
+#include <string_view>
+
+namespace {
+
+[[noreturn]] void fail(const char* message)
+{
+    qCritical("FAILED: %s", message);
+    std::exit(1);
+}
+
+void require(const bool condition, const char* message)
+{
+    if (!condition) {
+        fail(message);
+    }
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    QGuiApplication application(argc, argv);
+    CadController controller;
+
+    require(
+        !controller.importStep("missing.step"),
+        "sync import must fail when OCCT is disabled");
+    require(
+        controller.error() == "Open Cascade adapter is not enabled",
+        "disabled adapter must be explicit");
+    require(
+        controller.parts().isEmpty(),
+        "disabled adapter must not synthesize geometry");
+    require(!controller.busy(), "disabled sync import must not remain busy");
+
+    QSignalSpy completion(&controller, &CadController::importFinished);
+    controller.importStepAsync("missing.step");
+    QCoreApplication::processEvents();
+
+    require(completion.count() == 1, "disabled async import must complete once");
+    require(
+        !completion.at(0).at(0).toBool(),
+        "disabled async import must report false");
+    require(
+        controller.error() == "Open Cascade adapter is not enabled",
+        "disabled async import must retain the explicit error");
+    require(
+        controller.parts().isEmpty(),
+        "disabled async import must not synthesize geometry");
+    require(!controller.busy(), "disabled async import must terminate");
+
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary directory must be available");
+    const auto cadPath = temporary.filePath("arm.step");
+    const QByteArray cadBytes("stable CAD bytes");
+    QFile cadFile(cadPath);
+    require(cadFile.open(QIODevice::WriteOnly),
+        "CAD hash fixture must open");
+    require(cadFile.write(cadBytes) == cadBytes.size(),
+        "CAD hash fixture must write completely");
+    cadFile.close();
+    const auto expected = QString::fromStdString(
+        prometheus::integrity::sha256_bytes(std::string_view(
+            cadBytes.constData(), static_cast<std::size_t>(cadBytes.size()))));
+    controller.restoreCadState({{"name", "Arm"},
+        {"cad_source", cadPath},
+        {"resolved_cad_source", cadPath},
+        {"assembly_artifact_hash", expected}});
+    require(controller.error() == "Open Cascade adapter is not enabled",
+        "restore must expose the disabled geometry adapter");
+    require(controller.recheckAssemblyArtifact(expected),
+        "matching CAD bytes must verify without OCCT");
+    require(controller.error() == "Open Cascade adapter is not enabled",
+        "successful hashing must not hide an unrelated adapter error");
+    require(!controller.recheckAssemblyArtifact(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+        "mismatched CAD bytes must fail verification");
+    require(controller.recheckAssemblyArtifact(expected),
+        "restored matching bytes must verify again");
+    require(controller.error() == "Open Cascade adapter is not enabled",
+        "successful hashing clears only its own prior mismatch error");
+    return 0;
+}
