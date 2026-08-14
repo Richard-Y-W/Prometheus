@@ -1,6 +1,7 @@
 #include "cad_controller.hpp"
 #include "engineering_controller.hpp"
 #include "execution_controller.hpp"
+#include "project_intake.hpp"
 #include "project_controller.hpp"
 #include "service_controller.hpp"
 
@@ -10,16 +11,20 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QQuickItem>
+#include <QQuickWindow>
 
 #include <algorithm>
 #include <cstdlib>
@@ -115,6 +120,52 @@ private:
   QString loaded_fixture_id_;
 };
 
+class ProjectIntakeProbe final : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString rootPath READ rootPath CONSTANT)
+  Q_PROPERTY(QVariantList artifacts READ artifacts CONSTANT)
+  Q_PROPERTY(int totalCount READ totalCount CONSTANT)
+  Q_PROPERTY(int readyCount READ readyCount CONSTANT)
+  Q_PROPERTY(int notEvaluatedCount READ notEvaluatedCount CONSTANT)
+  Q_PROPERTY(int unsupportedCount READ unsupportedCount CONSTANT)
+  Q_PROPERTY(QString primaryStepPath READ primaryStepPath CONSTANT)
+  Q_PROPERTY(QString status READ status CONSTANT)
+  Q_PROPERTY(QString error READ error CONSTANT)
+  Q_PROPERTY(bool busy READ busy CONSTANT)
+
+public:
+  explicit ProjectIntakeProbe(QString stepPath)
+      : step_path_(std::move(stepPath)) {}
+
+  QString rootPath() const { return QFileInfo(step_path_).absolutePath(); }
+  QVariantList artifacts() const {
+    return {QVariantMap{{"relative_path", "assembly.step"},
+                        {"absolute_path", step_path_},
+                        {"name", "assembly.step"},
+                        {"extension", "step"},
+                        {"byte_size", 128},
+                        {"sha256", "sha256:" + QString(64, 'a')},
+                        {"category", "geometry"},
+                        {"analysis_state", "ready"},
+                        {"detail", "Ready for Open Cascade STEP import"},
+                        {"loadable", true}}};
+  }
+  int totalCount() const { return 1; }
+  int readyCount() const { return 1; }
+  int notEvaluatedCount() const { return 0; }
+  int unsupportedCount() const { return 0; }
+  QString primaryStepPath() const { return step_path_; }
+  QString status() const { return "1 file accounted for"; }
+  QString error() const { return {}; }
+  bool busy() const { return false; }
+
+signals:
+  void changed();
+
+private:
+  QString step_path_;
+};
+
 namespace {
 
 namespace integrity = prometheus::integrity;
@@ -202,6 +253,16 @@ QObject *requiredChild(QObject *root, const char *objectName) {
   return child;
 }
 
+QQuickItem *visualChild(QQuickItem *root, const QString &objectName) {
+  if (root->objectName() == objectName)
+    return root;
+  for (auto *child : root->childItems()) {
+    if (auto *found = visualChild(child, objectName))
+      return found;
+  }
+  return nullptr;
+}
+
 QObject *requiredPropertyChild(QObject *root, const char *propertyName,
                                const QString &expectedValue) {
   const auto children = root->findChildren<QObject *>();
@@ -220,7 +281,7 @@ void verifyAuthorityScan() {
   const std::vector<QString> files{
       uiRoot + "/Main.qml", uiRoot + "/ComponentPackagePanel.qml",
       uiRoot + "/MotorScenarioDialog.qml", uiRoot + "/MotorRunPanel.qml",
-      uiRoot + "/RunHistoryPanel.qml"};
+      uiRoot + "/RunHistoryPanel.qml", uiRoot + "/ProjectInventoryPanel.qml"};
   QString source;
   for (const auto &path : files) {
     QFile file(path);
@@ -385,6 +446,7 @@ void verifyOffscreenWorkflow() {
   ServiceController service;
   EngineeringController geometry;
   ProjectController project(&cad, &geometry);
+  ProjectIntakeController intake;
   ExecutionController execution(&project, &service);
   project.openProject(QUrl::fromLocalFile(projectPath));
   require(project.errorCode().isEmpty(), "QML workflow project opens");
@@ -405,12 +467,14 @@ void verifyOffscreenWorkflow() {
   engine.rootContext()->setContextProperty("serviceController", &service);
   engine.rootContext()->setContextProperty("engineeringController", &geometry);
   engine.rootContext()->setContextProperty("projectController", &project);
+  engine.rootContext()->setContextProperty("projectIntakeController", &intake);
   engine.rootContext()->setContextProperty("executionController", &execution);
   engine.rootContext()->setContextProperty("demoResearch", false);
   engine.rootContext()->setContextProperty("demoEngineering", false);
   engine.rootContext()->setContextProperty("demoCadInspect", false);
   engine.rootContext()->setContextProperty("demoPlacement", false);
   engine.rootContext()->setContextProperty("startupStepPath", QString{});
+  engine.rootContext()->setContextProperty("startupProjectFolder", QUrl{});
   QQmlComponent component(
       &engine,
       QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) + "/Main.qml"));
@@ -587,11 +651,54 @@ void verifyOffscreenWorkflow() {
   verifyPendingSaveAs(motorA);
 }
 
+void verifyProjectInventoryPanel() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "inventory-panel folder exists");
+  const auto stepPath = temporary.filePath("assembly.step");
+  writeBytes(stepPath, "inventory panel STEP bytes");
+  ProjectIntakeProbe intake(stepPath);
+
+  QQmlApplicationEngine engine;
+  QQmlComponent panel(
+      &engine, QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) +
+                                   "/ProjectInventoryPanel.qml"));
+  std::unique_ptr<QObject> root(panel.createWithInitialProperties({
+      {"projectIntakeController", QVariant::fromValue<QObject *>(&intake)},
+      {"width", 980},
+      {"height", 700},
+  }));
+  if (!root) {
+    for (const auto &error : panel.errors())
+      std::cerr << error.toString().toStdString() << '\n';
+  }
+  require(root != nullptr, "project inventory panel instantiates offscreen");
+  QQuickWindow window;
+  window.setGeometry(0, 0, 980, 700);
+  auto *panelItem = qobject_cast<QQuickItem *>(root.get());
+  require(panelItem != nullptr, "inventory panel is a visual item");
+  panelItem->setParentItem(window.contentItem());
+  window.show();
+  require(waitUntil([&window] {
+            return visualChild(window.contentItem(), "loadArtifactButton_0") !=
+                   nullptr;
+          }),
+          "virtualized STEP row is created in the offscreen scene");
+
+  QSignalSpy requested(root.get(), SIGNAL(loadRequested(QString)));
+  auto *load = visualChild(window.contentItem(), "loadArtifactButton_0");
+  require(QMetaObject::invokeMethod(load, "click"),
+          "STEP load action is callable");
+  require(requested.size() == 1 &&
+              requested.front().front().toString() == stepPath,
+          "inventory panel preserves the exact selected STEP path");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   verifyAuthorityScan();
+  verifyProjectInventoryPanel();
   verifyOffscreenWorkflow();
   return 0;
 }

@@ -9,6 +9,7 @@ ApplicationWindow {
   readonly property var serviceApi: serviceController
   readonly property var executionApi: executionController
   readonly property var projectApi: projectController
+  readonly property var intakeApi: projectIntakeController
   readonly property var engineeringApi: engineeringController
   readonly property bool hasSelection:selectedIndex>=0&&selectedIndex<cadController.parts.length
   readonly property var selectedPart:hasSelection?cadController.parts[selectedIndex]:null
@@ -21,15 +22,17 @@ ApplicationWindow {
   function setView(x,y,orthographic) { orbitX=x;orbitY=y;panX=0;panY=0;orthoZoom=1;cameraDistance=Math.max(0.05,cadController.sceneDiameter*2.0);if(orthographic!==undefined)perspectiveMode=!orthographic }
   function nudgeSelection(axis,direction) { if(!hasSelection||cadController.geometryBusy)return;const p=selectedPart;let x=p.translationX,y=p.translationY,z=p.translationZ,rx=p.rotationX,ry=p.rotationY,rz=p.rotationZ;if(transformMode==="move"){const v=transformFrame==="local"?cadController.localAxisDirection(selectedIndex,axis):({x:axis==="X"?1:0,y:axis==="Y"?1:0,z:axis==="Z"?1:0});x+=direction*moveIncrement*v.x;y+=direction*moveIncrement*v.y;z+=direction*moveIncrement*v.z}else if(transformFrame==="local"){const r=cadController.composeLocalRotation(rx,ry,rz,axis,direction*rotateIncrement);rx=r.rx;ry=r.ry;rz=r.rz}else{if(axis==="X")rx+=direction*rotateIncrement;if(axis==="Y")ry+=direction*rotateIncrement;if(axis==="Z")rz+=direction*rotateIncrement}cadController.setPartPlacement(selectedIndex,x,y,z,rx,ry,rz) }
   function snapped(value,step){return Math.round(value/step)*step}
-  Component.onCompleted:{if(startupStepPath!=="")cadController.importStepAsync(startupStepPath);if(demoCadInspect&&cadController.parts.length>1){boundsMode=true;perspectiveMode=false;selectedIndex=1}if(demoPlacement&&cadController.parts.length>2){boundsMode=true;selectedIndex=2;cadController.setPartPlacement(2,0,0.08,0,0,0,30)}if(demoEngineering&&cadController.parts.length>2){engineeringController.defineRevoluteJoint(1,2,"Z",0,90,cadController.parts[1].centerX,cadController.parts[1].centerY,cadController.parts[1].centerZ);cadController.runJointSweepAsync(2,1,engineeringController.joint.pivot_x,engineeringController.joint.pivot_y,engineeringController.joint.pivot_z,"Z",0,90)}}
+  Component.onCompleted:{if(String(startupProjectFolder)!=="")projectIntakeController.scanFolder(startupProjectFolder);else if(startupStepPath!=="")cadController.importStepAsync(startupStepPath);if(demoCadInspect&&cadController.parts.length>1){boundsMode=true;perspectiveMode=false;selectedIndex=1}if(demoPlacement&&cadController.parts.length>2){boundsMode=true;selectedIndex=2;cadController.setPartPlacement(2,0,0.08,0,0,0,30)}if(demoEngineering&&cadController.parts.length>2){engineeringController.defineRevoluteJoint(1,2,"Z",0,90,cadController.parts[1].centerX,cadController.parts[1].centerY,cadController.parts[1].centerZ);cadController.runJointSweepAsync(2,1,engineeringController.joint.pivot_x,engineeringController.joint.pivot_y,engineeringController.joint.pivot_z,"Z",0,90)}}
   header: Column { width: parent.width
     Rectangle { width: parent.width; height: 29; color: "#171b20"; Row { anchors.verticalCenter: parent.verticalCenter; leftPadding: 14; spacing: 24; Repeater { model: ["File","Edit","View","Assembly","Components","Test","Tools","Help"]; Label { text: modelData; color: window.text; font.pixelSize: 12 } } } }
     Rectangle { width: parent.width; height: 52; color: "#242b31"; border.color: line
       RowLayout { anchors.fill: parent; anchors.margins: 7; spacing: 7
         Label { text: "P"; color: "white"; font.bold: true; font.pixelSize: 20; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; background: Rectangle{color:"#d7643d"} Layout.preferredWidth: 34; Layout.fillHeight: true }
         Label { text: "PROMETHEUS"; color: window.text; font.bold: true; Layout.rightMargin: 18 }
-        Button { text: "Import STEP"; onClicked: stepDialog.open(); enabled:!cadController.busy }
-        Button { text: "Open Project"; onClicked:openDialog.open(); enabled:!cadController.busy }
+        Button { text: "Open Folder"; onClicked:folderDialog.open(); enabled:!cadController.busy&&!projectIntakeController.busy }
+        Button { text: "STEP"; onClicked:stepDialog.open(); enabled:!cadController.busy }
+        Button { text: "Project"; onClicked:openDialog.open(); enabled:!cadController.busy }
+        Button { visible:projectIntakeController.rootPath!=="";text:"Files "+projectIntakeController.totalCount;onClicked:inventoryDialog.open() }
         Button { text: projectController.saveAsRequired?"Save As v2":"Save Project"; onClicked:projectController.saveAsRequired?saveDialog.open():projectController.saveCurrentProject(); enabled:(cadController.parts.length>0||projectController.currentProjectPath!=="")&&!cadController.busy }
         Button { text: "Add Component"; enabled:hasSelection;onClicked:{executionController.setPendingCadEntityId(selectedPart.persistentId);serviceController.reset();componentDialog.open()} }
         Button { text: "Motor Analysis"; enabled:projectController.currentProjectPath!==""||cadController.parts.length>0;onClicked:motorWorkflowDialog.open() }
@@ -46,7 +49,7 @@ ApplicationWindow {
         Button { text:"Connections"+(cadController.connections.length>0?" ("+cadController.connections.length+")":"");enabled:cadController.connections.length>0;onClicked:semanticConnectionsDialog.open() }
         Button { text: engineeringController.jointConfigured?"Joint ✓":"Define Joint"; enabled: cadController.parts.length>1;onClicked:jointDialog.open() }
         Item { Layout.fillWidth: true }
-        Button { text: cadController.sweepBusy?"Checking…":"Check Geometry"; highlighted: true;enabled:hasJointParts&&!cadController.sweepBusy&&!cadController.geometryBusy;ToolTip.visible:hovered;ToolTip.text:"Runs static and sampled-sweep geometry checks only. Package-driven motor analysis arrives through the execution workflow.";onClicked:{const source=cadController.parts[engineeringController.joint.source_index];cadController.runJointSweepAsync(engineeringController.joint.target_index,engineeringController.joint.source_index,engineeringController.joint.pivot_x+source.translationX,engineeringController.joint.pivot_y+source.translationY,engineeringController.joint.pivot_z+source.translationZ,engineeringController.joint.axis,engineeringController.joint.minimum_deg,engineeringController.joint.maximum_deg)} }
+        Button { text: cadController.sweepBusy?"Checking…":hasJointParts?"Check Motion":"Screen Results"; highlighted: true;enabled:cadController.parts.length>0&&!cadController.sweepBusy&&!cadController.geometryBusy;ToolTip.visible:hovered;ToolTip.text:hasJointParts?"Runs the reviewed sampled joint sweep and refreshes the mechanical screen.":"Shows evaluated static geometry and questions that remain unknown.";onClicked:{if(hasJointParts){const source=cadController.parts[engineeringController.joint.source_index];cadController.runJointSweepAsync(engineeringController.joint.target_index,engineeringController.joint.source_index,engineeringController.joint.pivot_x+source.translationX,engineeringController.joint.pivot_y+source.translationY,engineeringController.joint.pivot_z+source.translationZ,engineeringController.joint.axis,engineeringController.joint.minimum_deg,engineeringController.joint.maximum_deg)}else{engineeringController.runGeometryChecks(cadController.interferences,[],false,!cadController.collisionDeferred);resultsDialog.open()}} }
       }
     }
   }
@@ -133,6 +136,7 @@ ApplicationWindow {
   }
   footer: Rectangle { height:25;color:"#1a2025";border.color:line;RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10;Label{text:hasSelection?"Selected: "+selectedPart.name:"Selected: none";color:muted;font.pixelSize:11}Label{visible:cadController.warnings.length>0;text:"⚠ "+cadController.warnings.join(" • ");color:"#e0ac62";font.pixelSize:10}Item{Layout.fillWidth:true}Label{text:"Fixture service: "+(serviceController.online?"connected":"offline")+"   •   Units: SI   •   OCCT 7.9.3   •   "+(cadController.busy?"Importing…":"Ready");color:serviceController.online?"#74c89c":muted;font.pixelSize:11}} }
   FileDialog { id:stepDialog; title:"Import STEP assembly"; nameFilters:["STEP assemblies (*.step *.stp)"]; onAccepted:cadController.importStepAsync(selectedFile.toLocalFile()) }
+  FolderDialog { id:folderDialog;title:"Open mechanical project folder";onAccepted:{inventoryDialog.open();projectIntakeController.scanFolder(selectedFolder)} }
   FileDialog { id:saveDialog;title:"Save Prometheus project as version 2";fileMode:FileDialog.SaveFile;nameFilters:["Prometheus project (*.prometheus)"];onAccepted:projectController.saveAsVersion2(selectedFile);onRejected:executionController.cancelPendingSaveAsAction() }
   FileDialog { id:openDialog;title:"Open Prometheus project";fileMode:FileDialog.OpenFile;nameFilters:["Prometheus project (*.prometheus)"];onAccepted:projectController.openProject(selectedFile) }
   Shortcut{sequence:"F";onActivated:fitView()}Shortcut{sequence:"1";onActivated:setView(0,0,true)}Shortcut{sequence:"2";onActivated:setView(-89,0,true)}Shortcut{sequence:"3";onActivated:setView(-24,-38,false)}Shortcut{sequence:"H";onActivated:if(hasSelection)cadController.toggleVisible(selectedIndex)}Shortcut{sequence:"Shift+H";onActivated:cadController.showAll()}Shortcut{sequence:"5";onActivated:perspectiveMode=!perspectiveMode}
@@ -141,12 +145,16 @@ ApplicationWindow {
   Shortcut{sequence:"Shift+Left";onActivated:panX-=cameraDistance*0.03}Shortcut{sequence:"Shift+Right";onActivated:panX+=cameraDistance*0.03}Shortcut{sequence:"Shift+Up";onActivated:panY+=cameraDistance*0.03}Shortcut{sequence:"Shift+Down";onActivated:panY-=cameraDistance*0.03}
   Shortcut{sequence:"Escape";onActivated:{if(viewInput.draggingAxis!==""){cadController.cancelPlacementPreview();viewInput.draggingAxis="";viewInput.dragged=false;viewInput.suppressClick=true;viewInput.transientValue=""}}}
   Rectangle { anchors.fill:parent;color:"#11171dcc";visible:cadController.busy||cadController.sweepBusy||cadController.geometryBusy;z:100;Column{anchors.centerIn:parent;spacing:12;BusyIndicator{running:true;anchors.horizontalCenter:parent.horizontalCenter}Label{text:cadController.sweepBusy?"Sweeping joint range with Open Cascade…":cadController.geometryBusy?"Recomputing exact placement interference…":"Importing STEP assembly…";color:window.text}Button{visible:cadController.busy;text:"Cancel";onClicked:cadController.cancelImport();anchors.horizontalCenter:parent.horizontalCenter}} }
-  Connections { target:cadController;function onImportFinished(success){if(success)setView(-24,-38,false)} }
-  Connections { target:cadController;function onSweepFinished(){engineeringController.runGeometryChecks(cadController.interferences,cadController.sweepResults,true);resultsDialog.open()} }
+  Connections { target:projectIntakeController;function onScanFinished(success){if(success&&projectIntakeController.primaryStepPath!==""){inventoryDialog.close();cadController.importStepAsync(projectIntakeController.primaryStepPath)}} }
+  Connections { target:cadController;function onImportFinished(success){if(success){setView(-24,-38,false);engineeringController.runGeometryChecks(cadController.interferences,[],false,!cadController.collisionDeferred);resultsDialog.open()}} }
+  Connections { target:cadController;function onSweepFinished(){engineeringController.runGeometryChecks(cadController.interferences,cadController.sweepResults,true,!cadController.collisionDeferred);resultsDialog.open()} }
   Connections { target:serviceController;function onChanged(){if(demoResearch&&serviceController.candidate.id!==undefined){selectedIndex=Math.min(1,cadController.parts.length-1);if(hasSelection)executionController.setPendingCadEntityId(selectedPart.persistentId);componentDialog.open()}} }
   Connections { target:executionController;function onChanged(){if(executionController.errorCode==="save_as_required"&&executionController.pendingSaveAsAction!==""&&!saveDialog.visible)saveDialog.open()} }
   Popup { id:componentDialog;anchors.centerIn:Overlay.overlay;width:1040;height:780;modal:true;focus:true;closePolicy:Popup.CloseOnEscape;background:Rectangle{color:"#222a31";border.color:"#53616c";radius:3}
     ComponentPackagePanel { anchors.fill:parent;anchors.margins:20;serviceController:window.serviceApi;executionController:window.executionApi;selectedEntityId:window.executionApi.pendingCadEntityId;selectedEntityName:window.hasSelection&&window.selectedPart.persistentId===window.executionApi.pendingCadEntityId?window.selectedPart.name:"Selected CAD entity";panelColor:panel;lineColor:line;textColor:window.text;mutedColor:muted;onCloseRequested:componentDialog.close() }
+  }
+  Popup { id:inventoryDialog;anchors.centerIn:Overlay.overlay;width:1080;height:760;modal:true;focus:true;closePolicy:Popup.CloseOnEscape;background:Rectangle{color:"#222a31";border.color:"#53616c";radius:3}
+    ProjectInventoryPanel { anchors.fill:parent;anchors.margins:20;projectIntakeController:window.intakeApi;panelColor:panel;lineColor:line;textColor:window.text;mutedColor:muted;onLoadRequested:function(path){inventoryDialog.close();cadController.importStepAsync(path)};onCloseRequested:inventoryDialog.close() }
   }
   Popup { id:motorWorkflowDialog;anchors.centerIn:Overlay.overlay;width:1180;height:760;modal:true;focus:true;closePolicy:Popup.CloseOnEscape;background:Rectangle{color:"#222a31";border.color:"#53616c";radius:3}
     ColumnLayout { anchors.fill:parent;anchors.margins:18;spacing:10
@@ -200,13 +208,46 @@ ApplicationWindow {
       RowLayout{Layout.fillWidth:true;ColumnLayout{Label{text:"Axis";color:muted}ComboBox{id:jointAxis;model:["X","Y","Z"];currentIndex:2}}ColumnLayout{Layout.fillWidth:true;Label{text:"Minimum (deg)";color:muted}TextField{id:jointMin;text:"0";validator:DoubleValidator{}}}ColumnLayout{Layout.fillWidth:true;Label{text:"Maximum (deg)";color:muted}TextField{id:jointMax;text:"90";validator:DoubleValidator{}}}}
       Label{text:"The source-part center is used as the joint pivot. Axis, pivot, and limits are user-confirmed because neutral STEP does not preserve mates.";color:"#e0ac62";wrapMode:Text.WordWrap;Layout.fillWidth:true}Item{Layout.fillHeight:true}RowLayout{Layout.fillWidth:true;Item{Layout.fillWidth:true}Button{text:"Cancel";onClicked:jointDialog.close()}Button{text:"Confirm Joint";highlighted:true;onClicked:{const p=cadController.parts[jointSource.currentIndex];engineeringController.defineRevoluteJoint(jointSource.currentIndex,jointTarget.currentIndex,jointAxis.currentText,Number(jointMin.text),Number(jointMax.text),p.centerX,p.centerY,p.centerZ);jointDialog.close()}}}
     }}
-  Popup{id:resultsDialog;anchors.centerIn:Overlay.overlay;width:900;height:700;modal:true;focus:true;background:Rectangle{color:"#222a31";border.color:"#53616c"}
-    ColumnLayout{anchors.fill:parent;anchors.margins:20;spacing:10;RowLayout{Layout.fillWidth:true;Column{Label{text:"GEOMETRY CHECK RESULTS";color:muted;font.bold:true}Label{text:engineeringController.geometryStatus;color:window.text;font.pixelSize:23}}Item{Layout.fillWidth:true}Button{text:"×";flat:true;onClicked:resultsDialog.close()}}Rectangle{Layout.fillWidth:true;height:1;color:line}
-      Label{text:"GEOMETRY METHODS  •  exact static B-Rep intersections  •  sampled revolute sweep";color:muted;font.pixelSize:11}
-      ListView{Layout.fillWidth:true;Layout.fillHeight:true;clip:true;model:engineeringController.findings;spacing:7;delegate:Rectangle{width:ListView.view.width;height:modelData.estimated_range!==""?118:104;color:"#1b2228";border.color:modelData.status==="fail"?"#b85450":modelData.status==="caution"?"#a57a35":"#365f4b"
-        RowLayout{anchors.fill:parent;anchors.margins:11;spacing:12;Rectangle{width:8;Layout.fillHeight:true;color:modelData.status==="fail"?"#d96862":modelData.status==="caution"?"#d1a650":"#67bf91"}ColumnLayout{Layout.fillWidth:true;spacing:3;RowLayout{Layout.fillWidth:true;Label{text:modelData.status.toUpperCase();color:modelData.status==="fail"?"#e87972":modelData.status==="caution"?"#e0b861":"#70c99a";font.bold:true}Label{text:modelData.title;color:window.text;font.bold:true;font.pixelSize:15}Item{Layout.fillWidth:true}Label{text:(modelData.unit==="m³"?Number(modelData.calculated).toExponential(3):Number(modelData.calculated).toFixed(3))+" "+modelData.unit+((modelData.available||0)!==0?"  /  limit "+Number(modelData.available).toFixed(3):"");color:window.text}}
-          Label{text:modelData.mechanism;color:muted;Layout.fillWidth:true;wrapMode:Text.WordWrap}Label{visible:modelData.estimated_range!=="";text:"Estimated range: "+modelData.estimated_range;color:"#d8b36e";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true}Label{text:"Evidence: "+modelData.evidence;color:"#83b6d5";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true}Label{visible:modelData.assumption!=="";text:"Assumption: "+modelData.assumption;color:"#d8b36e";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true}}
-        }} }
-      RowLayout{Layout.fillWidth:true;Label{text:"Sampled motion clearance is not a continuous-clearance or certification claim.";color:muted}Item{Layout.fillWidth:true}Button{text:"Close";onClicked:resultsDialog.close()}}
-    }}
+  Popup { id:resultsDialog;anchors.centerIn:Overlay.overlay;width:900;height:700;modal:true;focus:true;background:Rectangle{color:"#222a31";border.color:"#53616c"}
+    ColumnLayout { anchors.fill:parent;anchors.margins:20;spacing:10
+      RowLayout { Layout.fillWidth:true
+        Column { Label{text:"MECHANICAL PROJECT SCREEN";color:muted;font.bold:true}Label{text:engineeringController.coverage.status||engineeringController.geometryStatus;color:window.text;font.pixelSize:23} }
+        Item { Layout.fillWidth:true }
+        Label { text:(engineeringController.coverage.evaluated||0)+" evaluated  •  "+(engineeringController.coverage.not_evaluated||0)+" not evaluated";color:"#e0ac62" }
+        Button { text:"×";flat:true;onClicked:resultsDialog.close() }
+      }
+      Rectangle { Layout.fillWidth:true;height:1;color:line }
+      Label { text:"METHODS  •  exact static B-Rep intersections  •  reviewed sampled revolute sweep";color:muted;font.pixelSize:11 }
+      TabBar { id:screenTabs;Layout.fillWidth:true;TabButton{text:"Evaluated ("+engineeringController.findings.length+")"}TabButton{text:"Not evaluated ("+engineeringController.unknowns.length+")"} }
+      StackLayout { Layout.fillWidth:true;Layout.fillHeight:true;currentIndex:screenTabs.currentIndex
+        ListView { clip:true;model:engineeringController.findings;spacing:7
+          delegate:Rectangle { width:ListView.view.width;height:modelData.estimated_range!==""?118:104;color:"#1b2228";border.color:modelData.status==="fail"?"#b85450":modelData.status==="caution"?"#a57a35":"#365f4b"
+            RowLayout { anchors.fill:parent;anchors.margins:11;spacing:12
+              Rectangle { width:8;Layout.fillHeight:true;color:modelData.status==="fail"?"#d96862":modelData.status==="caution"?"#d1a650":"#67bf91" }
+              ColumnLayout { Layout.fillWidth:true;spacing:3
+                RowLayout { Layout.fillWidth:true;Label{text:modelData.status.toUpperCase();color:modelData.status==="fail"?"#e87972":modelData.status==="caution"?"#e0b861":"#70c99a";font.bold:true}Label{text:modelData.title;color:window.text;font.bold:true;font.pixelSize:15}Item{Layout.fillWidth:true}Label{text:(modelData.unit==="m³"?Number(modelData.calculated).toExponential(3):Number(modelData.calculated).toFixed(3))+" "+modelData.unit+((modelData.available||0)!==0?"  /  limit "+Number(modelData.available).toFixed(3):"");color:window.text} }
+                Label { text:modelData.mechanism;color:muted;Layout.fillWidth:true;wrapMode:Text.WordWrap }
+                Label { visible:modelData.estimated_range!=="";text:"Estimated range: "+modelData.estimated_range;color:"#d8b36e";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true }
+                Label { text:"Evidence: "+modelData.evidence;color:"#83b6d5";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true }
+                Label { visible:modelData.assumption!=="";text:"Boundary: "+modelData.assumption;color:"#d8b36e";font.pixelSize:10;elide:Text.ElideRight;Layout.fillWidth:true }
+              }
+            }
+          }
+        }
+        ListView { clip:true;model:engineeringController.unknowns;spacing:7
+          delegate:Rectangle { width:ListView.view.width;height:118;color:"#1b2228";border.color:"#a57a35"
+            RowLayout { anchors.fill:parent;anchors.margins:12;spacing:12
+              Rectangle { width:8;Layout.fillHeight:true;color:"#d1a650" }
+              ColumnLayout { Layout.fillWidth:true;spacing:5
+                RowLayout { Layout.fillWidth:true;Label{text:"NOT EVALUATED";color:"#e0b861";font.bold:true}Label{text:modelData.question;color:window.text;font.bold:true;font.pixelSize:15}Item{Layout.fillWidth:true} }
+                Label { text:modelData.reason;color:muted;wrapMode:Text.WordWrap;Layout.fillWidth:true }
+                Label { text:"To evaluate: "+modelData.unlock;color:"#83b6d5";wrapMode:Text.WordWrap;Layout.fillWidth:true;font.pixelSize:10 }
+              }
+            }
+          }
+        }
+      }
+      RowLayout { Layout.fillWidth:true;Label{text:"Unknowns and deferred checks never become a project-wide pass.";color:muted}Item{Layout.fillWidth:true}Button{text:"Close";onClicked:resultsDialog.close()} }
+    }
+  }
 }

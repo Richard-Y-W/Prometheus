@@ -9,12 +9,14 @@ set_source_files_properties(../ui/ComponentPackagePanel.qml PROPERTIES QT_RESOUR
 set_source_files_properties(../ui/MotorScenarioDialog.qml PROPERTIES QT_RESOURCE_ALIAS MotorScenarioDialog.qml)
 set_source_files_properties(../ui/MotorRunPanel.qml PROPERTIES QT_RESOURCE_ALIAS MotorRunPanel.qml)
 set_source_files_properties(../ui/RunHistoryPanel.qml PROPERTIES QT_RESOURCE_ALIAS RunHistoryPanel.qml)
+set_source_files_properties(../ui/ProjectInventoryPanel.qml PROPERTIES QT_RESOURCE_ALIAS ProjectInventoryPanel.qml)
 qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES
   ../ui/Main.qml
   ../ui/ComponentPackagePanel.qml
   ../ui/MotorScenarioDialog.qml
   ../ui/MotorRunPanel.qml
   ../ui/RunHistoryPanel.qml
+  ../ui/ProjectInventoryPanel.qml
 )
 target_link_libraries(prometheus_desktop PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Quick3D Qt6::Concurrent prometheus_core prometheus_desktop_support)
 if(TARGET prometheus_cad)
@@ -137,6 +139,7 @@ if(BUILD_TESTING)
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Quick3D
+    Qt6::Test
     prometheus_desktop_support
   )
   add_test(
