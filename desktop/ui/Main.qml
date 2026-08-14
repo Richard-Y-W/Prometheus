@@ -29,11 +29,16 @@ ApplicationWindow {
       RowLayout { anchors.fill: parent; anchors.margins: 7; spacing: 7
         Label { text: "P"; color: "white"; font.bold: true; font.pixelSize: 20; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; background: Rectangle{color:"#d7643d"} Layout.preferredWidth: 34; Layout.fillHeight: true }
         Label { text: "PROMETHEUS"; color: window.text; font.bold: true; Layout.rightMargin: 18 }
-        Button { text: "Open Folder"; onClicked:folderDialog.open(); enabled:!cadController.busy&&!projectIntakeController.busy }
-        Button { text: "STEP"; onClicked:stepDialog.open(); enabled:!cadController.busy }
-        Button { text: "Project"; onClicked:openDialog.open(); enabled:!cadController.busy }
-        Button { visible:projectIntakeController.rootPath!=="";text:"Files "+projectIntakeController.totalCount;onClicked:inventoryDialog.open() }
+        Button { objectName:"openFolderButton";text:"Open Folder";onClicked:folderDialog.open();enabled:!cadController.busy&&!projectIntakeController.busy }
+        Button { objectName:"fileActionsButton";text:"File Actions ▾";onClicked:fileActionsMenu.open()
+          Menu { id:fileActionsMenu;y:parent.height
+            MenuItem { text:"Import individual STEP…";enabled:!cadController.busy;onTriggered:stepDialog.open() }
+            MenuItem { text:"Open Prometheus project…";enabled:!cadController.busy;onTriggered:openDialog.open() }
+            MenuItem { text:projectIntakeController.rootPath===""?"Project inventory unavailable":"Project inventory ("+projectIntakeController.totalCount+")";enabled:projectIntakeController.rootPath!=="";onTriggered:inventoryDialog.open() }
+          }
+        }
         Button { text: projectController.saveAsRequired?"Save As v2":"Save Project"; onClicked:projectController.saveAsRequired?saveDialog.open():projectController.saveCurrentProject(); enabled:(cadController.parts.length>0||projectController.currentProjectPath!=="")&&!cadController.busy }
+        Button { objectName:"screenResultsButton";text:cadController.sweepBusy?"Checking…":hasJointParts?"Check Motion":"Screen Results";highlighted:true;enabled:cadController.parts.length>0&&!cadController.sweepBusy&&!cadController.geometryBusy;ToolTip.visible:hovered;ToolTip.text:hasJointParts?"Runs the reviewed sampled joint sweep and refreshes the mechanical screen.":"Shows evaluated static geometry and questions that remain unknown.";onClicked:{if(hasJointParts){const source=cadController.parts[engineeringController.joint.source_index];cadController.runJointSweepAsync(engineeringController.joint.target_index,engineeringController.joint.source_index,engineeringController.joint.pivot_x+source.translationX,engineeringController.joint.pivot_y+source.translationY,engineeringController.joint.pivot_z+source.translationZ,engineeringController.joint.axis,engineeringController.joint.minimum_deg,engineeringController.joint.maximum_deg)}else{engineeringController.runGeometryChecks(cadController.interferences,[],false,!cadController.collisionDeferred);resultsDialog.open()}} }
         Button { text: "Add Component"; enabled:hasSelection;onClicked:{executionController.setPendingCadEntityId(selectedPart.persistentId);serviceController.reset();componentDialog.open()} }
         Button { text: "Motor Analysis"; enabled:projectController.currentProjectPath!==""||cadController.parts.length>0;onClicked:motorWorkflowDialog.open() }
         Button { text:"Transform";enabled:hasSelection&&!cadController.geometryBusy;onClicked:{const p=selectedPart;moveX.text=String(p.translationX);moveY.text=String(p.translationY);moveZ.text=String(p.translationZ);rotateX.text=String(p.rotationX);rotateY.text=String(p.rotationY);rotateZ.text=String(p.rotationZ);moveDialog.open()} }
@@ -49,7 +54,6 @@ ApplicationWindow {
         Button { text:"Connections"+(cadController.connections.length>0?" ("+cadController.connections.length+")":"");enabled:cadController.connections.length>0;onClicked:semanticConnectionsDialog.open() }
         Button { text: engineeringController.jointConfigured?"Joint ✓":"Define Joint"; enabled: cadController.parts.length>1;onClicked:jointDialog.open() }
         Item { Layout.fillWidth: true }
-        Button { text: cadController.sweepBusy?"Checking…":hasJointParts?"Check Motion":"Screen Results"; highlighted: true;enabled:cadController.parts.length>0&&!cadController.sweepBusy&&!cadController.geometryBusy;ToolTip.visible:hovered;ToolTip.text:hasJointParts?"Runs the reviewed sampled joint sweep and refreshes the mechanical screen.":"Shows evaluated static geometry and questions that remain unknown.";onClicked:{if(hasJointParts){const source=cadController.parts[engineeringController.joint.source_index];cadController.runJointSweepAsync(engineeringController.joint.target_index,engineeringController.joint.source_index,engineeringController.joint.pivot_x+source.translationX,engineeringController.joint.pivot_y+source.translationY,engineeringController.joint.pivot_z+source.translationZ,engineeringController.joint.axis,engineeringController.joint.minimum_deg,engineeringController.joint.maximum_deg)}else{engineeringController.runGeometryChecks(cadController.interferences,[],false,!cadController.collisionDeferred);resultsDialog.open()}} }
       }
     }
   }

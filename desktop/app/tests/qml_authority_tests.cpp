@@ -487,6 +487,14 @@ void verifyOffscreenWorkflow() {
   require(root != nullptr, "production QML module instantiates offscreen");
   root->setProperty("visible", false);
   QCoreApplication::processEvents();
+  auto *fileActions = requiredChild(root.get(), "fileActionsButton");
+  auto *screenResults = requiredChild(root.get(), "screenResultsButton");
+  require(fileActions->property("visible").toBool(),
+          "secondary file actions remain reachable from the toolbar");
+  require(screenResults->property("x").toDouble() +
+                  screenResults->property("width").toDouble() <=
+              root->property("width").toDouble(),
+          "mechanical screen action remains inside the default window");
 
   FixtureCatalogProbe fixtureCatalog;
   QQmlComponent packagePanel(
