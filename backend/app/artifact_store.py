@@ -212,6 +212,20 @@ def ingest_local_artifact(
     if stage_callback is not None:
         stage_callback("after_path_validation")
 
+    try:
+        pre_open_metadata = source.lstat()
+    except FileNotFoundError as exc:
+        _error("artifact_missing", "artifact disappeared before it could be opened", exc)
+    except OSError as exc:
+        _error("artifact_unreadable", "artifact source cannot be inspected", exc)
+    if stat.S_ISLNK(pre_open_metadata.st_mode):
+        _error("artifact_symlink", "artifact became a symlink before open")
+    _require_unchanged(
+        _identity(path_metadata),
+        pre_open_metadata,
+        message="artifact changed between validation and descriptor open",
+    )
+
     descriptor = _open_read_only(source)
     try:
         try:
