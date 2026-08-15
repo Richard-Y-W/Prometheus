@@ -6,6 +6,7 @@
 #include <BRepGProp.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
+#include <DE_ShapeFixParameters.hxx>
 #include <GProp_GProps.hxx>
 #include <Poly_Triangulation.hxx>
 #include <STEPCAFControl_Reader.hxx>
@@ -29,6 +30,17 @@
 #include <stdexcept>
 
 namespace prometheus::cad { namespace {
+void configure_reader(STEPCAFControl_Reader& reader) {
+  DE_ShapeFixParameters parameters;
+  parameters.FixSolidMode = DE_ShapeFixParameters::FixMode::NotFix;
+  reader.ChangeReader().SetShapeFixParameters(parameters);
+  reader.ChangeReader().SetShapeProcessFlags(ShapeProcess::OperationsFlags{});
+}
+bool read_file_without_automatic_healing(STEPCAFControl_Reader& reader,const std::filesystem::path& path) {
+  if(reader.ReadFile(path.string().c_str()) != IFSelect_RetDone) return false;
+  configure_reader(reader);
+  return true;
+}
 struct LeafShape { std::string id;TopoDS_Shape shape;Bnd_Box bounds; };
 void apply_placements(std::vector<LeafShape>& leaves,const std::vector<PartPlacement>& placements){constexpr double pi=3.14159265358979323846;for(auto& leaf:leaves){const auto placement=std::find_if(placements.begin(),placements.end(),[&](const auto& value){return value.persistent_id==leaf.id;});if(placement==placements.end())continue;Standard_Real x1,y1,z1,x2,y2,z2;leaf.bounds.Get(x1,y1,z1,x2,y2,z2);const gp_Pnt center((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);for(const auto [angle,axis]:{std::pair{placement->rotation_x_deg,gp_Dir(1,0,0)},std::pair{placement->rotation_y_deg,gp_Dir(0,1,0)},std::pair{placement->rotation_z_deg,gp_Dir(0,0,1)}}){if(angle==0)continue;gp_Trsf rotation;rotation.SetRotation(gp_Ax1(center,axis),angle*pi/180.0);leaf.shape=BRepBuilderAPI_Transform(leaf.shape,rotation,true).Shape();}gp_Trsf translation;translation.SetTranslation(gp_Vec(placement->translation_x_m*1000,placement->translation_y_m*1000,placement->translation_z_m*1000));leaf.shape=BRepBuilderAPI_Transform(leaf.shape,translation,true).Shape();leaf.bounds.SetVoid();BRepBndLib::Add(leaf.shape,leaf.bounds);}}
 std::string label_id(const TDF_Label& label) { TCollection_AsciiString id; TDF_Tool::Entry(label,id); return id.ToCString(); }
@@ -81,22 +93,23 @@ AssemblyNode read_node(const TDF_Label& label,const Handle(XCAFDoc_ShapeTool)& t
 StepImportResult StepImporter::import_file(const std::filesystem::path& path,double deflection,bool compute_interferences) const {
   if(path.extension() != ".step" && path.extension() != ".stp" && path.extension() != ".STEP" && path.extension() != ".STP") throw std::invalid_argument("only STEP files are supported");
   STEPCAFControl_Reader reader; reader.SetNameMode(true); reader.SetColorMode(true); reader.SetLayerMode(true);
-  if(reader.ReadFile(path.string().c_str()) != IFSelect_RetDone) throw std::runtime_error("STEP parser rejected the file");
+  if(!read_file_without_automatic_healing(reader,path)) throw std::runtime_error("STEP parser rejected the file");
   Handle(TDocStd_Document) doc; XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc); if(!reader.Transfer(doc)) throw std::runtime_error("STEP transfer failed");
   const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main()); TDF_LabelSequence roots; tool->GetFreeShapes(roots); StepImportResult result; result.source_name=path.filename().string();
   std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i) result.roots.push_back(read_node(roots.Value(i),tool,deflection,leaves));
   if(compute_interferences)for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.interferences.push_back({leaves[i].id,leaves[j].id,volume});}
   else result.warnings.push_back("Static interference was deferred for this large assembly");
+  result.warnings.push_back("Automatic STEP shape healing was disabled; imported topology is preserved without repair");
   if(result.roots.empty()) result.warnings.push_back("No free shapes were found in the STEP document"); return result;
 }
 
 std::vector<StaticInterference> StepImporter::static_interferences(const std::filesystem::path& path,const std::vector<PartPlacement>& placements)const{
-  STEPCAFControl_Reader reader;reader.SetNameMode(true);if(reader.ReadFile(path.string().c_str())!=IFSelect_RetDone)throw std::runtime_error("STEP parser rejected the file");Handle(TDocStd_Document) doc;XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc);if(!reader.Transfer(doc))throw std::runtime_error("STEP transfer failed");const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());TDF_LabelSequence roots;tool->GetFreeShapes(roots);std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i)(void)read_node(roots.Value(i),tool,0.0005,leaves);apply_placements(leaves,placements);std::vector<StaticInterference> result;for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.push_back({leaves[i].id,leaves[j].id,volume});}return result;
+  STEPCAFControl_Reader reader;reader.SetNameMode(true);if(!read_file_without_automatic_healing(reader,path))throw std::runtime_error("STEP parser rejected the file");Handle(TDocStd_Document) doc;XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc);if(!reader.Transfer(doc))throw std::runtime_error("STEP transfer failed");const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());TDF_LabelSequence roots;tool->GetFreeShapes(roots);std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i)(void)read_node(roots.Value(i),tool,0.0005,leaves);apply_placements(leaves,placements);std::vector<StaticInterference> result;for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.push_back({leaves[i].id,leaves[j].id,volume});}return result;
 }
 
 std::vector<SweepInterference> StepImporter::sweep_revolute(const std::filesystem::path& path,const std::string& moving_id,const std::string& excluded_id,const std::array<double,3>& pivot_m,const std::array<double,3>& axis,double minimum_deg,double maximum_deg,int samples,const std::vector<PartPlacement>& placements)const{
   if(samples<2||maximum_deg<minimum_deg)throw std::invalid_argument("invalid joint sweep range");
-  STEPCAFControl_Reader reader;reader.SetNameMode(true);if(reader.ReadFile(path.string().c_str())!=IFSelect_RetDone)throw std::runtime_error("STEP parser rejected the file");Handle(TDocStd_Document) doc;XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc);if(!reader.Transfer(doc))throw std::runtime_error("STEP transfer failed");const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());TDF_LabelSequence roots;tool->GetFreeShapes(roots);std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i)(void)read_node(roots.Value(i),tool,0.0005,leaves);apply_placements(leaves,placements);
+  STEPCAFControl_Reader reader;reader.SetNameMode(true);if(!read_file_without_automatic_healing(reader,path))throw std::runtime_error("STEP parser rejected the file");Handle(TDocStd_Document) doc;XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc);if(!reader.Transfer(doc))throw std::runtime_error("STEP transfer failed");const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());TDF_LabelSequence roots;tool->GetFreeShapes(roots);std::vector<LeafShape> leaves;for(Standard_Integer i=1;i<=roots.Length();++i)(void)read_node(roots.Value(i),tool,0.0005,leaves);apply_placements(leaves,placements);
   const auto moving=std::find_if(leaves.begin(),leaves.end(),[&](const auto& leaf){return leaf.id==moving_id;});if(moving==leaves.end())throw std::invalid_argument("moving joint entity not found");const gp_Dir direction(axis[0],axis[1],axis[2]);const gp_Ax1 rotation_axis(gp_Pnt(pivot_m[0]*1000,pivot_m[1]*1000,pivot_m[2]*1000),direction);std::map<std::string,SweepInterference> hits;constexpr double pi=3.14159265358979323846;
   for(int sample=0;sample<samples;++sample){const double angle=minimum_deg+(maximum_deg-minimum_deg)*sample/(samples-1.0);gp_Trsf rotation;rotation.SetRotation(rotation_axis,angle*pi/180.0);const auto moved=BRepBuilderAPI_Transform(moving->shape,rotation,true).Shape();Bnd_Box moved_bounds;BRepBndLib::Add(moved,moved_bounds);for(const auto& other:leaves){if(other.id==moving_id||other.id==excluded_id||moved_bounds.IsOut(other.bounds))continue;BRepAlgoAPI_Common common(moved,other.shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume<=1e-12)continue;auto [it,inserted]=hits.try_emplace(other.id,SweepInterference{moving_id,other.id,angle,volume,samples});if(!inserted)it->second.maximum_volume_m3=std::max(it->second.maximum_volume_m3,volume);}}
   std::vector<SweepInterference> result;for(auto& [id,hit]:hits)result.push_back(std::move(hit));return result;
