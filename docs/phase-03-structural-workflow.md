@@ -108,10 +108,30 @@ For the exact local YUBI bracket mesh recorded above, the enhanced probe reports
 is mesh topology evidence only. Prometheus has not inferred bolt faces, load
 faces, restraint faces, material, or a structural scenario from those faces.
 
+## Checkpoint 4: selectable patches and durable boundary selections
+
+Exterior triangles can now be grouped into deterministic connected visual
+patches using an explicit maximum neighboring-normal angle. The exact bracket
+produces 437 patches at 5 degrees, 291 at 10 degrees, 263 at 15 degrees, 247 at
+20 degrees, and 127 at 30 degrees. This sensitivity is intentional evidence
+that patch IDs are transient selection aids rather than durable engineering
+identities.
+
+When the user reviews a selection, Prometheus resolves patch IDs into sorted
+exact face-node triples, sorted node IDs, and total SI area. Duplicate,
+overlapping, missing, or invalid patches fail closed. A reviewed total surface
+force can be converted into consistent first-order triangular nodal forces;
+the exact selected topology and total force remain the authoritative inputs.
+The conversion is deterministic and tests require the resulting nodal vectors
+to sum to the reviewed total vector.
+
+No patch is automatically classified as a fastener, contact, load, or
+restraint surface. Those meanings still require explicit review.
+
 ## Next checkpoint
 
-1. Present the extracted boundary in selectable face groups for human
-   restraint/load review, retaining the exact selected face and node IDs.
+1. Present the selectable patches in the desktop and retain reviewed load and
+   restraint selections as exact face/node identities.
 2. Obtain reviewed elastic properties for the exact A2024 applicability state.
 3. Define one bounded load and requirement without inferring them from bolt
    torque or servo identity.

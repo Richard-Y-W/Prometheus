@@ -2,6 +2,8 @@
 #include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
+#include "prometheus/structural/surface_groups.hpp"
+#include "prometheus/structural/surface_selection.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -156,6 +158,45 @@ int main() {
   }
   require(std::abs(boundaryArea - (0.00015 + std::sqrt(3.0) * 0.00005)) < 1e-12,
           "boundary face areas are reported in square metres");
+  require(ps::group_boundary_faces(boundary, 1.0).size() == 4,
+          "sharp tetrahedron faces remain separate selectable patches");
+
+  const std::vector<ps::BoundaryFace> flatFaces{
+      {1, {1, 2, 3}, {2.0 / 3.0, 1.0 / 3.0, 0.0}, {0.0, 0.0, 1.0}, 0.5},
+      {2, {2, 4, 3}, {1.0 / 3.0, 2.0 / 3.0, 0.0}, {0.0, 0.0, 1.0}, 0.5}};
+  const auto flatPatches = ps::group_boundary_faces(flatFaces, 0.0);
+  require(flatPatches.size() == 1 && flatPatches.front().id == 1 &&
+              flatPatches.front().face_node_ids.size() == 2 &&
+              flatPatches.front().node_ids == std::vector<int>({1, 2, 3, 4}) &&
+              std::abs(flatPatches.front().area_m2 - 1.0) < 1e-15 &&
+              std::abs(flatPatches.front().area_weighted_centroid_m[0] - 0.5) < 1e-15,
+          "adjacent coplanar triangles form one deterministic SI surface patch");
+  const auto selected = ps::resolve_boundary_selection(
+      "reviewed load face", flatPatches, {flatPatches.front().id});
+  require(selected.face_node_ids.size() == 2 && selected.node_ids.size() == 4 &&
+              std::abs(selected.area_m2 - 1.0) < 1e-15,
+          "visual patches resolve into durable exact boundary topology");
+  const auto distributed = ps::distribute_surface_total_force(
+      selected, {0.0, 0.0, -120.0}, flatFaces);
+  std::array<double, 3> distributedSum{};
+  for (const auto &nodal : distributed)
+    for (int axis = 0; axis < 3; ++axis)
+      distributedSum[axis] += nodal.force_n[axis];
+  require(distributed.size() == 4 && std::abs(distributedSum[2] + 120.0) < 1e-12 &&
+              std::abs(distributed[0].force_n[2] + 20.0) < 1e-12 &&
+              std::abs(distributed[1].force_n[2] + 40.0) < 1e-12,
+          "surface force distribution preserves the reviewed total vector");
+  try {
+    (void)ps::resolve_boundary_selection("reviewed load face", flatPatches,
+                                         {1, 1});
+    fail("duplicate visual patch selection was accepted");
+  } catch (const std::invalid_argument &) {
+  }
+  try {
+    (void)ps::group_boundary_faces(flatFaces, -1.0);
+    fail("invalid surface grouping angle was accepted");
+  } catch (const std::invalid_argument &) {
+  }
 
   auto paired = mesh;
   paired.nodes.push_back({5, {0.0, 0.0, -0.01}});
