@@ -39,6 +39,25 @@ ps::StructuralRequest validRequest() {
       .restraints_reviewed = true,
       .requirements_reviewed = true,
       .scenario_confirmed = true,
+      .material_designation = "A2024",
+      .material_temper = "T351",
+      .material_product_form = "plate",
+      .material_applicability = "assumed",
+      .material_evidence_sha256 =
+          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      .mesh_sha256 =
+          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      .restraint_surface_groups = {"SurfaceFixed"},
+      .load_surface_groups = {"SurfaceLoad"},
+      .reviewed_force_magnitude_n = 100.0,
+      .reviewed_force_direction = {0.0, 0.0, -1.0},
+      .selected_load_area_m2 = 0.01,
+      .mesh_target_size_m = 0.002,
+      .minimum_mean_ratio_threshold = 0.05,
+      .observed_minimum_mean_ratio = 0.75,
+      .displacement_limit_basis = "reviewed test displacement requirement",
+      .von_mises_limit_basis = "reviewed test stress requirement",
+      .mesh_reviewed = true,
   };
 }
 
@@ -84,6 +103,61 @@ int main() {
   missingNode.nodal_forces.front().node_id = 99;
   require(hasIssue(ps::validate_request(missingNode), "load_node_missing"),
           "load on missing mesh node stays blocked");
+
+  auto zeroForce = request;
+  zeroForce.nodal_forces = {{4, {0.0, 0.0, 0.0}}};
+  zeroForce.reviewed_force_magnitude_n = 0.0;
+  require(hasIssue(ps::validate_request(zeroForce), "zero_resultant_load"),
+          "an all-zero load stays blocked");
+
+  auto duplicateForce = request;
+  duplicateForce.nodal_forces.push_back({4, {1.0, 0.0, 0.0}});
+  require(hasIssue(ps::validate_request(duplicateForce), "duplicate_load_node"),
+          "duplicate nodal forces stay blocked");
+
+  auto malformedHash = request;
+  malformedHash.geometry_sha256 =
+      "sha256:4A6FBA05B237B725BE2CA4E5BA7F7617674B4BCAE4164FF32E88D9E75275017A";
+  require(hasIssue(ps::validate_request(malformedHash),
+                   "invalid_geometry_identity"),
+          "uppercase SHA-256 stays blocked");
+
+  auto injectedHeading = request;
+  injectedHeading.component_name = "bracket\n*INCLUDE, INPUT=other.inp";
+  require(hasIssue(ps::validate_request(injectedHeading),
+                   "unsafe_heading_text"),
+          "CalculiX keyword injection stays blocked");
+
+  auto unknownMaterial = request;
+  unknownMaterial.material_applicability = "unresolved";
+  require(hasIssue(ps::validate_request(unknownMaterial),
+                   "material_applicability_unresolved"),
+          "an unresolved material cannot become reviewed");
+
+  auto weakMesh = request;
+  weakMesh.observed_minimum_mean_ratio = 0.09;
+  weakMesh.minimum_mean_ratio_threshold = 0.10;
+  require(hasIssue(ps::validate_request(weakMesh),
+                   "mesh_quality_below_limit"),
+          "a mesh below its predeclared quality floor stays blocked");
+
+  auto mismatchedResultant = request;
+  mismatchedResultant.reviewed_force_magnitude_n = 101.0;
+  require(hasIssue(ps::validate_request(mismatchedResultant),
+                   "compiled_load_mismatch"),
+          "compiled nodal forces must reproduce the reviewed force");
+
+  auto nonunitDirection = request;
+  nonunitDirection.reviewed_force_direction = {0.0, 0.0, -2.0};
+  require(hasIssue(ps::validate_request(nonunitDirection),
+                   "invalid_reviewed_force_direction"),
+          "reviewed force direction must already be normalized");
+
+  auto unsafeBasis = request;
+  unsafeBasis.displacement_limit_basis.clear();
+  require(hasIssue(ps::validate_request(unsafeBasis),
+                   "missing_displacement_limit_basis"),
+          "a displacement limit without a basis stays blocked");
 
   auto zeroVolume = request;
   zeroVolume.nodes.front().position_m = {1.0, 1.0, 0.0};
