@@ -240,12 +240,32 @@ findings, preventing stale results from surviving a changed scenario. The
 panel exposes no project-wide pass and repeats that a scoped non-violation is
 not safety or real-scenario validation.
 
+## Checkpoint 11: exact structural archive and offline replay
+
+Every completed desktop run now writes a canonical structural archive alongside
+the raw solver files. It preserves the complete reviewed setup, generated input
+deck, `.dat`, `.frd`, and `.sta` output, captured standard streams, exact byte
+lengths and SHA-256 identities, parsed metrics, declared limits, finding
+coverage, and scoped findings. The reviewed setup retains exact load and
+restraint face/node identities rather than only their labels.
+
+The standalone `prometheus_replay_structural_run` verifier needs neither Qt nor
+CalculiX. It rejects non-canonical manifests, unsafe artifact paths, missing or
+changed bytes, setup/archive identity mismatches, metrics that cannot be
+reproduced from the raw DAT file, and findings that cannot be recompiled from
+those metrics and archived limits. The desktop controller test proves a valid
+archive replays and that changing the retained DAT bytes invalidates it.
+
+This is local self-consistency evidence. Until Phase 4 commits the archive
+manifest hash into a Prometheus project transaction, someone with write access
+to the whole run directory could replace both artifacts and manifest. It is not
+a signature, certification record, or validation of the real bracket scenario.
+
 ## Next checkpoint
 
-1. Present the selectable patches in the desktop and retain reviewed load and
-   restraint selections as exact face/node identities.
-2. Obtain reviewed elastic properties for the exact A2024 applicability state.
-3. Define one bounded load and requirement without inferring them from bolt
-   torque or servo identity.
-4. Execute known-pass and known-fail cases, a refinement comparison, and an
-   independent analytic benchmark before evaluating the real bracket.
+1. Parse and present spatial displacement and stress fields, including the
+   locations of extrema, instead of showing only scalar maxima.
+2. Visualize the bounded result on the reviewed component without implying a
+   project-wide pass or continuous-motion proof.
+3. Commit the reviewed setup and verified run archive through the Phase 4
+   content-addressed project store.

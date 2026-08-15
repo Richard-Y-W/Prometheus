@@ -1,6 +1,8 @@
 #include "structural_controller.hpp"
+#include "prometheus/structural/structural_archive.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QEventLoop>
 #include <QTemporaryDir>
@@ -8,6 +10,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <filesystem>
 
 namespace {
 
@@ -90,8 +93,22 @@ int main(int argc, char **argv) {
               controller.lastRun().value("status") == "completed" &&
               controller.lastRun().value("evaluated_obligations").toInt() == 2 &&
               controller.findings().size() == 2 &&
-              !controller.lastRun().value("output_directory").toString().isEmpty(),
-          "desktop executes asynchronously and exposes scoped structural findings");
+              controller.lastRun().value("archived").toBool() &&
+              !controller.lastRun().value("archive_manifest").toString().isEmpty(),
+          "desktop executes asynchronously, archives, and exposes scoped findings");
+  const auto archivePath = controller.lastRun().value("archive_manifest").toString();
+  const auto verified = prometheus::structural::verify_structural_archive(
+      std::filesystem::path(archivePath.toStdWString()));
+  require(verified.valid && verified.evaluated_obligations == 2,
+          "offline archive verification replays exact raw DAT metrics");
+  QFile changed(QDir(controller.lastRun().value("output_directory").toString())
+                    .filePath("prometheus_structural_run.dat"));
+  require(changed.open(QIODevice::Append), "archived DAT opens for corruption test");
+  changed.write("changed\n");
+  changed.close();
+  require(!prometheus::structural::verify_structural_archive(
+               std::filesystem::path(archivePath.toStdWString())).valid,
+          "changed raw solver output invalidates offline archive verification");
   auto blocked = reviewedDraft();
   blocked["material_reviewed"] = false;
   controller.reviewSetup(blocked);

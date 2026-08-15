@@ -10,6 +10,7 @@
 #include <QVariantMap>
 
 #include <optional>
+#include <string>
 
 class StructuralController final : public QObject {
   Q_OBJECT
@@ -69,6 +70,7 @@ private:
   QVariantMap last_run_;
   QVariantList findings_;
   std::optional<prometheus::structural::StructuralRequest> compiled_request_;
+  std::string compiled_setup_evidence_;
   prometheus::structural::VolumeMesh mesh_;
   std::vector<prometheus::structural::BoundaryFace> boundary_;
   std::vector<prometheus::structural::SurfacePatch> patches_;

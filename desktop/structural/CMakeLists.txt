@@ -7,6 +7,7 @@ add_library(prometheus_structural STATIC
   src/surface_selection.cpp
   src/structural_request.cpp
   src/structural_findings.cpp
+  src/structural_archive.cpp
   src/structural_benchmarks.cpp
   src/structural_setup.cpp
 )
@@ -18,7 +19,10 @@ endif()
 target_compile_features(prometheus_structural PUBLIC cxx_std_20)
 target_include_directories(prometheus_structural PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
 )
+target_link_libraries(prometheus_structural PUBLIC prometheus_integrity)
 if(MSVC)
   target_compile_options(prometheus_structural PRIVATE /fp:strict)
 else()
@@ -60,6 +64,13 @@ add_executable(prometheus_run_structural_refinement
   tools/run_structural_refinement.cpp
 )
 target_link_libraries(prometheus_run_structural_refinement PRIVATE
+  prometheus_structural
+)
+
+add_executable(prometheus_replay_structural_run
+  tools/replay_structural_run.cpp
+)
+target_link_libraries(prometheus_replay_structural_run PRIVATE
   prometheus_structural
 )
 

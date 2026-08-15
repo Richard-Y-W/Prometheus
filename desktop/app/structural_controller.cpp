@@ -4,6 +4,7 @@
 #include "prometheus/structural/calculix_deck.hpp"
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/structural_findings.hpp"
+#include "prometheus/structural/structural_archive.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -27,6 +28,8 @@ struct DesktopRunResult final {
   ps::SolverRunResult run;
   ps::StructuralEvaluation evaluation;
   QString output_directory;
+  std::optional<ps::StructuralArchive> archive;
+  std::string archive_error;
 };
 
 QString runStatus(const ps::SolverRunStatus status) {
@@ -162,6 +165,7 @@ void StructuralController::rebuildPreview() {
   request_preview_.clear();
   can_run_ = false;
   compiled_request_.reset();
+  compiled_setup_evidence_.clear();
   if (mesh_.nodes.empty() || patches_.empty()) {
     blockers_.append(QVariantMap{{"code", "mesh_required"},
                                  {"message", "Load a structural volume mesh first."}});
@@ -231,6 +235,7 @@ void StructuralController::rebuildPreview() {
   try {
     const auto request = ps::compile_structural_request(setup);
     compiled_request_ = request;
+    compiled_setup_evidence_ = ps::serialize_structural_setup_evidence(setup);
     request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
                         {"component_name", QString::fromStdString(request.component_name)},
                         {"nodes", static_cast<qlonglong>(request.nodes.size())},
@@ -291,6 +296,7 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     return;
   }
   const auto request = *compiled_request_;
+  const auto setupEvidence = compiled_setup_evidence_;
   error_.clear();
   last_run_.clear();
   findings_.clear();
@@ -311,9 +317,19 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
                  {"stdout", QString::fromStdString(completed.run.standard_output)},
                  {"stderr", QString::fromStdString(completed.run.standard_error)},
                  {"output_directory", completed.output_directory},
+                 {"archived", completed.archive.has_value()},
                  {"declared_obligations", completed.evaluation.declared_obligations},
                  {"evaluated_obligations", completed.evaluation.evaluated_obligations},
                  {"limitation", QString::fromStdString(completed.evaluation.limitation)}};
+    if (completed.archive) {
+      last_run_["archive_manifest"] = QString::fromStdWString(
+          completed.archive->manifest_path.wstring());
+      last_run_["archive_sha256"] =
+          QString::fromStdString(completed.archive->manifest_sha256);
+    } else if (!completed.archive_error.empty()) {
+      last_run_["archive_error"] =
+          QString::fromStdString(completed.archive_error);
+    }
     if (completed.run.metrics) {
       last_run_["maximum_displacement_m"] =
           completed.run.metrics->maximum_displacement_m;
@@ -338,12 +354,26 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     emit runFinished();
   });
   watcher->setFuture(QtConcurrent::run(
-      [request, executablePath, runDirectory]() -> DesktopRunResult {
+      [request, setupEvidence, executablePath, runDirectory]() -> DesktopRunResult {
         const auto run = ps::run_calculix({
             std::filesystem::path(executablePath.toStdWString()),
             std::filesystem::path(runDirectory.toStdWString()),
             "prometheus_structural_run", std::chrono::minutes(5)});
-        return {run, ps::compile_structural_findings(request, run), runDirectory};
+        const auto evaluation = ps::compile_structural_findings(request, run);
+        std::optional<ps::StructuralArchive> archive;
+        std::string archiveError;
+        if (run.status == ps::SolverRunStatus::completed) {
+          try {
+            archive = ps::write_structural_archive(
+                std::filesystem::path(runDirectory.toStdWString()),
+                "prometheus_structural_run", executablePath.toStdString(),
+                setupEvidence, request, run, evaluation);
+          } catch (const std::exception &error) {
+            archiveError = error.what();
+          }
+        }
+        return {run, evaluation, runDirectory, std::move(archive),
+                std::move(archiveError)};
       }));
 }
 
@@ -360,6 +390,7 @@ void StructuralController::reset() {
   last_run_.clear();
   findings_.clear();
   compiled_request_.reset();
+  compiled_setup_evidence_.clear();
   mesh_ = {};
   boundary_.clear();
   patches_.clear();
