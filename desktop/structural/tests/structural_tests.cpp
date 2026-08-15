@@ -88,6 +88,10 @@ int main() {
               deck.find("*STATIC, SOLVER=SPOOLES") != std::string::npos &&
               deck.find("4, 3, -1.0000000000e+02") != std::string::npos,
           "deck pins the solver and contains bounded tetra and reviewed force");
+  const auto restoredDeckMesh = ps::parse_gmsh_abaqus_mesh(deck, 1.0);
+  require(restoredDeckMesh.nodes.size() == request.nodes.size() &&
+              restoredDeckMesh.elements.size() == request.elements.size(),
+          "generated CalculiX deck restores its exact submitted volume mesh");
 
   auto blocked = request;
   blocked.material_reviewed = false;

@@ -70,10 +70,27 @@ The desktop packages and publishes this graph asynchronously. The older
 manifest-only contract remains readable for prototype history but is no longer
 used for new desktop structural runs.
 
+## Checkpoint 4: project-history reconstruction and result restoration
+
+The structural controller now enumerates embedded structural runs whenever a
+project opens or saves. Motor replay ignores these distinct manifests instead
+of misreporting them as failed motor analyses. From the structural panel, a
+user can select an embedded run, reconstruct it asynchronously into a new
+output directory, re-verify the archive and DAT replay, restore the submitted
+volume mesh from the exact retained CalculiX deck, and rebuild the deformed
+stress visualization without the original local run directory or CalculiX.
+
+The generated-deck parser now distinguishes the `*NODE` definition from the
+later `*NODE FILE` output request; a regression test proves a generated deck
+round-trips its exact node and tetrahedron counts. The desktop integration test
+publishes a child-process run, creates a fresh project/controller pair, lists
+the embedded history, restores it through the ordinary controller action, and
+receives a verified result geometry.
+
 ## Still required
 
-- restore the editable structural setup and result visualization directly from
-  embedded project history after close/reopen;
+- restore the editable reviewed structural setup—not only its verified result
+  visualization—from embedded project history after close/reopen;
 - persist full folder inventory identities and selected CAD/component mapping;
 - invalidate setup, request, and results when their source geometry or evidence
   changes or disappears;

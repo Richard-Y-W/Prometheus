@@ -324,6 +324,32 @@ Item {
                         onClicked: structuralController.commitLastRun()
                     }
                     Label {
+                        visible: structuralController.storedRuns.length > 0
+                        text: "PROJECT STRUCTURAL HISTORY"
+                        color: mutedColor
+                        font.bold: true
+                        font.pixelSize: 10
+                    }
+                    ListView {
+                        id: structuralHistory
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 112)
+                        visible: structuralController.storedRuns.length > 0
+                        model: structuralController.storedRuns
+                        spacing: 3
+                        clip: true
+                        delegate: Button {
+                            required property var modelData
+                            required property int index
+                            width: structuralHistory.width
+                            text: modelData.analysis_id ?
+                                  "Restore " + modelData.analysis_id + " • " + modelData.component_name :
+                                  "Structural run " + modelData.status
+                            enabled: modelData.restorable && !structuralController.busy && root.outputRoot.toString() !== ""
+                            onClicked: structuralController.restoreStoredRun(index, root.outputRoot)
+                        }
+                    }
+                    Label {
                         Layout.fillWidth: true
                         visible: structuralController.lastRun.status !== undefined
                         text: "Last local run: " + structuralController.lastRun.status +

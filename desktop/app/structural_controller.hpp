@@ -42,6 +42,7 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QVariantList findings READ findings NOTIFY changed)
   Q_PROPERTY(QQuick3DGeometry *resultGeometry READ resultGeometry NOTIFY changed)
   Q_PROPERTY(QVariantMap resultView READ resultView NOTIFY changed)
+  Q_PROPERTY(QVariantList storedRuns READ storedRuns NOTIFY changed)
 
 public:
   explicit StructuralController(ProjectController *project = nullptr,
@@ -61,6 +62,7 @@ public:
   QVariantList findings() const { return findings_; }
   QQuick3DGeometry *resultGeometry() const { return result_geometry_; }
   QVariantMap resultView() const { return result_view_; }
+  QVariantList storedRuns() const { return stored_runs_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);
@@ -70,6 +72,8 @@ public:
   Q_INVOKABLE void runAnalysis(const QUrl &calculixExecutable,
                                const QUrl &outputRoot);
   Q_INVOKABLE void commitLastRun();
+  Q_INVOKABLE void restoreStoredRun(int index, const QUrl &outputRoot);
+  Q_INVOKABLE void reloadProject();
   Q_INVOKABLE void reset();
 
 signals:
@@ -99,4 +103,5 @@ private:
   ProjectController *project_{};
   StructuralResultGeometry *result_geometry_{};
   QVariantMap result_view_;
+  QVariantList stored_runs_;
 };

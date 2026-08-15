@@ -45,7 +45,7 @@ VolumeMesh parse_gmsh_abaqus_mesh(const std::string_view rawMesh,
     if (line.empty()) continue;
     if (line.front() == '*') {
       const auto keyword = upper(line);
-      if (keyword.starts_with("*NODE"))
+      if (keyword == "*NODE" || keyword.starts_with("*NODE,"))
         section = Section::nodes;
       else if (keyword.starts_with("*ELEMENT") &&
                keyword.find("TYPE=C3D4") != std::string::npos)

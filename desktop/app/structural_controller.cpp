@@ -7,6 +7,7 @@
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_archive.hpp"
 #include "prometheus/run_store/run_store.hpp"
+#include "prometheus/run_store/object_store.hpp"
 #include "prometheus/run_store/structural_archive_store.hpp"
 
 #include <algorithm>
@@ -24,6 +25,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtConcurrent>
 #include <QUuid>
 
@@ -43,6 +46,15 @@ struct DesktopStructuralCommitResult final {
   std::optional<prometheus::run_store::ProjectV2> project;
   bool already_committed{};
   std::string manifest_hash;
+  std::string error;
+};
+
+struct DesktopStructuralRestoreResult final {
+  ps::VolumeMesh mesh;
+  std::vector<ps::BoundaryFace> boundary;
+  std::optional<ps::CalculixMetrics> metrics;
+  QString manifest_path;
+  QString output_directory;
   std::string error;
 };
 
@@ -75,6 +87,21 @@ std::optional<double> positiveOptional(const QVariantMap &draft,
                                        const char *key) {
   const double value = draft.value(key).toDouble();
   return value > 0.0 ? std::optional<double>(value) : std::nullopt;
+}
+
+std::optional<prometheus::run_store::StoredObjectReference>
+storedReference(const QJsonObject &object) {
+  const auto hash = object.value("object_hash").toString();
+  const auto media = object.value("media_type").toString();
+  const auto schema = object.value("schema_id").toString();
+  const auto version = object.value("schema_version").toString();
+  const auto length = object.value("byte_length").toDouble(-1.0);
+  if (hash.isEmpty() || media.isEmpty() || schema.isEmpty() || version.isEmpty() ||
+      length <= 0.0 || length > 9007199254740991.0)
+    return std::nullopt;
+  return prometheus::run_store::StoredObjectReference{
+      hash.toStdString(), static_cast<std::uint64_t>(length),
+      media.toStdString(), schema.toStdString(), version.toStdString()};
 }
 
 } // namespace
@@ -181,7 +208,14 @@ StructuralResultGeometry::StructuralResultGeometry(
 StructuralController::StructuralController(ProjectController *project,
                                            QObject *parent)
     : QObject(parent), project_(project) {
+  if (project_) {
+    connect(project_, &ProjectController::projectOpened,
+            this, &StructuralController::reloadProject);
+    connect(project_, &ProjectController::projectSaved,
+            this, &StructuralController::reloadProject);
+  }
   rebuildPreview();
+  reloadProject();
 }
 
 void StructuralController::commitLastRun() {
@@ -221,6 +255,7 @@ void StructuralController::commitLastRun() {
           QString::fromStdString(completed.manifest_hash);
       last_run_["project_already_committed"] = completed.already_committed;
       status_ = "structural_archive_published";
+      reloadProject();
     }
     emit changed();
   });
@@ -247,6 +282,223 @@ void StructuralController::commitLastRun() {
         return DesktopStructuralCommitResult{
             published.value().project, published.value().already_committed,
             manifestHash, {}};
+      }));
+}
+
+void StructuralController::reloadProject() {
+  stored_runs_.clear();
+  if (!project_ || !project_->project()) {
+    emit changed();
+    return;
+  }
+  for (const auto &reference : project_->project()->execution.committed_runs) {
+    if (reference.schema_id ==
+        prometheus::run_store::structural_manifest_schema_id) {
+      stored_runs_.append(QVariantMap{
+          {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
+          {"status", "legacy_manifest_only"},
+          {"restorable", false}});
+      continue;
+    }
+    if (reference.schema_id !=
+        prometheus::run_store::structural_project_run_schema_id)
+      continue;
+    QVariantMap display{
+        {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
+        {"status", "embedded"}, {"restorable", true}};
+    const auto projectManifest = prometheus::run_store::read_object(
+        project_->projectPath(), reference);
+    if (!projectManifest.has_value()) {
+      display["status"] = "unavailable";
+      display["restorable"] = false;
+      display["error"] = QString::fromStdString(projectManifest.diagnostic().message);
+      stored_runs_.append(display);
+      continue;
+    }
+    QJsonParseError parseError;
+    const auto projectDocument = QJsonDocument::fromJson(
+        QByteArray::fromStdString(projectManifest.value()), &parseError);
+    const auto archiveReference = projectDocument.isObject()
+        ? storedReference(projectDocument.object().value("archive_manifest").toObject())
+        : std::nullopt;
+    if (parseError.error != QJsonParseError::NoError || !archiveReference) {
+      display["status"] = "unavailable";
+      display["restorable"] = false;
+      display["error"] = "Embedded structural project manifest is invalid.";
+      stored_runs_.append(display);
+      continue;
+    }
+    const auto archive = prometheus::run_store::read_object(
+        project_->projectPath(), *archiveReference);
+    if (archive.has_value()) {
+      const auto archiveDocument = QJsonDocument::fromJson(
+          QByteArray::fromStdString(archive.value()));
+      const auto root = archiveDocument.object();
+      display["analysis_id"] = root.value("analysis_id").toString();
+      display["component_name"] = root.value("component_name").toString();
+      display["maximum_displacement_m"] =
+          root.value("metrics").toObject().value("maximum_displacement_m").toDouble();
+      display["maximum_von_mises_pa"] =
+          root.value("metrics").toObject().value("maximum_von_mises_pa").toDouble();
+    }
+    stored_runs_.append(display);
+  }
+  emit changed();
+}
+
+void StructuralController::restoreStoredRun(const int index,
+                                            const QUrl &outputRoot) {
+  if (busy_ || !project_ || !project_->project() || index < 0 ||
+      index >= stored_runs_.size())
+    return;
+  const auto selected = stored_runs_.at(index).toMap();
+  if (!selected.value("restorable").toBool()) {
+    error_ = "The selected structural history entry has no embedded artifacts.";
+    emit changed();
+    return;
+  }
+  const auto rootPath = outputRoot.toLocalFile();
+  if (rootPath.isEmpty()) {
+    error_ = "Select an output folder for the reconstructed archive.";
+    emit changed();
+    return;
+  }
+  QDir root(rootPath);
+  if (!root.exists() && !QDir().mkpath(rootPath)) {
+    error_ = "The structural restore directory could not be created.";
+    emit changed();
+    return;
+  }
+  const auto hash = selected.value("project_manifest_hash").toString().toStdString();
+  const auto reference = std::ranges::find_if(
+      project_->project()->execution.committed_runs,
+      [&](const auto &candidate) { return candidate.object_hash == hash; });
+  if (reference == project_->project()->execution.committed_runs.end()) {
+    error_ = "The selected structural history reference is no longer current.";
+    emit changed();
+    return;
+  }
+  const auto destination = root.filePath(
+      "restored-structural-" + QDateTime::currentDateTimeUtc().toString(
+          "yyyyMMdd-HHmmss-zzz-") + QUuid::createUuid().toString(QUuid::Id128).left(8));
+  const auto projectPath = project_->projectPath();
+  const auto stored = *reference;
+  busy_ = true;
+  status_ = "restoring_structural_archive";
+  error_.clear();
+  emit changed();
+  auto *watcher = new QFutureWatcher<DesktopStructuralRestoreResult>(this);
+  connect(watcher, &QFutureWatcher<DesktopStructuralRestoreResult>::finished,
+          this, [this, watcher] {
+    auto restored = watcher->result();
+    watcher->deleteLater();
+    busy_ = false;
+    if (!restored.error.empty() || !restored.metrics) {
+      error_ = QString::fromStdString(restored.error);
+      status_ = "structural_archive_restore_failed";
+      emit changed();
+      return;
+    }
+    mesh_ = std::move(restored.mesh);
+    boundary_ = std::move(restored.boundary);
+    patches_ = ps::group_boundary_faces(boundary_, 15.0);
+    if (result_geometry_) result_geometry_->deleteLater();
+    double minimumX = std::numeric_limits<double>::max();
+    double minimumY = minimumX, minimumZ = minimumX;
+    double maximumX = std::numeric_limits<double>::lowest();
+    double maximumY = maximumX, maximumZ = maximumX;
+    for (const auto &node : mesh_.nodes) {
+      minimumX = std::min(minimumX, node.position_m[0]);
+      minimumY = std::min(minimumY, node.position_m[1]);
+      minimumZ = std::min(minimumZ, node.position_m[2]);
+      maximumX = std::max(maximumX, node.position_m[0]);
+      maximumY = std::max(maximumY, node.position_m[1]);
+      maximumZ = std::max(maximumZ, node.position_m[2]);
+    }
+    const auto diagonal = std::hypot(maximumX - minimumX,
+                                     maximumY - minimumY,
+                                     maximumZ - minimumZ);
+    const auto scale = restored.metrics->maximum_displacement_m > 0.0
+        ? std::clamp(0.1 * diagonal /
+                         restored.metrics->maximum_displacement_m,
+                     1.0, 1.0e6)
+        : 1.0;
+    result_geometry_ = new StructuralResultGeometry(
+        mesh_, boundary_, *restored.metrics, scale, this);
+    result_view_ = {{"center_x_mm", 500.0 * (minimumX + maximumX)},
+                    {"center_y_mm", 500.0 * (minimumY + maximumY)},
+                    {"center_z_mm", 500.0 * (minimumZ + maximumZ)},
+                    {"radius_mm", std::max(1.0, 0.55 * diagonal * 1000.0)},
+                    {"deformation_scale", scale}, {"color_min_pa", 0.0},
+                    {"color_max_pa", restored.metrics->maximum_von_mises_pa}};
+    last_run_ = {{"status", "restored_verified"},
+                 {"archive_manifest", restored.manifest_path},
+                 {"output_directory", restored.output_directory},
+                 {"project_anchored", true},
+                 {"project_artifacts_embedded", true},
+                 {"maximum_displacement_m",
+                  restored.metrics->maximum_displacement_m},
+                 {"maximum_von_mises_pa",
+                  restored.metrics->maximum_von_mises_pa},
+                 {"displacement_rows",
+                  static_cast<qlonglong>(restored.metrics->displacements.size())},
+                 {"stress_rows",
+                  static_cast<qlonglong>(restored.metrics->stresses.size())}};
+    status_ = "structural_archive_restored";
+    error_.clear();
+    emit changed();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [projectPath, stored, destination] {
+        try {
+        const auto restored = prometheus::run_store::reconstruct_structural_archive(
+            projectPath, stored,
+            std::filesystem::path(destination.toStdWString()));
+        if (!restored.has_value())
+          return DesktopStructuralRestoreResult{
+              {}, {}, std::nullopt, {}, destination,
+              restored.diagnostic().code + ": " + restored.diagnostic().message};
+        const auto verification = ps::verify_structural_archive(restored.value());
+        if (!verification.valid)
+          return DesktopStructuralRestoreResult{
+              {}, {}, std::nullopt, {}, destination,
+              verification.code + ": " + verification.detail};
+        const auto manifestBytes = [&] {
+          std::ifstream input(restored.value(), std::ios::binary);
+          return std::string{std::istreambuf_iterator<char>(input),
+                             std::istreambuf_iterator<char>()};
+        }();
+        const auto manifest = QJsonDocument::fromJson(
+            QByteArray::fromStdString(manifestBytes)).object();
+        const auto artifact = [&](const char *role) {
+          return manifest.value("artifacts").toObject().value(role).toObject()
+              .value("file").toString();
+        };
+        const auto directory = restored.value().parent_path();
+        std::ifstream deck(directory /
+                           std::filesystem::path(artifact("deck").toStdWString()),
+                           std::ios::binary);
+        const std::string deckBytes{std::istreambuf_iterator<char>(deck),
+                                    std::istreambuf_iterator<char>()};
+        std::ifstream dat(directory /
+                          std::filesystem::path(artifact("dat").toStdWString()),
+                          std::ios::binary);
+        const std::string datBytes{std::istreambuf_iterator<char>(dat),
+                                   std::istreambuf_iterator<char>()};
+        auto mesh = ps::parse_gmsh_abaqus_mesh(deckBytes, 1.0);
+        auto boundary = ps::extract_boundary_faces(mesh);
+        auto metrics = ps::parse_calculix_dat(datBytes);
+        return DesktopStructuralRestoreResult{
+            std::move(mesh), std::move(boundary), std::move(metrics),
+            QString::fromStdWString(restored.value().wstring()), destination, {}};
+        } catch (const std::exception &exception) {
+          return DesktopStructuralRestoreResult{
+              {}, {}, std::nullopt, {}, destination, exception.what()};
+        } catch (...) {
+          return DesktopStructuralRestoreResult{
+              {}, {}, std::nullopt, {}, destination,
+              "unknown structural restore failure"};
+        }
       }));
 }
 

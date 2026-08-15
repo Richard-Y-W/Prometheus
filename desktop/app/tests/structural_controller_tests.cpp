@@ -164,6 +164,31 @@ int main(int argc, char **argv) {
       QString::fromStdWString(projectPath.wstring())));
   require(reopened.committedRunCount() == 1,
           "embedded structural run survives project close and reopen");
+  StructuralController restoredController(&reopened);
+  require(restoredController.storedRuns().size() == 1 &&
+              restoredController.storedRuns().front().toMap()
+                  .value("restorable").toBool(),
+          "reopened desktop enumerates the embedded structural run");
+  QEventLoop restoreLoop;
+  QObject::connect(&restoredController, &StructuralController::changed,
+                   &restoreLoop, [&] {
+    if (!restoredController.busy() &&
+        (restoredController.status() == "structural_archive_restored" ||
+         restoredController.status() == "structural_archive_restore_failed"))
+      restoreLoop.quit();
+  });
+  QTimer::singleShot(10000, &restoreLoop, &QEventLoop::quit);
+  restoredController.restoreStoredRun(
+      0, QUrl::fromLocalFile(temporary.path()));
+  restoreLoop.exec();
+  if (restoredController.status() != "structural_archive_restored")
+    std::cerr << "restore error: "
+              << restoredController.error().toStdString() << '\n';
+  require(restoredController.status() == "structural_archive_restored" &&
+              restoredController.resultGeometry() != nullptr &&
+              restoredController.lastRun().value("status") ==
+                  "restored_verified",
+          "reopened desktop restores verified structural result visualization");
   const auto restoredDirectory =
       std::filesystem::path(temporary.path().toStdWString()) / "restored-from-project";
   const auto restored = prometheus::run_store::reconstruct_structural_archive(
