@@ -22,19 +22,6 @@ The controller test relocates a completed child-process run and proves the
 manifest identity remains unchanged. This is one evidence-bearing transport
 primitive, not the Phase 4 exit gate.
 
-## Still required
-
-- embed the reviewed structural setup and raw run artifacts behind the anchored
-  manifest in the project transaction store;
-- restore the complete supported workflow after close/reopen;
-- persist full folder inventory identities and selected CAD/component mapping;
-- invalidate setup, request, and results when their source geometry or evidence
-  changes or disappears;
-- snapshot projects at execution boundaries;
-- export and import a complete project plus content-addressed sidecar;
-- prove interrupted save recovery and clean-machine relocation; and
-- define archive/quarantine behavior from encountered real formats.
-
 ## Checkpoint 2: project-anchored structural manifests
 
 The project execution index now accepts a second, explicitly registered
@@ -51,7 +38,46 @@ Repeating the operation is idempotent and records only a
 `structural_run_invoked` display event. Close/reopen retains the reference and
 resolves its exact canonical bytes. Unsafe manifests do not alter history.
 
-This checkpoint anchors the archive's root identity, including the hashes and
-lengths of setup and solver artifacts. It deliberately does not claim those raw
-artifacts are embedded in the project sidecar yet; portable object chunking and
-complete project bundling remain open.
+This legacy checkpoint anchors the archive's root identity, including the
+hashes and lengths of setup and solver artifacts. Checkpoint 3 supersedes it
+for new desktop publications by embedding the complete artifact graph.
+
+## Checkpoint 3: embedded structural archive graph
+
+New structural publications now retain the complete verified run inside the
+project's content-addressed sidecar. Each binary or text artifact is split into
+bounded 700 KiB raw chunks and encoded as canonical immutable JSON objects. A
+closed structural project-run manifest binds the original archive manifest,
+all seven artifact identities, ordered chunk references, offsets, decoded
+lengths, and complete reconstructed SHA-256 identities.
+
+Publication independently decodes and hashes every supplied chunk graph before
+installing it. It then installs the original archive manifest, chunks, and
+project-run manifest under the existing exclusive transaction lock and commits
+only the closed project-run reference to history. Missing, duplicated,
+unreferenced, reordered, malformed, or forged chunks fail before the project
+index changes. Retrying an interrupted or repeated publication is idempotent.
+
+Reconstruction reads only verified content-addressed objects, rebuilds each
+artifact, checks its exact length and SHA-256 identity, writes through a new
+sibling temporary directory, and publishes by atomic rename. Tests cover a DAT
+artifact spanning multiple chunks, byte-identical reconstruction of every
+file, full structural offline replay after project close/reopen, forged and
+missing chunk rejection, changed source rejection, interruption immediately
+before project replacement, and successful recovery by retry.
+
+The desktop packages and publishes this graph asynchronously. The older
+manifest-only contract remains readable for prototype history but is no longer
+used for new desktop structural runs.
+
+## Still required
+
+- restore the editable structural setup and result visualization directly from
+  embedded project history after close/reopen;
+- persist full folder inventory identities and selected CAD/component mapping;
+- invalidate setup, request, and results when their source geometry or evidence
+  changes or disappears;
+- snapshot projects at execution boundaries;
+- export and import a complete project plus content-addressed sidecar;
+- prove clean-machine relocation; and
+- define archive/quarantine behavior from encountered real formats.

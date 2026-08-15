@@ -1,8 +1,10 @@
 #include <prometheus/integrity/canonical_json.hpp>
 #include <prometheus/run_store/object_store.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/structural_archive_store.hpp>
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -157,6 +159,42 @@ run_store::ObjectToStore structural_manifest_fixture() {
                         std::string(run_store::structural_manifest_schema_id),
                         "1.0.0"),
           std::move(bytes)};
+}
+
+fs::path create_structural_archive_fixture(const fs::path &root) {
+  const auto archive = root / "structural-archive";
+  require(fs::create_directory(archive), "create structural archive fixture");
+  const std::array<std::pair<std::string, std::string>, 7> smallFiles{{
+      {"setup.json", "setup\n"}, {"run.inp", "deck\n"},
+      {"run.dat", ""}, {"run.frd", "frd\n"}, {"run.sta", "sta\n"},
+      {"stdout.txt", "stdout\n"}, {"stderr.txt", "stderr\n"}}};
+  for (const auto &[name, bytes] : smallFiles) write_file(archive / name, bytes);
+  std::string large(run_store::structural_artifact_chunk_bytes + 17U, 'D');
+  write_file(archive / "run.dat", large);
+  const auto artifact = [&](const std::string &name) {
+    const auto bytes = read_file(archive / name);
+    return std::string{"{\"byte_length\":"} + std::to_string(bytes.size()) +
+           ",\"file\":\"" + name + "\",\"sha256\":\"" +
+           integrity::sha256_bytes(bytes) + "\"}";
+  };
+  const auto document =
+      std::string{"{\"$schema\":\"urn:prometheus:schema:structural-run-archive:1.0.0\","}
+      + "\"analysis_id\":\"embedded-analysis\",\"archive_kind\":\"completed_linear_static_run\","
+      + "\"artifacts\":{\"dat\":" + artifact("run.dat") +
+      ",\"deck\":" + artifact("run.inp") +
+      ",\"frd\":" + artifact("run.frd") +
+      ",\"setup\":" + artifact("setup.json") +
+      ",\"sta\":" + artifact("run.sta") +
+      ",\"stderr\":" + artifact("stderr.txt") +
+      ",\"stdout\":" + artifact("stdout.txt") + "},"
+      + "\"component_name\":\"component\",\"coverage\":{},\"execution\":{},"
+      + "\"findings\":[],\"geometry_sha256\":\"sha256:" + std::string(64U, '9') +
+      "\",\"job_name\":\"run\",\"limitation\":\"bounded\",\"metrics\":{},"
+      + "\"requirements\":{},\"schema_version\":\"1.0.0\","
+      + "\"solver_identity\":\"fixture\"}";
+  write_file(archive / "prometheus-structural-run.json",
+             integrity::canonicalize_json_bytes(document));
+  return archive / "prometheus-structural-run.json";
 }
 
 run_store::ObjectToStore motor_b_package() {
@@ -410,6 +448,113 @@ void test_structural_manifest_anchor() {
               .value()
               .execution.committed_runs.size() == 1U,
           "rejected structural manifest does not alter project history");
+}
+
+void test_embedded_structural_archive_round_trip() {
+  TemporaryRoot root;
+  const auto sourceManifest = create_structural_archive_fixture(root.path());
+  auto packed = run_store::build_structural_archive_objects(sourceManifest);
+  if (!packed.has_value())
+    throw std::runtime_error("pack structural archive: " +
+                             packed.diagnostic().code + ": " +
+                             packed.diagnostic().message);
+  require(packed.value().chunks.size() == 8U,
+          "structural archive packs all artifacts and splits a large DAT file");
+  const auto projectPath = root.path() / "embedded.prometheus";
+  require_success(run_store::create_project_v2(projectPath, initial_project()),
+                  "create embedded structural project");
+  const auto &published = require_success(
+      run_store::publish_structural_archive(projectPath, packed.value()),
+      "publish embedded structural archive");
+  require(!published.already_committed &&
+              published.project.execution.committed_runs.size() == 1U &&
+              published.project.execution.committed_runs.front() ==
+                  packed.value().project_manifest.reference &&
+              published.project.execution.events.back().event_kind ==
+                  "structural_run_published",
+          "embedded structural graph commits only its closed project manifest");
+  for (const auto *object : {&packed.value().archive_manifest,
+                             &packed.value().project_manifest}) {
+    const auto retained = run_store::read_object(projectPath, object->reference);
+    require(retained.has_value() && retained.value() == object->bytes,
+            "embedded structural manifest object resolves exactly");
+  }
+  for (const auto &chunk : packed.value().chunks) {
+    const auto retained = run_store::read_object(projectPath, chunk.reference);
+    require(retained.has_value() && retained.value() == chunk.bytes,
+            "embedded structural chunk resolves exactly");
+  }
+  const auto destination = root.path() / "reconstructed";
+  const auto reconstructed = run_store::reconstruct_structural_archive(
+      projectPath, packed.value().project_manifest.reference, destination);
+  require(reconstructed.has_value(), "embedded structural archive reconstructs");
+  for (const auto &entry : fs::directory_iterator(sourceManifest.parent_path())) {
+    require(read_file(entry.path()) ==
+                read_file(destination / entry.path().filename()),
+            "reconstructed structural file is byte-identical");
+  }
+  const auto &repeated = require_success(
+      run_store::publish_structural_archive(projectPath, packed.value()),
+      "repeat embedded structural publication");
+  require(repeated.already_committed &&
+              repeated.project.execution.committed_runs.size() == 1U,
+          "embedded structural publication is idempotent");
+
+  auto forged = packed.value();
+  const auto oldChunkHash = forged.chunks.front().reference.object_hash;
+  const auto data = forged.chunks.front().bytes.find("\"data\":\"");
+  require(data != std::string::npos, "structural chunk contains encoded data");
+  auto &encodedByte = forged.chunks.front().bytes[data + 8U];
+  encodedByte = encodedByte == 'A' ? 'B' : 'A';
+  forged.chunks.front().reference.object_hash =
+      integrity::object_hash(forged.chunks.front().bytes);
+  const auto hashPosition =
+      forged.project_manifest.bytes.find(oldChunkHash);
+  require(hashPosition != std::string::npos,
+          "project manifest references first structural chunk");
+  forged.project_manifest.bytes.replace(
+      hashPosition, oldChunkHash.size(),
+      forged.chunks.front().reference.object_hash);
+  forged.project_manifest.reference.object_hash =
+      integrity::object_hash(forged.project_manifest.bytes);
+  const auto forgedRejected =
+      run_store::publish_structural_archive(projectPath, forged);
+  require_failure(forgedRejected, "structural_chunk_identity_mismatch",
+                  "forged structural chunk payload");
+
+  auto changed = packed.value();
+  changed.chunks.pop_back();
+  const auto rejected =
+      run_store::publish_structural_archive(projectPath, changed);
+  require_failure(rejected, "structural_chunk_reference_mismatch",
+                  "missing structural chunk graph");
+  require(run_store::open_read_only(projectPath)
+              .value()
+              .execution.committed_runs.size() == 1U,
+          "rejected embedded graph does not alter committed history");
+
+  write_file(sourceManifest.parent_path() / "run.frd", "changed\n");
+  const auto corrupt = run_store::build_structural_archive_objects(sourceManifest);
+  require_failure(corrupt, "artifact_identity_mismatch",
+                  "changed source artifact cannot be packed");
+
+  const auto interruptedPath = root.path() / "interrupted-structural.prometheus";
+  require_success(run_store::create_project_v2(interruptedPath, initial_project()),
+                  "create interrupted structural project");
+  const auto interrupted = run_store::publish_structural_archive(
+      interruptedPath, packed.value(),
+      fail_at(run_store::TransactionBoundary::before_project_replacement));
+  require_failure(interrupted, "injected_failure",
+                  "structural publication interruption");
+  require(run_store::open_read_only(interruptedPath)
+              .value()
+              .execution.committed_runs.empty(),
+          "interrupted structural publication leaves last valid project index");
+  const auto retry = run_store::publish_structural_archive(
+      interruptedPath, packed.value());
+  require(retry.has_value() &&
+              retry.value().project.execution.committed_runs.size() == 1U,
+          "structural publication recovers by retrying retained immutable objects");
 }
 
 void test_create_failure_boundaries() {
@@ -827,6 +972,7 @@ int main() {
   try {
     test_normal_operations_and_idempotency();
     test_structural_manifest_anchor();
+    test_embedded_structural_archive_round_trip();
     test_create_failure_boundaries();
     test_binding_failure_boundaries();
     test_scenario_failure_is_atomic();

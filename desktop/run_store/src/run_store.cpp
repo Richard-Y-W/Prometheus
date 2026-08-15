@@ -1,6 +1,9 @@
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/structural_archive_store.hpp>
 
 #include "platform_io.hpp"
+
+#include <prometheus/integrity/canonical_json.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -18,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -353,6 +357,41 @@ validate_publication_graph(const ProjectV2 &project,
   }
 }
 
+std::string decode_base64(const std::string_view text) {
+  if (text.size() % 4U != 0U) throw std::runtime_error("invalid base64 length");
+  const auto value = [](const char character) -> int {
+    if (character >= 'A' && character <= 'Z') return character - 'A';
+    if (character >= 'a' && character <= 'z') return character - 'a' + 26;
+    if (character >= '0' && character <= '9') return character - '0' + 52;
+    if (character == '+') return 62;
+    if (character == '/') return 63;
+    return -1;
+  };
+  std::string result;
+  result.reserve(text.size() / 4U * 3U);
+  for (std::size_t offset = 0; offset < text.size(); offset += 4U) {
+    const auto a = value(text[offset]);
+    const auto b = value(text[offset + 1U]);
+    const auto c = text[offset + 2U] == '=' ? 0 : value(text[offset + 2U]);
+    const auto d = text[offset + 3U] == '=' ? 0 : value(text[offset + 3U]);
+    if (a < 0 || b < 0 || c < 0 || d < 0 ||
+        (text[offset + 2U] == '=' && text[offset + 3U] != '=') ||
+        (offset + 4U != text.size() &&
+         (text[offset + 2U] == '=' || text[offset + 3U] == '=')))
+      throw std::runtime_error("invalid base64 data");
+    const auto packed = (static_cast<std::uint32_t>(a) << 18U) |
+                        (static_cast<std::uint32_t>(b) << 12U) |
+                        (static_cast<std::uint32_t>(c) << 6U) |
+                        static_cast<std::uint32_t>(d);
+    result.push_back(static_cast<char>((packed >> 16U) & 255U));
+    if (text[offset + 2U] != '=')
+      result.push_back(static_cast<char>((packed >> 8U) & 255U));
+    if (text[offset + 3U] != '=')
+      result.push_back(static_cast<char>(packed & 255U));
+  }
+  return result;
+}
+
 Result<detail::Unit>
 validate_structural_manifest(const ObjectToStore &manifest) {
   const auto stored =
@@ -412,6 +451,137 @@ validate_structural_manifest(const ObjectToStore &manifest) {
   } catch (const std::exception &failure) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_manifest_contract_invalid", failure.what()));
+  }
+}
+
+Result<detail::Unit> validate_embedded_structural_graph(
+    const StructuralArchiveObjects &objects) {
+  const auto archiveValid = validate_structural_manifest(objects.archive_manifest);
+  if (!archiveValid.has_value()) return archiveValid;
+  const auto projectValid = detail::verify_stored_object(
+      objects.project_manifest.reference, objects.project_manifest.bytes);
+  if (!projectValid.has_value()) return projectValid;
+  if (objects.project_manifest.reference.media_type !=
+          structural_project_run_media_type ||
+      objects.project_manifest.reference.schema_id !=
+          structural_project_run_schema_id)
+    return Result<detail::Unit>::failure(detail::store_diagnostic(
+        "structural_project_manifest_reference_invalid",
+        "embedded structural manifest reference has the wrong contract"));
+  try {
+    const auto projectManifest = Json::parse(objects.project_manifest.bytes);
+    if (!exact_keys(projectManifest,
+                    {"$schema", "schema_version", "manifest_kind",
+                     "archive_manifest", "artifacts"}) ||
+        !string_equals(projectManifest, "$schema",
+                       structural_project_run_schema_id) ||
+        !string_equals(projectManifest, "schema_version", "1.0.0") ||
+        !string_equals(projectManifest, "manifest_kind",
+                       "embedded_structural_run") ||
+        !projectManifest.at("artifacts").is_array() ||
+        projectManifest.at("artifacts").size() != 7U)
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_project_manifest_invalid",
+          "embedded structural project manifest is invalid"));
+    const auto archiveReference =
+        reference_from_json(projectManifest.at("archive_manifest"));
+    if (!archiveReference || *archiveReference != objects.archive_manifest.reference)
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_archive_reference_mismatch",
+          "project manifest does not bind the supplied archive manifest"));
+    const auto archive = Json::parse(objects.archive_manifest.bytes);
+    std::unordered_map<std::string, const ObjectToStore *> suppliedChunks;
+    for (const auto &chunk : objects.chunks) {
+      const auto verified = detail::verify_stored_object(chunk.reference, chunk.bytes);
+      if (!verified.has_value()) return verified;
+      if (chunk.reference.media_type != structural_artifact_chunk_media_type ||
+          chunk.reference.schema_id != structural_artifact_chunk_schema_id ||
+          !suppliedChunks.emplace(chunk.reference.object_hash, &chunk).second)
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_chunk_set_invalid",
+            "structural chunk contract or identity is invalid"));
+    }
+    std::unordered_set<std::string> referencedChunks;
+    std::unordered_set<std::string> roles;
+    for (const auto &artifact : projectManifest.at("artifacts")) {
+      if (!exact_keys(artifact,
+                      {"role", "file", "byte_length", "sha256", "chunks"}) ||
+          !artifact.at("role").is_string() || !artifact.at("file").is_string() ||
+          !artifact.at("byte_length").is_number_unsigned() ||
+          !artifact.at("sha256").is_string() ||
+          !artifact.at("chunks").is_array())
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_project_manifest_invalid",
+            "embedded structural artifact entry is invalid"));
+      const auto role = artifact.at("role").get<std::string>();
+      if (!roles.insert(role).second || !archive.at("artifacts").contains(role))
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_project_manifest_invalid",
+            "embedded structural artifact role is invalid"));
+      const auto &declared = archive.at("artifacts").at(role);
+      if (artifact.at("file") != declared.at("file") ||
+          artifact.at("byte_length") != declared.at("byte_length") ||
+          artifact.at("sha256") != declared.at("sha256"))
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_artifact_binding_mismatch",
+            "embedded artifact identity differs from archive manifest"));
+      std::size_t expectedIndex = 0U;
+      std::uint64_t decodedBytes = 0U;
+      std::string decodedArtifact;
+      decodedArtifact.reserve(
+          artifact.at("byte_length").get<std::size_t>());
+      for (const auto &referenceJson : artifact.at("chunks")) {
+        const auto reference = reference_from_json(referenceJson);
+        if (!reference || !referencedChunks.insert(reference->object_hash).second ||
+            !suppliedChunks.contains(reference->object_hash) ||
+            suppliedChunks.at(reference->object_hash)->reference != *reference)
+          return Result<detail::Unit>::failure(detail::store_diagnostic(
+              "structural_chunk_reference_mismatch",
+              "structural chunk reference is missing, duplicated, or changed"));
+        const auto chunk =
+            Json::parse(suppliedChunks.at(reference->object_hash)->bytes);
+        if (!exact_keys(chunk,
+                        {"$schema", "schema_version", "encoding",
+                         "artifact_sha256", "chunk_index", "chunk_count",
+                         "byte_offset", "decoded_length", "data"}) ||
+            !string_equals(chunk, "$schema",
+                           structural_artifact_chunk_schema_id) ||
+            !string_equals(chunk, "schema_version", "1.0.0") ||
+            !string_equals(chunk, "encoding", "base64") ||
+            chunk.at("artifact_sha256") != artifact.at("sha256") ||
+            chunk.at("chunk_index").get<std::size_t>() != expectedIndex ||
+            chunk.at("chunk_count").get<std::size_t>() !=
+                artifact.at("chunks").size() ||
+            chunk.at("byte_offset").get<std::uint64_t>() != decodedBytes)
+          return Result<detail::Unit>::failure(detail::store_diagnostic(
+              "structural_chunk_binding_mismatch",
+              "structural chunk metadata does not form the declared artifact"));
+        const auto decoded =
+            decode_base64(chunk.at("data").get<std::string>());
+        if (decoded.size() !=
+            chunk.at("decoded_length").get<std::size_t>())
+          return Result<detail::Unit>::failure(detail::store_diagnostic(
+              "structural_chunk_decoding_mismatch",
+              "decoded structural chunk length differs from its metadata"));
+        decodedBytes += decoded.size();
+        decodedArtifact += decoded;
+        ++expectedIndex;
+      }
+      if (decodedBytes != artifact.at("byte_length").get<std::uint64_t>() ||
+          prometheus::integrity::sha256_bytes(decodedArtifact) !=
+              artifact.at("sha256").get<std::string>())
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_chunk_identity_mismatch",
+            "structural chunks do not reconstruct the declared artifact"));
+    }
+    if (referencedChunks.size() != suppliedChunks.size())
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_chunk_set_invalid",
+          "unreferenced structural chunks were supplied"));
+    return Result<detail::Unit>::success(detail::Unit{});
+  } catch (const std::exception &failure) {
+    return Result<detail::Unit>::failure(detail::store_diagnostic(
+        "structural_project_graph_invalid", failure.what()));
   }
 }
 
@@ -787,6 +957,78 @@ Result<Publication> commit_structural_archive_manifest(
     return Result<Publication>::failure(detail::store_diagnostic(
         "structural_manifest_commit_failed", "unknown structural commit failure",
         std::nullopt, project_path));
+  }
+}
+
+Result<Publication> publish_structural_archive(
+    const std::filesystem::path &project_path,
+    const StructuralArchiveObjects &objects,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) return failure_from<Publication>(lock.diagnostic());
+    auto projectResult = read_locked_project(project_path);
+    if (!projectResult.has_value())
+      return failure_from<Publication>(projectResult.diagnostic());
+    if (const auto cancelled = detail::check_cancelled(options); cancelled)
+      return Result<Publication>::failure(*cancelled);
+    const auto graph = validate_embedded_structural_graph(objects);
+    if (!graph.has_value()) return failure_from<Publication>(graph.diagnostic());
+    auto project = std::move(projectResult.value());
+    bool alreadyCommitted = false;
+    for (const auto &reference : project.execution.committed_runs) {
+      if (reference.object_hash != objects.project_manifest.reference.object_hash)
+        continue;
+      if (reference != objects.project_manifest.reference)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "committed_run_reference_conflict",
+            "structural project manifest hash has conflicting metadata"));
+      alreadyCommitted = true;
+    }
+    const auto archiveInstalled = detail::install_object_file(
+        project_path, objects.archive_manifest.reference,
+        objects.archive_manifest.bytes, options);
+    if (!archiveInstalled.has_value())
+      return failure_from<Publication>(archiveInstalled.diagnostic());
+    for (const auto &chunk : objects.chunks) {
+      const auto installed = detail::install_object_file(
+          project_path, chunk.reference, chunk.bytes, options);
+      if (!installed.has_value())
+        return failure_from<Publication>(installed.diagnostic());
+    }
+    const auto manifestInstalled = detail::install_object_file(
+        project_path, objects.project_manifest.reference,
+        objects.project_manifest.bytes, options);
+    if (!manifestInstalled.has_value())
+      return failure_from<Publication>(manifestInstalled.diagnostic());
+    if (!alreadyCommitted) {
+      if (project.execution.committed_runs.size() >= maximum_committed_runs)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "committed_run_limit_exceeded",
+            "project already has the maximum committed runs"));
+      project.execution.committed_runs.push_back(objects.project_manifest.reference);
+    }
+    const auto event = append_event(
+        project,
+        alreadyCommitted ? "structural_run_invoked" : "structural_run_published",
+        alreadyCommitted ? "already_committed" : "completed",
+        objects.project_manifest.reference.object_hash);
+    if (!event.has_value()) return failure_from<Publication>(event.diagnostic());
+    const auto persisted = persist_project(project_path, project, true, options);
+    if (!persisted.has_value())
+      return failure_from<Publication>(persisted.diagnostic());
+    return Result<Publication>::success(
+        Publication{persisted.value(), alreadyCommitted});
+  } catch (const std::exception &failure) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "structural_archive_publication_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "structural_archive_publication_failed",
+        "unknown structural archive publication failure", std::nullopt,
+        project_path));
   }
 }
 

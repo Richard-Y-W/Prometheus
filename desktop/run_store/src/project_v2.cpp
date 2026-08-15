@@ -239,6 +239,9 @@ bool reference_matches(const StoredObjectReference &reference,
     return reference_matches(reference, ReferenceKind::manifest) ||
            (reference.media_type == structural_manifest_media_type &&
             reference.schema_id == structural_manifest_schema_id &&
+            reference.schema_version == "1.0.0") ||
+           (reference.media_type == structural_project_run_media_type &&
+            reference.schema_id == structural_project_run_schema_id &&
             reference.schema_version == "1.0.0");
   }
   return false;
@@ -963,7 +966,10 @@ bool is_supported_object_reference(
          reference_matches(reference, ReferenceKind::request) ||
          reference_matches(reference, ReferenceKind::result) ||
          reference_matches(reference, ReferenceKind::manifest) ||
-         reference_matches(reference, ReferenceKind::committed_manifest);
+         reference_matches(reference, ReferenceKind::committed_manifest) ||
+         (reference.media_type == structural_artifact_chunk_media_type &&
+          reference.schema_id == structural_artifact_chunk_schema_id &&
+          reference.schema_version == "1.0.0");
 }
 
 Result<ProjectV2> parse_project_v2(const std::string_view bytes) noexcept {

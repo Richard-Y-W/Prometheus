@@ -318,8 +318,9 @@ Item {
                     }
                     Button {
                         Layout.fillWidth: true
-                        text: structuralController.lastRun.project_anchored ? "Committed to project ✓" : "Commit verified run to project"
-                        enabled: structuralController.lastRun.archived === true && !structuralController.lastRun.project_anchored
+                        text: structuralController.busy && structuralController.status === "publishing_structural_archive" ? "Embedding run artifacts…" :
+                              (structuralController.lastRun.project_anchored ? "Run embedded in project ✓" : "Embed verified run in project")
+                        enabled: structuralController.lastRun.archived === true && !structuralController.lastRun.project_anchored && !structuralController.busy
                         onClicked: structuralController.commitLastRun()
                     }
                     Label {
@@ -399,7 +400,7 @@ Item {
                     Label {
                         Layout.fillWidth: true
                         text: structuralController.lastRun.project_anchored ?
-                              "The immutable archive manifest is anchored in project history. Raw solver artifacts still live in the archive directory until full project bundling is complete. This is not a safety or validation claim." :
+                              "The immutable manifest, reviewed setup, exact deck, raw solver outputs, and captured streams are embedded in project history. This is not a safety or validation claim." :
                               "Local run artifacts are retained in the selected output folder but are not yet committed to the Prometheus project. Readiness or scoped non-violation does not mean the component is safe or validated for this real scenario."
                         color: mutedColor
                         wrapMode: Text.WordWrap

@@ -3,6 +3,7 @@ add_library(prometheus_run_store STATIC
   src/legacy_project_v1.cpp
   src/object_store.cpp
   src/run_store.cpp
+  src/structural_archive_store.cpp
 )
 if(WIN32)
   target_sources(prometheus_run_store PRIVATE src/platform_io_windows.cpp)

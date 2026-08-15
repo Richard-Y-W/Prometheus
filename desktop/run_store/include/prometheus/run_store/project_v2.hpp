@@ -24,6 +24,14 @@ inline constexpr std::string_view structural_manifest_media_type =
     "application/vnd.prometheus.structural-run-archive+json";
 inline constexpr std::string_view structural_manifest_schema_id =
     "urn:prometheus:schema:structural-run-archive:1.0.0";
+inline constexpr std::string_view structural_project_run_media_type =
+    "application/vnd.prometheus.structural-project-run+json";
+inline constexpr std::string_view structural_project_run_schema_id =
+    "urn:prometheus:schema:structural-project-run:1.0.0";
+inline constexpr std::string_view structural_artifact_chunk_media_type =
+    "application/vnd.prometheus.structural-artifact-chunk+json";
+inline constexpr std::string_view structural_artifact_chunk_schema_id =
+    "urn:prometheus:schema:structural-artifact-chunk:1.0.0";
 
 struct Diagnostic final {
   std::string stage;

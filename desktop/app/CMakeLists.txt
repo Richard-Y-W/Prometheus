@@ -78,6 +78,9 @@ if(BUILD_TESTING)
     NAME prometheus_structural_controller
     COMMAND prometheus_structural_controller_tests
   )
+  set_tests_properties(prometheus_structural_controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  )
 
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)
   target_include_directories(prometheus_review_payload_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -10,6 +10,8 @@
 
 namespace prometheus::run_store {
 
+struct StructuralArchiveObjects;
+
 inline constexpr std::chrono::milliseconds maximum_lock_wait{5000};
 
 enum class TransactionBoundary {
@@ -103,6 +105,11 @@ publish_completed_run(const std::filesystem::path &project_path,
 [[nodiscard]] Result<Publication> commit_structural_archive_manifest(
     const std::filesystem::path &project_path,
     const ObjectToStore &manifest,
+    TransactionOptions options = {}) noexcept;
+
+[[nodiscard]] Result<Publication> publish_structural_archive(
+    const std::filesystem::path &project_path,
+    const StructuralArchiveObjects &objects,
     TransactionOptions options = {}) noexcept;
 
 [[nodiscard]] Result<ProjectV2>

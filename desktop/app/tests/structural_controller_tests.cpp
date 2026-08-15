@@ -1,7 +1,12 @@
 #include "structural_controller.hpp"
+#include "cad_controller.hpp"
+#include "engineering_controller.hpp"
+#include "project_controller.hpp"
 #include "prometheus/structural/structural_archive.hpp"
+#include "prometheus/run_store/run_store.hpp"
+#include "prometheus/run_store/structural_archive_store.hpp"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QEventLoop>
@@ -48,7 +53,7 @@ QVariantMap reviewedDraft() {
 } // namespace
 
 int main(int argc, char **argv) {
-  QCoreApplication application(argc, argv);
+  QGuiApplication application(argc, argv);
   QTemporaryDir temporary;
   require(temporary.isValid(), "temporary structural workspace exists");
   QFile mesh(temporary.filePath("tetra.inp"));
@@ -65,7 +70,27 @@ int main(int argc, char **argv) {
 )");
   mesh.close();
 
-  StructuralController controller;
+  prometheus::run_store::ProjectV2 initialProject;
+  initialProject.name = "Structural controller fixture";
+  initialProject.cad_source = "missing-fixture.step";
+  initialProject.assembly_artifact_hash =
+      "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  initialProject.coordinate_system = "right-handed Z-up";
+  initialProject.length_unit = "m";
+  initialProject.engineering.geometry_status = "not_evaluated";
+  const auto projectPath = std::filesystem::path(temporary.path().toStdWString()) /
+                           "structural.prometheus";
+  require(prometheus::run_store::create_project_v2(projectPath, initialProject)
+              .has_value(),
+          "structural project fixture is created");
+  CadController cad;
+  EngineeringController engineering;
+  ProjectController project(&cad, &engineering);
+  project.openProject(QUrl::fromLocalFile(
+      QString::fromStdWString(projectPath.wstring())));
+  require(project.currentProjectPath().size() > 0,
+          "structural project fixture opens");
+  StructuralController controller(&project);
   controller.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001, 1.0);
   require(controller.status() == "setup_blocked" &&
               controller.meshSummary().value("nodes").toInt() == 4 &&
@@ -116,6 +141,37 @@ int main(int argc, char **argv) {
               exported.manifest_sha256 ==
                   controller.lastRun().value("archive_sha256").toString().toStdString(),
           "verified archive relocates with identical manifest identity");
+  QEventLoop commitLoop;
+  QObject::connect(&controller, &StructuralController::changed, &commitLoop,
+                   [&] {
+    if (!controller.busy() &&
+        (controller.status() == "structural_archive_published" ||
+         controller.status() == "structural_archive_publication_failed"))
+      commitLoop.quit();
+  });
+  QTimer::singleShot(10000, &commitLoop, &QEventLoop::quit);
+  controller.commitLastRun();
+  commitLoop.exec();
+  require(!controller.busy() &&
+              controller.status() == "structural_archive_published" &&
+              controller.lastRun().value("project_artifacts_embedded").toBool() &&
+              project.committedRunCount() == 1,
+          "desktop asynchronously embeds the complete structural archive graph");
+  CadController reopenedCad;
+  EngineeringController reopenedEngineering;
+  ProjectController reopened(&reopenedCad, &reopenedEngineering);
+  reopened.openProject(QUrl::fromLocalFile(
+      QString::fromStdWString(projectPath.wstring())));
+  require(reopened.committedRunCount() == 1,
+          "embedded structural run survives project close and reopen");
+  const auto restoredDirectory =
+      std::filesystem::path(temporary.path().toStdWString()) / "restored-from-project";
+  const auto restored = prometheus::run_store::reconstruct_structural_archive(
+      projectPath, reopened.project()->execution.committed_runs.front(),
+      restoredDirectory);
+  require(restored.has_value() &&
+              prometheus::structural::verify_structural_archive(restored.value()).valid,
+          "reopened project reconstructs a fully replayable structural archive");
   QFile changed(QDir(controller.lastRun().value("output_directory").toString())
                     .filePath("prometheus_structural_run.dat"));
   require(changed.open(QIODevice::Append), "archived DAT opens for corruption test");
