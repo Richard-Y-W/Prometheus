@@ -218,6 +218,9 @@ public:
                                         double rzDeg);
   Q_INVOKABLE void commitPlacementPreview();
   Q_INVOKABLE void cancelPlacementPreview();
+  Q_INVOKABLE bool beginGroupTranslationPreview(const QVariantList &indices);
+  Q_INVOKABLE void previewGroupTranslation(double deltaX, double deltaY,
+                                           double deltaZ);
   Q_INVOKABLE QVariantMap localAxisDirection(int index,
                                              const QString &axis) const;
   Q_INVOKABLE QVariantMap composeLocalRotation(double rxDeg, double ryDeg,
@@ -296,5 +299,7 @@ private:
   void refreshInterferencesAsync();
   std::vector<prometheus::cad::PartPlacement> placements() const;
   QVariantMap placementState(int index) const;
+  QVariantMap placementGroupState(const QVariantList &indices) const;
+  QVariantMap currentPlacementStateFor(const QVariantMap &state) const;
   void applyPlacementState(const QVariantMap &state);
 };

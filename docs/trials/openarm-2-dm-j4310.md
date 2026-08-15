@@ -41,6 +41,19 @@ run:
 This sets `PROMETHEUS_STARTUP_PROJECT_FOLDER`; it does not bypass intake by
 opening the STEP file directly.
 
+### CAD interaction controls
+
+- Drag a visible part directly to move it on the current camera plane.
+- Hold `Ctrl` and click parts to add or remove them from the selection.
+- Drag on empty viewport space to box-select visible part centers.
+- Drag the translation gizmo or use its nudges to move the selected group while
+  preserving relative offsets.
+- Group movement commits as one undo/redo action and triggers one geometry
+  recomputation.
+- Use `W`, `A`, `S`, and `D` to pan the camera and `Q`/`E` to move out/in.
+- Use `T` for translate mode, `R` for rotate mode, and `F` to fit the view.
+- Hold `Alt` while dragging to temporarily bypass placement snapping.
+
 The script verifies both external artifacts and creates the ignored folder
 `out/trials/openarm-2-dm-j4310`. It includes the STEP assembly, component
 manual, and a source-only manifest. The manifest explicitly records that no

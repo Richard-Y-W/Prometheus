@@ -789,7 +789,47 @@ QVariantMap CadController::placementState(int index) const {
           {"ry", part->rotationY()},
           {"rz", part->rotationZ()}};
 }
+QVariantMap CadController::placementGroupState(const QVariantList &indices) const {
+  QVariantList placements;
+  QSet<int> seen;
+  for (const auto &value : indices) {
+    const int index = value.toInt();
+    if (index < 0 || index >= parts_.size() || seen.contains(index))
+      continue;
+    seen.insert(index);
+    placements.append(placementState(index));
+  }
+  return placements.isEmpty() ? QVariantMap{}
+                              : QVariantMap{{"placements", placements}};
+}
+QVariantMap
+CadController::currentPlacementStateFor(const QVariantMap &state) const {
+  if (!state.contains("placements"))
+    return placementState(state.value("index").toInt());
+  QVariantList indices;
+  for (const auto &value : state.value("placements").toList())
+    indices.append(value.toMap().value("index"));
+  return placementGroupState(indices);
+}
 void CadController::applyPlacementState(const QVariantMap &state) {
+  if (state.contains("placements")) {
+    for (const auto &value : state.value("placements").toList()) {
+      const auto placement = value.toMap();
+      const int index = placement.value("index").toInt();
+      if (index < 0 || index >= parts_.size())
+        continue;
+      qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+          ->setPlacement(placement.value("x").toDouble(),
+                         placement.value("y").toDouble(),
+                         placement.value("z").toDouble(),
+                         placement.value("rx").toDouble(),
+                         placement.value("ry").toDouble(),
+                         placement.value("rz").toDouble());
+    }
+    refreshInterferencesAsync();
+    emit partsChanged();
+    return;
+  }
   const int index = state.value("index").toInt();
   if (index < 0 || index >= parts_.size())
     return;
@@ -820,6 +860,29 @@ bool CadController::beginPlacementPreview(int index) {
   active_placement_preview_ = placementState(index);
   return true;
 }
+bool CadController::beginGroupTranslationPreview(const QVariantList &indices) {
+  if (geometry_busy_ || !active_placement_preview_.isEmpty())
+    return false;
+  active_placement_preview_ = placementGroupState(indices);
+  return !active_placement_preview_.isEmpty();
+}
+void CadController::previewGroupTranslation(double dx, double dy, double dz) {
+  if (!active_placement_preview_.contains("placements"))
+    return;
+  for (const auto &value : active_placement_preview_.value("placements").toList()) {
+    const auto state = value.toMap();
+    const int index = state.value("index").toInt();
+    if (index < 0 || index >= parts_.size())
+      continue;
+    qobject_cast<CadPart *>(parts_[index].value<QObject *>())
+        ->setPlacement(state.value("x").toDouble() + dx,
+                       state.value("y").toDouble() + dy,
+                       state.value("z").toDouble() + dz,
+                       state.value("rx").toDouble(),
+                       state.value("ry").toDouble(),
+                       state.value("rz").toDouble());
+  }
+}
 void CadController::previewPartPlacement(int index, double x, double y,
                                          double z, double rx, double ry,
                                          double rz) {
@@ -844,6 +907,23 @@ void CadController::cancelPlacementPreview() {
     return;
   const auto state = active_placement_preview_;
   active_placement_preview_.clear();
+  if (state.contains("placements")) {
+    for (const auto &value : state.value("placements").toList()) {
+      const auto placement = value.toMap();
+      const int groupIndex = placement.value("index").toInt();
+      if (groupIndex < 0 || groupIndex >= parts_.size())
+        continue;
+      qobject_cast<CadPart *>(parts_[groupIndex].value<QObject *>())
+          ->setPlacement(placement.value("x").toDouble(),
+                         placement.value("y").toDouble(),
+                         placement.value("z").toDouble(),
+                         placement.value("rx").toDouble(),
+                         placement.value("ry").toDouble(),
+                         placement.value("rz").toDouble());
+    }
+    emit partsChanged();
+    return;
+  }
   const int index = state.value("index").toInt();
   if (index >= 0 && index < parts_.size())
     qobject_cast<CadPart *>(parts_[index].value<QObject *>())
@@ -991,7 +1071,7 @@ void CadController::undoPlacement() {
   if (!canUndo() || geometry_busy_)
     return;
   const auto state = undo_stack_.takeLast().toMap();
-  redo_stack_.append(placementState(state.value("index").toInt()));
+  redo_stack_.append(currentPlacementStateFor(state));
   emit historyChanged();
   applyPlacementState(state);
 }
@@ -999,7 +1079,7 @@ void CadController::redoPlacement() {
   if (!canRedo() || geometry_busy_)
     return;
   const auto state = redo_stack_.takeLast().toMap();
-  undo_stack_.append(placementState(state.value("index").toInt()));
+  undo_stack_.append(currentPlacementStateFor(state));
   emit historyChanged();
   applyPlacementState(state);
 }
