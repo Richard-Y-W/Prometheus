@@ -38,6 +38,15 @@ SolverRunResult run_calculix(const SolverRunOptions &options) {
     result.detail = "input_deck_missing";
     return result;
   }
+  const auto datPath = options.working_directory / (options.job_name + ".dat");
+  const auto frdPath = options.working_directory / (options.job_name + ".frd");
+  const auto staPath = options.working_directory / (options.job_name + ".sta");
+  if (std::filesystem::exists(datPath) || std::filesystem::exists(frdPath) ||
+      std::filesystem::exists(staPath)) {
+    result.status = SolverRunStatus::output_conflict;
+    result.detail = "preexisting_solver_output";
+    return result;
+  }
   const auto process = detail::run_process(options.executable,
                                             {options.job_name},
                                             options.working_directory,
@@ -58,9 +67,6 @@ SolverRunResult run_calculix(const SolverRunOptions &options) {
     result.detail = "solver_nonzero_exit";
     return result;
   }
-  const auto datPath = options.working_directory / (options.job_name + ".dat");
-  const auto frdPath = options.working_directory / (options.job_name + ".frd");
-  const auto staPath = options.working_directory / (options.job_name + ".sta");
   const auto dat = read_file(datPath);
   if (!dat || !std::filesystem::is_regular_file(frdPath) ||
       !std::filesystem::is_regular_file(staPath)) {

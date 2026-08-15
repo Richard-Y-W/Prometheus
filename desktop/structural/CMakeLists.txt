@@ -7,6 +7,7 @@ add_library(prometheus_structural STATIC
   src/surface_selection.cpp
   src/structural_request.cpp
   src/structural_findings.cpp
+  src/structural_benchmarks.cpp
   src/structural_setup.cpp
 )
 if(WIN32)
@@ -45,6 +46,20 @@ add_executable(prometheus_run_calculix_job
   tools/run_calculix_job.cpp
 )
 target_link_libraries(prometheus_run_calculix_job PRIVATE
+  prometheus_structural
+)
+
+add_executable(prometheus_run_structural_benchmark
+  tools/run_structural_benchmark.cpp
+)
+target_link_libraries(prometheus_run_structural_benchmark PRIVATE
+  prometheus_structural
+)
+
+add_executable(prometheus_run_structural_refinement
+  tools/run_structural_refinement.cpp
+)
+target_link_libraries(prometheus_run_structural_refinement PRIVATE
   prometheus_structural
 )
 

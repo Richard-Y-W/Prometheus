@@ -14,6 +14,7 @@ enum class SolverRunStatus {
   launch_failed,
   timed_out,
   nonzero_exit,
+  output_conflict,
   output_missing,
   result_invalid
 };

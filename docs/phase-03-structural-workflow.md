@@ -179,6 +179,34 @@ completed metrics against loose known-pass limits and tighter known-fail limits,
 and preserve an explicit limitation excluding safety, fatigue, buckling,
 contact, fasteners, nonlinear behavior, and project-wide correctness.
 
+## Checkpoint 8: analytic benchmarks and mesh refinement
+
+Two independent closed-form references now gate the CalculiX adapter:
+
+- A `1 m x 0.1 m x 0.1 m`, Poisson-ratio-zero axial bar under `1000 N`
+  uses `u = F L / (A E)` and `sigma = F / A`. CalculiX 2.23 returned the exact
+  expected `5.0e-7 m` displacement and `100000 Pa` von Mises stress (stress
+  relative error below `7e-15`).
+- A `1 m x 0.1 m x 0.1 m` cantilever under `1000 N` uses Euler-Bernoulli
+  `u = F L^3 / (3 E I)` and root stress `sigma = 6 F L / (b h^2)`, giving
+  `0.0002 m` and `6.0e6 Pa` references.
+
+The coarse `20 x 3 x 3` C3D4 cantilever mesh underpredicted displacement by
+37.41% and stress by 37.76%, so it is explicitly inadequate for this benchmark.
+The refined `40 x 6 x 6` mesh reduced those errors to 13.47% and 15.17%, within
+the declared 15% displacement and 25% stress tolerances. The automated gate
+requires both errors to decrease and the refined case to meet tolerance.
+
+Run both reproducibly with:
+
+```powershell
+.\scripts\run-structural-benchmarks.ps1
+```
+
+The solver runner also now rejects a directory containing pre-existing raw
+outputs, preventing stale `.dat`, `.frd`, or `.sta` bytes from becoming a new
+completed run.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

@@ -4,6 +4,7 @@
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/structural_findings.hpp"
+#include "prometheus/structural/structural_benchmarks.hpp"
 #include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
@@ -58,6 +59,24 @@ bool hasIssue(const std::vector<ps::ValidationIssue> &issues,
 }
 
 int main() {
+  const auto axialBenchmark = ps::axial_tension_bar_benchmark();
+  require(ps::validate_request(axialBenchmark.request).empty() &&
+              std::abs(axialBenchmark.expected_maximum_displacement_m - 5.0e-7) < 1e-18 &&
+              std::abs(axialBenchmark.expected_maximum_von_mises_pa - 1.0e5) < 1e-9,
+          "axial benchmark derives closed-form displacement and stress references");
+  const auto exactComparison = ps::compare_benchmark(
+      axialBenchmark, {5.0e-7, 1.0e5, 8, 6});
+  require(exactComparison.passed(), "exact analytic benchmark metrics pass tolerance");
+  const auto badComparison = ps::compare_benchmark(
+      axialBenchmark, {6.0e-7, 1.2e5, 8, 6});
+  require(!badComparison.passed(), "benchmark comparison rejects material error");
+  const auto cantilever = ps::cantilever_benchmark(20, 3, 3);
+  require(ps::validate_request(cantilever.request).empty() &&
+              cantilever.request.nodes.size() == 336 &&
+              cantilever.request.elements.size() == 1080 &&
+              std::abs(cantilever.expected_maximum_displacement_m - 0.0002) < 1e-15 &&
+              std::abs(cantilever.expected_maximum_von_mises_pa - 6.0e6) < 1e-8,
+          "cantilever benchmark derives beam references and bounded solid mesh");
   const auto request = validRequest();
   require(ps::validate_request(request).empty(), "reviewed tetra request validates");
   const auto deck = ps::generate_calculix_deck(request);
@@ -281,6 +300,10 @@ int main() {
               completed.standard_output.find("fixture stdout") != std::string::npos &&
               completed.standard_error.find("fixture stderr") != std::string::npos,
           "isolated solver process captures streams and parses required raw outputs");
+  const auto staleOutputs = runFixture("success", std::chrono::seconds(5));
+  require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
+              !staleOutputs.metrics,
+          "pre-existing raw solver outputs cannot be reused as a new run");
   const auto withinLimits = ps::compile_structural_findings(request, completed);
   require(withinLimits.declared_obligations == 2 &&
               withinLimits.evaluated_obligations == 2 &&

@@ -15,6 +15,9 @@ New-Item -ItemType Directory -Force $output | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Structural smoke deck export failed.' }
 
 $ccx = (Get-Command ccx.exe -ErrorAction Stop).Source
+foreach ($extension in 'dat','frd','sta','cvg','12d','eig','fin','hrn','mas','msh','nam','rout','stm') {
+  Remove-Item -LiteralPath (Join-Path $output "$job.$extension") -Force -ErrorAction SilentlyContinue
+}
 & (Join-Path $repo 'out/build/windows-release/desktop/structural/prometheus_run_calculix_job.exe') `
   $ccx $output $job 120
 if ($LASTEXITCODE -ne 0) { throw "CalculiX runner failed with exit code $LASTEXITCODE." }
