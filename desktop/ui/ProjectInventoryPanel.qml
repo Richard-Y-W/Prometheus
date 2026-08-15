@@ -6,12 +6,14 @@ Item {
     id: root
 
     required property var projectIntakeController
+    property bool cadPartSelected: false
     property color panelColor: "#20262c"
     property color lineColor: "#35404a"
     property color textColor: "#dfe7ed"
     property color mutedColor: "#91a0ab"
 
     signal loadRequested(string path)
+    signal bindCandidateRequested(var candidate)
     signal closeRequested()
 
     function stateColor(state) {
@@ -142,6 +144,40 @@ Item {
                      && root.projectIntakeController.error === ""
             text: root.projectIntakeController.status
             color: root.mutedColor
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 112
+            visible: root.projectIntakeController.candidateComponents.length > 0
+            color: "#1b2228"
+            border.color: "#8ca7d8"
+            radius: 3
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Label { text: "CANDIDATE COMPONENT EVIDENCE"; color: "#8ca7d8"; font.bold: true; font.pixelSize: 10 }
+                    Label {
+                        property var candidate: root.projectIntakeController.candidateComponents.length > 0
+                                                ? root.projectIntakeController.candidateComponents[0] : ({})
+                        text: candidate.manufacturer + " " + candidate.part_number
+                        color: root.textColor
+                        font.pixelSize: 18
+                    }
+                    Label {
+                        text: "Source hash verified • specifications unreviewed • execution disabled"
+                        color: "#e0ac62"
+                        font.pixelSize: 10
+                    }
+                }
+                Button {
+                    text: "Bind candidate to selected part"
+                    enabled: root.cadPartSelected
+                    onClicked: root.bindCandidateRequested(root.projectIntakeController.candidateComponents[0])
+                }
+            }
         }
 
         ListView {

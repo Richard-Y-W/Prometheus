@@ -11,6 +11,7 @@ struct ProjectIntakeResult final {
   QString root_path;
   QString error;
   QVariantList artifacts;
+  QVariantList candidate_components;
   QString primary_step_path;
 };
 
@@ -20,6 +21,7 @@ class ProjectIntakeController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString rootPath READ rootPath NOTIFY changed)
   Q_PROPERTY(QVariantList artifacts READ artifacts NOTIFY changed)
+  Q_PROPERTY(QVariantList candidateComponents READ candidateComponents NOTIFY changed)
   Q_PROPERTY(int totalCount READ totalCount NOTIFY changed)
   Q_PROPERTY(int readyCount READ readyCount NOTIFY changed)
   Q_PROPERTY(int notEvaluatedCount READ notEvaluatedCount NOTIFY changed)
@@ -36,6 +38,7 @@ public:
 
   QString rootPath() const { return result_.root_path; }
   QVariantList artifacts() const { return result_.artifacts; }
+  QVariantList candidateComponents() const { return result_.candidate_components; }
   int totalCount() const { return result_.artifacts.size(); }
   int readyCount() const;
   int notEvaluatedCount() const;

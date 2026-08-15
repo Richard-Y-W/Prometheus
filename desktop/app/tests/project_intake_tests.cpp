@@ -152,6 +152,39 @@ void identifiesExactDuplicateCopies() {
           "unique artifact is not labeled duplicate");
 }
 
+void exposesOnlyHashMatchedCandidateEvidence() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "candidate project folder exists");
+  const QByteArray manual("review me\n");
+  writeFile(temporary.filePath("manual.pdf"), manual);
+  const auto manualHash = digest(manual).mid(7);
+  const auto manifest = QString(R"({
+    "schema":"urn:prometheus:trial-source-manifest:0.1.0",
+    "status":"candidate_evidence_only",
+    "component":{"manufacturer":"DAMIAO","part_number":"DM-J4310-2EC V1.1","relationship":"joint candidate","source_file":"manual.pdf","source_sha256":"%1"},
+    "review":{"published_component":false,"geometry_binding_confirmed":false,"specification_claims_reviewed":false}
+  })").arg(manualHash).toUtf8();
+  writeFile(temporary.filePath("prometheus-trial-source-manifest.json"),
+            manifest);
+
+  const auto accepted = scanProjectFolder(temporary.path());
+  require(accepted.candidate_components.size() == 1,
+          "hash-matched candidate source is exposed");
+  const auto candidate = accepted.candidate_components.front().toMap();
+  require(candidate.value("manufacturer") == "DAMIAO" &&
+              candidate.value("part_number") == "DM-J4310-2EC V1.1" &&
+              candidate.value("review_state") == "candidate_evidence_only",
+          "candidate identity remains explicitly unreviewed");
+
+  writeFile(temporary.filePath("manual.pdf"), "changed\n");
+  const auto rejected = scanProjectFolder(temporary.path());
+  require(rejected.candidate_components.isEmpty(),
+          "changed source cannot satisfy the candidate manifest");
+  require(artifact(rejected, "prometheus-trial-source-manifest.json")
+              .value("detail").toString().contains("wrong hash"),
+          "source mismatch remains visible");
+}
+
 void controllerPublishesOnlySuccessfulInventory() {
   QTemporaryDir temporary;
   require(temporary.isValid(), "controller project folder exists");
@@ -189,6 +222,7 @@ int main(int argc, char **argv) {
   accountsForEveryFile();
   handlesEmptyInvalidAndAmbiguousFolders();
   identifiesExactDuplicateCopies();
+  exposesOnlyHashMatchedCandidateEvidence();
   controllerPublishesOnlySuccessfulInventory();
   return 0;
 }

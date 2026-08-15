@@ -45,6 +45,14 @@ Open that folder in Prometheus. The expected first-screen behavior is:
 - the large-assembly collision limitation remains visible;
 - no whole-project pass is shown.
 
+When the source manifest and referenced manual hashes match, intake also shows
+one **candidate component evidence** card. After the assembly loads, select the
+intended CAD entity, reopen Project inventory, and choose **Bind candidate to
+selected part**. The properties panel then displays the candidate identity.
+This is an explicit session binding only: it does not mark specifications as
+reviewed, create an execution package, or enable analysis. Saving a Prometheus
+project preserves the binding through the existing project snapshot path.
+
 ## Questions this trial should answer
 
 1. Can a user find the intended J5–J8 motor geometry in the imported assembly?

@@ -124,6 +124,7 @@ class ProjectIntakeProbe final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString rootPath READ rootPath CONSTANT)
   Q_PROPERTY(QVariantList artifacts READ artifacts CONSTANT)
+  Q_PROPERTY(QVariantList candidateComponents READ candidateComponents CONSTANT)
   Q_PROPERTY(int totalCount READ totalCount CONSTANT)
   Q_PROPERTY(int readyCount READ readyCount CONSTANT)
   Q_PROPERTY(int notEvaluatedCount READ notEvaluatedCount CONSTANT)
@@ -152,6 +153,7 @@ public:
                         {"detail", "Ready for Open Cascade STEP import"},
                         {"loadable", true}}};
   }
+  QVariantList candidateComponents() const { return {}; }
   int totalCount() const { return 1; }
   int readyCount() const { return 1; }
   int notEvaluatedCount() const { return 0; }

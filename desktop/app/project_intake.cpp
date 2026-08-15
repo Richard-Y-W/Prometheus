@@ -6,6 +6,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -81,6 +83,10 @@ int countState(const QVariantList &artifacts, const QString &state) {
 }
 
 } // namespace
+
+QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,
+                                           const QVariantList &artifacts,
+                                           QString &detail);
 
 ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
   ProjectIntakeResult result;
@@ -169,6 +175,19 @@ ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
     if (!digest.isEmpty())
       seenDigests.insert(digest);
   }
+  for (auto &value : result.artifacts) {
+    auto row = value.toMap();
+    if (row.value("relative_path").toString() !=
+        "prometheus-trial-source-manifest.json")
+      continue;
+    QString detail;
+    const auto candidate =
+        readCandidateComponentManifest(row, result.artifacts, detail);
+    row.insert("detail", detail);
+    value = row;
+    if (!candidate.isEmpty())
+      result.candidate_components.append(candidate);
+  }
   if (readySteps.size() == 1)
     result.primary_step_path = readySteps.front();
   return result;
@@ -194,6 +213,65 @@ int ProjectIntakeController::unsupportedCount() const {
 
 int ProjectIntakeController::unreadableCount() const {
   return countState(result_.artifacts, "unreadable");
+}
+
+QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,
+                                           const QVariantList &artifacts,
+                                           QString &detail) {
+  constexpr qint64 maximumManifestBytes = 1024 * 1024;
+  if (manifestArtifact.value("byte_size").toLongLong() > maximumManifestBytes) {
+    detail = "Trial source manifest exceeds the 1 MiB intake limit";
+    return {};
+  }
+  QFile file(manifestArtifact.value("absolute_path").toString());
+  if (!file.open(QIODevice::ReadOnly)) {
+    detail = "Trial source manifest could not be reopened";
+    return {};
+  }
+  QJsonParseError parseError;
+  const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
+  if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+    detail = "Trial source manifest is not valid JSON object data";
+    return {};
+  }
+  const auto root = document.object();
+  const auto component = root.value("component").toObject();
+  const auto review = root.value("review").toObject();
+  const auto manufacturer = component.value("manufacturer").toString();
+  const auto partNumber = component.value("part_number").toString();
+  const auto sourceFile = QDir::fromNativeSeparators(
+      component.value("source_file").toString());
+  const auto sourceHash = component.value("source_sha256").toString().toLower();
+  if (root.value("schema").toString() !=
+          "urn:prometheus:trial-source-manifest:0.1.0" ||
+      root.value("status").toString() != "candidate_evidence_only" ||
+      manufacturer.isEmpty() || partNumber.isEmpty() || sourceFile.isEmpty() ||
+      sourceFile.startsWith('/') || sourceFile.contains("../") ||
+      sourceHash.size() != 64 || review.value("published_component").toBool() ||
+      review.value("geometry_binding_confirmed").toBool() ||
+      review.value("specification_claims_reviewed").toBool()) {
+    detail = "Trial source manifest is outside the candidate-only intake contract";
+    return {};
+  }
+  const auto expectedDigest = "sha256:" + sourceHash;
+  const auto source = std::find_if(
+      artifacts.cbegin(), artifacts.cend(), [&](const QVariant &value) {
+        const auto row = value.toMap();
+        return row.value("relative_path").toString() == sourceFile &&
+               row.value("sha256").toString() == expectedDigest;
+      });
+  if (source == artifacts.cend()) {
+    detail = "Candidate component source file is missing or has the wrong hash";
+    return {};
+  }
+  detail = "Candidate component source verified; specifications remain unreviewed";
+  return {{"id", "candidate:" + manifestArtifact.value("sha256").toString()},
+          {"manufacturer", manufacturer},
+          {"part_number", partNumber},
+          {"relationship", component.value("relationship").toString()},
+          {"source_file", sourceFile},
+          {"source_sha256", expectedDigest},
+          {"review_state", "candidate_evidence_only"}};
 }
 
 int ProjectIntakeController::duplicateCopyCount() const {
