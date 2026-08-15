@@ -127,6 +127,31 @@ void handlesEmptyInvalidAndAmbiguousFolders() {
           "multiple STEP files require a user choice");
 }
 
+void identifiesExactDuplicateCopies() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "duplicate project folder exists");
+  require(QDir(temporary.path()).mkpath("vendor"),
+          "duplicate subdirectory creates");
+  const QByteArray shared("same exact artifact bytes\n");
+  writeFile(temporary.filePath("datasheet.pdf"), shared);
+  writeFile(temporary.filePath("vendor/datasheet-copy.pdf"), shared);
+  writeFile(temporary.filePath("different.pdf"), "different bytes\n");
+
+  const auto result = scanProjectFolder(temporary.path());
+  const auto first = artifact(result, "datasheet.pdf");
+  const auto copy = artifact(result, "vendor/datasheet-copy.pdf");
+  const auto different = artifact(result, "different.pdf");
+  require(first.value("identical_file_count").toInt() == 2 &&
+              !first.value("duplicate_copy").toBool(),
+          "first deterministic occurrence represents the duplicate group");
+  require(copy.value("identical_file_count").toInt() == 2 &&
+              copy.value("duplicate_copy").toBool(),
+          "later identical artifact is visibly a duplicate copy");
+  require(different.value("identical_file_count").toInt() == 1 &&
+              !different.value("duplicate_copy").toBool(),
+          "unique artifact is not labeled duplicate");
+}
+
 void controllerPublishesOnlySuccessfulInventory() {
   QTemporaryDir temporary;
   require(temporary.isValid(), "controller project folder exists");
@@ -144,6 +169,7 @@ void controllerPublishesOnlySuccessfulInventory() {
               controller.notEvaluatedCount() == 0 &&
               controller.unsupportedCount() == 0 &&
               controller.unreadableCount() == 0 &&
+              controller.duplicateCopyCount() == 0 &&
               controller.status() == "1 file accounted for",
           "controller publishes inventory summary");
 
@@ -162,6 +188,7 @@ int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
   accountsForEveryFile();
   handlesEmptyInvalidAndAmbiguousFolders();
+  identifiesExactDuplicateCopies();
   controllerPublishesOnlySuccessfulInventory();
   return 0;
 }

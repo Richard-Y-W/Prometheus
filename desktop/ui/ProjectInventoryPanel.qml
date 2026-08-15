@@ -80,7 +80,8 @@ Item {
                     { label: "READY", value: root.projectIntakeController.readyCount, color: "#70c99a" },
                     { label: "NOT EVALUATED", value: root.projectIntakeController.notEvaluatedCount, color: "#e0ac62" },
                     { label: "UNSUPPORTED", value: root.projectIntakeController.unsupportedCount, color: "#e87972" },
-                    { label: "UNREADABLE", value: root.projectIntakeController.unreadableCount, color: "#ef6f6c" }
+                    { label: "UNREADABLE", value: root.projectIntakeController.unreadableCount, color: "#ef6f6c" },
+                    { label: "DUPLICATE COPIES", value: root.projectIntakeController.duplicateCopyCount, color: "#8ca7d8" }
                 ]
                 delegate: Rectangle {
                     required property var modelData
@@ -191,6 +192,7 @@ Item {
                         }
                         Label {
                             text: modelData.category + "  •  " + root.formatBytes(modelData.byte_size)
+                                  + (modelData.duplicate_copy ? "  •  exact duplicate copy" : "")
                             color: root.mutedColor
                             font.pixelSize: 10
                         }

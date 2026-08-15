@@ -5,6 +5,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -148,6 +149,26 @@ ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
               return left.toMap().value("relative_path").toString() <
                      right.toMap().value("relative_path").toString();
             });
+
+  QHash<QString, int> digestCounts;
+  for (const auto &value : result.artifacts) {
+    const auto digest = value.toMap().value("sha256").toString();
+    if (!digest.isEmpty())
+      ++digestCounts[digest];
+  }
+  QSet<QString> seenDigests;
+  for (auto &value : result.artifacts) {
+    auto row = value.toMap();
+    const auto digest = row.value("sha256").toString();
+    const auto copies = digestCounts.value(digest);
+    const bool duplicateCopy = !digest.isEmpty() && copies > 1 &&
+                               seenDigests.contains(digest);
+    row.insert("identical_file_count", copies > 1 ? copies : 1);
+    row.insert("duplicate_copy", duplicateCopy);
+    value = row;
+    if (!digest.isEmpty())
+      seenDigests.insert(digest);
+  }
   if (readySteps.size() == 1)
     result.primary_step_path = readySteps.front();
   return result;
@@ -173,6 +194,14 @@ int ProjectIntakeController::unsupportedCount() const {
 
 int ProjectIntakeController::unreadableCount() const {
   return countState(result_.artifacts, "unreadable");
+}
+
+int ProjectIntakeController::duplicateCopyCount() const {
+  return static_cast<int>(std::count_if(
+      result_.artifacts.cbegin(), result_.artifacts.cend(),
+      [](const QVariant &value) {
+        return value.toMap().value("duplicate_copy").toBool();
+      }));
 }
 
 QString ProjectIntakeController::status() const {

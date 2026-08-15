@@ -129,6 +129,7 @@ class ProjectIntakeProbe final : public QObject {
   Q_PROPERTY(int notEvaluatedCount READ notEvaluatedCount CONSTANT)
   Q_PROPERTY(int unsupportedCount READ unsupportedCount CONSTANT)
   Q_PROPERTY(int unreadableCount READ unreadableCount CONSTANT)
+  Q_PROPERTY(int duplicateCopyCount READ duplicateCopyCount CONSTANT)
   Q_PROPERTY(QString primaryStepPath READ primaryStepPath CONSTANT)
   Q_PROPERTY(QString status READ status CONSTANT)
   Q_PROPERTY(QString error READ error CONSTANT)
@@ -156,6 +157,7 @@ public:
   int notEvaluatedCount() const { return 0; }
   int unsupportedCount() const { return 0; }
   int unreadableCount() const { return 0; }
+  int duplicateCopyCount() const { return 0; }
   QString primaryStepPath() const { return step_path_; }
   QString status() const { return "1 file accounted for"; }
   QString error() const { return {}; }

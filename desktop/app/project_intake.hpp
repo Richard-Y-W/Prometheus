@@ -25,6 +25,7 @@ class ProjectIntakeController final : public QObject {
   Q_PROPERTY(int notEvaluatedCount READ notEvaluatedCount NOTIFY changed)
   Q_PROPERTY(int unsupportedCount READ unsupportedCount NOTIFY changed)
   Q_PROPERTY(int unreadableCount READ unreadableCount NOTIFY changed)
+  Q_PROPERTY(int duplicateCopyCount READ duplicateCopyCount NOTIFY changed)
   Q_PROPERTY(QString primaryStepPath READ primaryStepPath NOTIFY changed)
   Q_PROPERTY(QString status READ status NOTIFY changed)
   Q_PROPERTY(QString error READ error NOTIFY changed)
@@ -40,6 +41,7 @@ public:
   int notEvaluatedCount() const;
   int unsupportedCount() const;
   int unreadableCount() const;
+  int duplicateCopyCount() const;
   QString primaryStepPath() const { return result_.primary_step_path; }
   QString status() const;
   QString error() const { return result_.error; }
