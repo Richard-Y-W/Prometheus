@@ -4,6 +4,13 @@ Product goal: Prometheus is a local project compiler and solver-orchestration en
 
 Current repository: this codebase is a Windows-first mechanical-project screening prototype with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It can inventory an arbitrary local folder and screen one STEP assembly, but it cannot determine whether an arbitrary engineering project works.
 
+Current phase status: Phase 1 is complete. Phase 2 technical trials cover the
+clean YUBI gripper, large OpenArm assembly, and messy NASA JPL Rover repository;
+the required outside-user usability session is explicitly deferred and remains
+an open Phase 2 exit item. Phase 3 structural work is proceeding in parallel
+around the selected YUBI `BRACKET_GRIPPER`. Deferral of the outside-user session
+does not count as evidence and does not close Phase 2.
+
 ![Prometheus CAD workspace](docs/images/cad-workspace.png)
 
 ## What is implemented
@@ -25,7 +32,15 @@ Current repository: this codebase is a Windows-first mechanical-project screenin
 
 Package integrity is a byte-identity claim only. A package remains reviewed input and contains no requirement verdict or solver result. Program 01B makes the two synthetic motor packages consumable by one declared backend; it does not turn human acceptance into physical validation or make the older blocked package executable.
 
-No external structural, thermal, electrical, CFD, or controls solver adapter exists. The repository makes no certification claim and no project-wide correctness claim. A failed, missing, nonconverged, or unsupported analysis must remain `indeterminate` or `not_evaluated`; it cannot become a pass.
+No real project structural, thermal, electrical, CFD, or controls solver has
+executed yet. The Phase 3 Qt-free structural module validates reviewed bounded
+linear-static requests, generates deterministic CalculiX input decks, and
+parses raw displacement/stress output. CalculiX 2.23 and Gmsh 4.15.2 are now
+installed locally; a one-tetrahedron solver/parser smoke completed using the
+explicit SPOOLES backend, but it is not YUBI bracket validation.
+The repository makes no certification claim and no project-wide correctness
+claim. A failed, missing, nonconverged, or unsupported analysis must remain
+`indeterminate` or `not_evaluated`; it cannot become a pass.
 
 The [master roadmap](docs/program/00-master-roadmap.md) now advances through project-value gates: real folder-to-finding workflows first, repeated projects second, one external structural solver third, and only then generalization and hardening supported by observed failures.
 
