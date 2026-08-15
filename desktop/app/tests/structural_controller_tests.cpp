@@ -104,6 +104,15 @@ int main(int argc, char **argv) {
       std::filesystem::path(archivePath.toStdWString()));
   require(verified.valid && verified.evaluated_obligations == 2,
           "offline archive verification replays exact raw DAT metrics");
+  const auto exportedDirectory = std::filesystem::path(temporary.path().toStdWString()) /
+                                 "relocated-structural-run";
+  const auto exported = prometheus::structural::export_structural_archive(
+      std::filesystem::path(archivePath.toStdWString()), exportedDirectory);
+  require(prometheus::structural::verify_structural_archive(
+              exported.manifest_path).valid &&
+              exported.manifest_sha256 ==
+                  controller.lastRun().value("archive_sha256").toString().toStdString(),
+          "verified archive relocates with identical manifest identity");
   QFile changed(QDir(controller.lastRun().value("output_directory").toString())
                     .filePath("prometheus_structural_run.dat"));
   require(changed.open(QIODevice::Append), "archived DAT opens for corruption test");

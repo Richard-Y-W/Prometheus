@@ -37,4 +37,10 @@ struct StructuralArchiveVerification final {
 [[nodiscard]] StructuralArchiveVerification verify_structural_archive(
     const std::filesystem::path &manifest_path) noexcept;
 
+// Copies a verified archive into a new directory through a sibling temporary
+// directory, verifies the copy, then atomically publishes it by rename.
+[[nodiscard]] StructuralArchive export_structural_archive(
+    const std::filesystem::path &manifest_path,
+    const std::filesystem::path &destination_directory);
+
 } // namespace prometheus::structural

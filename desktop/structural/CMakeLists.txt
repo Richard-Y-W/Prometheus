@@ -74,6 +74,13 @@ target_link_libraries(prometheus_replay_structural_run PRIVATE
   prometheus_structural
 )
 
+add_executable(prometheus_export_structural_archive
+  tools/export_structural_archive.cpp
+)
+target_link_libraries(prometheus_export_structural_archive PRIVATE
+  prometheus_structural
+)
+
 if(BUILD_TESTING)
   add_executable(prometheus_structural_solver_fixture
     tests/solver_fixture.cpp

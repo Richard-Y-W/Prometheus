@@ -281,3 +281,11 @@ surface and does not imply that unreported regions or failure modes passed.
    project-wide pass or continuous-motion proof.
 2. Commit the reviewed setup and verified run archive through the Phase 4
    content-addressed project store.
+
+The first Phase 4 transport boundary is now available through
+`prometheus_export_structural_archive`. It accepts only a fully verified source
+archive, copies its exact manifest and seven retained artifacts through a new
+sibling temporary directory, verifies the relocated copy, and publishes it by
+atomic directory rename. Existing destinations are never overwritten. This
+makes an individual run relocatable without weakening its identity, but it is
+not yet the complete portable Prometheus project bundle required by Phase 4.

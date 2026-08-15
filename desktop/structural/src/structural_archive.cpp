@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <set>
 #include <stdexcept>
 
@@ -279,6 +280,52 @@ StructuralArchiveVerification verify_structural_archive(
     return failure("archive_verification_failed", error.what());
   } catch (...) {
     return failure("archive_verification_failed", "unknown archive verification failure");
+  }
+}
+
+StructuralArchive export_structural_archive(
+    const std::filesystem::path &manifestPath,
+    const std::filesystem::path &destinationDirectory) {
+  const auto sourceVerification = verify_structural_archive(manifestPath);
+  if (!sourceVerification.valid)
+    throw std::runtime_error(sourceVerification.code + ": " +
+                             sourceVerification.detail);
+  if (destinationDirectory.empty() ||
+      std::filesystem::exists(destinationDirectory))
+    throw std::invalid_argument("archive export destination must not exist");
+  const auto parent = destinationDirectory.parent_path();
+  if (parent.empty() || !std::filesystem::is_directory(parent))
+    throw std::invalid_argument("archive export parent must exist");
+
+  std::mt19937_64 random{std::random_device{}()};
+  auto temporary = destinationDirectory;
+  temporary += ".partial-" + std::to_string(random());
+  if (std::filesystem::exists(temporary))
+    throw std::runtime_error("archive export temporary path already exists");
+  try {
+    std::filesystem::create_directory(temporary);
+    const auto manifestBytes = read(manifestPath);
+    const auto manifest = Json::parse(manifestBytes);
+    for (const auto key : {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"}) {
+      const auto name = manifest.at("artifacts").at(key).at("file").get<std::string>();
+      if (!safe_file(name))
+        throw std::runtime_error("archive contains an unsafe artifact filename");
+      const auto bytes = read(manifestPath.parent_path() / name);
+      write(temporary / name, bytes);
+    }
+    write(temporary / archiveName, manifestBytes);
+    const auto copiedManifest = temporary / archiveName;
+    const auto copyVerification = verify_structural_archive(copiedManifest);
+    if (!copyVerification.valid)
+      throw std::runtime_error(copyVerification.code + ": " +
+                               copyVerification.detail);
+    std::filesystem::rename(temporary, destinationDirectory);
+    return {destinationDirectory / archiveName,
+            integrity::sha256_bytes(manifestBytes)};
+  } catch (...) {
+    std::error_code ignored;
+    std::filesystem::remove_all(temporary, ignored);
+    throw;
   }
 }
 
