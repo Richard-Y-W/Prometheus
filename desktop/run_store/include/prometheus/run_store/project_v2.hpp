@@ -14,6 +14,10 @@ namespace prometheus::run_store {
 inline constexpr std::string_view project_v2_schema_id =
     "urn:prometheus:schema:project:2.0.0";
 inline constexpr std::string_view project_v2_schema_version = "2.0.0";
+inline constexpr std::string_view project_inventory_schema_id =
+    "urn:prometheus:schema:project-inventory-snapshot:1.0.0";
+inline constexpr std::string_view project_inventory_media_type =
+    "application/vnd.prometheus.project-inventory+json";
 inline constexpr std::string_view execution_store_version = "1.0.0";
 inline constexpr std::size_t maximum_project_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;

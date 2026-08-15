@@ -12,6 +12,10 @@
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <prometheus/integrity/canonical_json.hpp>
+
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -216,6 +220,36 @@ int ProjectIntakeController::unsupportedCount() const {
 
 int ProjectIntakeController::unreadableCount() const {
   return countState(result_.artifacts, "unreadable");
+}
+
+prometheus::run_store::ObjectToStore
+buildProjectInventorySnapshot(const ProjectIntakeResult &result) {
+  using Json = nlohmann::json;
+  Json artifacts = Json::array();
+  for (const auto &value : result.artifacts) {
+    const auto artifact = value.toMap();
+    const auto hash = artifact.value("sha256").toString().toStdString();
+    artifacts.push_back(
+        {{"relative_path", artifact.value("relative_path").toString().toStdString()},
+         {"byte_length", artifact.value("byte_size").toULongLong()},
+         {"sha256", hash.empty() ? Json(nullptr) : Json(hash)},
+         {"category", artifact.value("category").toString().toStdString()},
+         {"analysis_state",
+          artifact.value("analysis_state").toString().toStdString()},
+         {"detail", artifact.value("detail").toString().toStdString()}});
+  }
+  const auto bytes = prometheus::integrity::canonicalize_json_bytes(
+      Json{{"$schema", prometheus::run_store::project_inventory_schema_id},
+           {"schema_version", "1.0.0"},
+           {"snapshot_kind", "accounted_project_folder"},
+           {"root_label", QFileInfo(result.root_path).fileName().toStdString()},
+           {"artifacts", std::move(artifacts)}}
+          .dump());
+  const prometheus::run_store::StoredObjectReference reference{
+      prometheus::integrity::sha256_bytes(bytes), bytes.size(),
+      std::string(prometheus::run_store::project_inventory_media_type),
+      std::string(prometheus::run_store::project_inventory_schema_id), "1.0.0"};
+  return {reference, bytes};
 }
 
 QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,

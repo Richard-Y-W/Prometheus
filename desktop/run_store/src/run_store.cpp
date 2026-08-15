@@ -970,6 +970,109 @@ Result<Publication> commit_structural_archive_manifest(
   }
 }
 
+Result<Publication> commit_project_inventory_snapshot(
+    const std::filesystem::path &project_path, const ObjectToStore &snapshot,
+    TransactionOptions options) noexcept {
+  try {
+    if (snapshot.reference.media_type != project_inventory_media_type ||
+        snapshot.reference.schema_id != project_inventory_schema_id ||
+        snapshot.reference.schema_version != "1.0.0")
+      return Result<Publication>::failure(detail::store_diagnostic(
+          "inventory_reference_invalid",
+          "inventory snapshot has unsupported registered metadata"));
+    const auto canonical = integrity::verify_canonical_bytes(snapshot.bytes);
+    const auto document = Json::parse(canonical);
+    if (!exact_keys(document, {"$schema", "schema_version", "snapshot_kind",
+                               "root_label", "artifacts"}) ||
+        !string_equals(document, "$schema", project_inventory_schema_id) ||
+        !string_equals(document, "schema_version", "1.0.0") ||
+        !string_equals(document, "snapshot_kind", "accounted_project_folder") ||
+        !document.at("root_label").is_string() ||
+        document.at("root_label").get_ref<const std::string &>().size() > 512U ||
+        !document.at("artifacts").is_array() ||
+        document.at("artifacts").size() > 100000U)
+      return Result<Publication>::failure(detail::store_diagnostic(
+          "inventory_snapshot_invalid", "inventory snapshot contract is invalid"));
+    std::string previousPath;
+    for (const auto &artifact : document.at("artifacts")) {
+      if (!exact_keys(artifact, {"relative_path", "byte_length", "sha256",
+                                 "category", "analysis_state", "detail"}) ||
+          !artifact.at("relative_path").is_string() ||
+          !artifact.at("byte_length").is_number_unsigned() ||
+          !(artifact.at("sha256").is_null() || artifact.at("sha256").is_string()) ||
+          !artifact.at("category").is_string() ||
+          !artifact.at("analysis_state").is_string() ||
+          !artifact.at("detail").is_string())
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "inventory_artifact_invalid", "inventory artifact record is invalid"));
+      const auto path = artifact.at("relative_path").get<std::string>();
+      if (path.size() > 4096U ||
+          artifact.at("category").get_ref<const std::string &>().size() > 128U ||
+          artifact.at("analysis_state").get_ref<const std::string &>().size() >
+              128U ||
+          artifact.at("detail").get_ref<const std::string &>().size() > 4096U)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "inventory_artifact_invalid", "inventory artifact text is too large"));
+      const auto relative = std::filesystem::path(path);
+      if (path.empty() || relative.is_absolute() || relative.has_root_path() ||
+          relative != relative.lexically_normal() ||
+          (!previousPath.empty() && path <= previousPath))
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "inventory_path_invalid",
+            "inventory paths must be safe, unique, and strictly sorted"));
+      for (const auto &component : relative)
+        if (component == "." || component == "..")
+          return Result<Publication>::failure(detail::store_diagnostic(
+              "inventory_path_invalid", "inventory path traversal is forbidden"));
+      if (!artifact.at("sha256").is_null() &&
+          !is_valid_object_hash(artifact.at("sha256").get<std::string>()))
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "inventory_hash_invalid", "inventory file identity is invalid"));
+      previousPath = path;
+    }
+
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) return failure_from<Publication>(lock.diagnostic());
+    auto loaded = read_locked_project(project_path);
+    if (!loaded.has_value()) return failure_from<Publication>(loaded.diagnostic());
+    auto project = std::move(loaded.value());
+    const auto found = std::find(project.execution.committed_runs.begin(),
+                                 project.execution.committed_runs.end(),
+                                 snapshot.reference);
+    const bool alreadyCommitted = found != project.execution.committed_runs.end();
+    const auto installed = detail::install_object_file(
+        project_path, snapshot.reference, snapshot.bytes, options);
+    if (!installed.has_value()) return failure_from<Publication>(installed.diagnostic());
+    if (!alreadyCommitted) {
+      if (project.execution.committed_runs.size() >= maximum_committed_runs)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "committed_run_limit_exceeded", "project history is full"));
+      project.execution.committed_runs.push_back(snapshot.reference);
+    }
+    const auto event = append_event(
+        project, alreadyCommitted ? "inventory_snapshot_reused" :
+                                    "inventory_snapshot_anchored",
+        alreadyCommitted ? "already_committed" : "completed",
+        snapshot.reference.object_hash);
+    if (!event.has_value()) return failure_from<Publication>(event.diagnostic());
+    const auto persisted = persist_project(project_path, project, true, options);
+    if (!persisted.has_value()) return failure_from<Publication>(persisted.diagnostic());
+    return Result<Publication>::success({persisted.value(), alreadyCommitted});
+  } catch (const integrity::CanonicalJsonError &failure) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        failure.code(), failure.what(), std::nullopt, project_path));
+  } catch (const std::exception &failure) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "inventory_snapshot_commit_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "inventory_snapshot_commit_failed", "unknown inventory commit failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<Publication> publish_structural_archive(
     const std::filesystem::path &project_path,
     const StructuralArchiveObjects &objects,

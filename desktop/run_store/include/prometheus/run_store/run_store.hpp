@@ -99,6 +99,14 @@ publish_completed_run(const std::filesystem::path &project_path,
                       const CompletedRunObjects &objects,
                       TransactionOptions options = {}) noexcept;
 
+// Anchors a canonical, immutable accounting snapshot of a scanned project
+// folder. The snapshot records file identities and classification only; it
+// does not claim semantic understanding of any artifact.
+[[nodiscard]] Result<Publication> commit_project_inventory_snapshot(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &snapshot,
+    TransactionOptions options = {}) noexcept;
+
 // Anchors a verified structural archive manifest in the project history. Raw
 // solver artifacts remain external until the portable-bundle checkpoint; their
 // exact hashes and lengths are closed over by this immutable manifest.

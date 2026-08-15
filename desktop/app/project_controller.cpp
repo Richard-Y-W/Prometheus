@@ -14,6 +14,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <optional>
@@ -306,9 +307,30 @@ ProjectController::ProjectController(CadController *cad,
 }
 
 int ProjectController::committedRunCount() const {
-  return project_.has_value()
-             ? static_cast<int>(project_->execution.committed_runs.size())
-             : 0;
+  if (!project_) return 0;
+  return static_cast<int>(std::count_if(
+      project_->execution.committed_runs.cbegin(),
+      project_->execution.committed_runs.cend(), [](const auto &reference) {
+        return reference.schema_id != run_store::project_inventory_schema_id;
+      }));
+}
+
+int ProjectController::inventorySnapshotCount() const {
+  if (!project_) return 0;
+  return static_cast<int>(std::count_if(
+      project_->execution.committed_runs.cbegin(),
+      project_->execution.committed_runs.cend(), [](const auto &reference) {
+        return reference.schema_id == run_store::project_inventory_schema_id;
+      }));
+}
+
+QString ProjectController::latestInventoryHash() const {
+  if (!project_) return {};
+  for (auto reference = project_->execution.committed_runs.crbegin();
+       reference != project_->execution.committed_runs.crend(); ++reference)
+    if (reference->schema_id == run_store::project_inventory_schema_id)
+      return QString::fromStdString(reference->object_hash);
+  return {};
 }
 
 QVariantMap ProjectController::legacyEngineeringState() const {
@@ -411,6 +433,24 @@ void ProjectController::exportPortableBundle(const QUrl &parentFolder) {
                             exported.value().bundle_directory.wstring()),
                         {}, {}};
   }));
+}
+
+bool ProjectController::commitInventorySnapshot(
+    const run_store::ObjectToStore &snapshot) {
+  if (!project_.has_value() || current_project_path_.isEmpty()) return false;
+  const auto committed = run_store::commit_project_inventory_snapshot(
+      projectPath(), snapshot);
+  if (!committed.has_value()) {
+    setError(QString::fromStdString(committed.diagnostic().message),
+             QString::fromStdString(committed.diagnostic().code));
+    emit changed();
+    return false;
+  }
+  project_ = committed.value().project;
+  clearError();
+  emit changed();
+  emit projectSaved();
+  return true;
 }
 
 void ProjectController::restoreProject(const run_store::ProjectV2 &project,

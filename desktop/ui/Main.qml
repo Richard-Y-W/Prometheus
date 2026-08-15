@@ -1523,6 +1523,7 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 20
             projectIntakeController: window.intakeApi
+            projectController: window.projectApi
             cadPartSelected: window.hasSelection
             panelColor: panel
             lineColor: line

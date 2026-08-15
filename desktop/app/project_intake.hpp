@@ -6,6 +6,8 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include <prometheus/run_store/run_store.hpp>
+
 struct ProjectIntakeResult final {
   bool ok{};
   QString root_path;
@@ -16,6 +18,8 @@ struct ProjectIntakeResult final {
 };
 
 [[nodiscard]] ProjectIntakeResult scanProjectFolder(const QString &rootPath);
+[[nodiscard]] prometheus::run_store::ObjectToStore
+buildProjectInventorySnapshot(const ProjectIntakeResult &result);
 
 class ProjectIntakeController final : public QObject {
   Q_OBJECT
@@ -49,6 +53,7 @@ public:
   QString status() const;
   QString error() const { return result_.error; }
   bool busy() const { return busy_; }
+  const ProjectIntakeResult &result() const { return result_; }
 
   Q_INVOKABLE void scanFolder(const QUrl &folder);
   Q_INVOKABLE void reviewCandidateClaim(const QString &candidateId,

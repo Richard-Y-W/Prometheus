@@ -1,7 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
 add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_controller.cpp structural_controller.hpp)
-target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+  PRIVATE ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include)
 target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store prometheus_structural)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
@@ -35,10 +36,13 @@ if(BUILD_TESTING)
   )
   target_include_directories(prometheus_project_intake_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
   )
   target_link_libraries(prometheus_project_intake_tests PRIVATE
     Qt6::Concurrent
     Qt6::Test
+    prometheus_integrity
+    prometheus_run_store
   )
   add_test(
     NAME prometheus_project_intake

@@ -1,4 +1,6 @@
 #include <QGuiApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -12,6 +14,7 @@
 #include "project_controller.hpp"
 #include "service_controller.hpp"
 #include "structural_controller.hpp"
+#include <algorithm>
 int main(int argc, char* argv[]) {
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName("Prometheus");
@@ -22,6 +25,34 @@ int main(int argc, char* argv[]) {
   ProjectIntakeController intake;
   ExecutionController execution(&project,&service);
   StructuralController structural(&project);
+  const auto anchorInventory = [&intake, &project] {
+    if (!intake.result().ok || !project.project().has_value()) return;
+    auto source = QString::fromStdString(project.project()->cad_source);
+    if (QFileInfo(source).isRelative())
+      source = QFileInfo(QFileInfo(project.currentProjectPath()).absoluteDir(),
+                         source).absoluteFilePath();
+    const auto expected = QString::fromStdString(
+        project.project()->assembly_artifact_hash);
+    const auto sourceAccounted = std::any_of(
+        intake.result().artifacts.cbegin(), intake.result().artifacts.cend(),
+        [&](const QVariant &value) {
+          const auto artifact = value.toMap();
+          return QFileInfo(artifact.value("absolute_path").toString()) ==
+                     QFileInfo(source) &&
+                 artifact.value("sha256").toString() == expected;
+        });
+    if (!sourceAccounted) return;
+    const auto snapshot = buildProjectInventorySnapshot(intake.result());
+    if (project.latestInventoryHash() !=
+        QString::fromStdString(snapshot.reference.object_hash))
+      project.commitInventorySnapshot(snapshot);
+  };
+  QObject::connect(&intake, &ProjectIntakeController::scanFinished, &project,
+                   [anchorInventory](const bool success) {
+    if (success) anchorInventory();
+  });
+  QObject::connect(&project, &ProjectController::projectSaved, &project,
+                   anchorInventory);
   QQmlApplicationEngine engine;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");

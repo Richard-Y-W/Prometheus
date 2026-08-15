@@ -1,5 +1,7 @@
 #include "project_intake.hpp"
 
+#include <prometheus/integrity/canonical_json.hpp>
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -127,6 +129,24 @@ void handlesEmptyInvalidAndAmbiguousFolders() {
   require(ambiguous.ok && ambiguous.artifacts.size() == 2 &&
               ambiguous.primary_step_path.isEmpty(),
           "multiple STEP files require a user choice");
+}
+
+void buildsCanonicalImmutableInventorySnapshot() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "inventory snapshot folder exists");
+  writeFile(temporary.filePath("assembly.step"), "STEP identity\n");
+  writeFile(temporary.filePath("notes.pdf"), "evidence identity\n");
+  const auto result = scanProjectFolder(temporary.path());
+  const auto snapshot = buildProjectInventorySnapshot(result);
+  require(snapshot.reference.schema_id ==
+              prometheus::run_store::project_inventory_schema_id &&
+              snapshot.reference.object_hash ==
+                  prometheus::integrity::sha256_bytes(snapshot.bytes) &&
+              snapshot.reference.byte_length == snapshot.bytes.size(),
+          "inventory snapshot has exact registered content identity");
+  require(prometheus::integrity::verify_canonical_bytes(snapshot.bytes) ==
+              snapshot.bytes,
+          "inventory snapshot bytes are canonical");
 }
 
 void identifiesExactDuplicateCopies() {
@@ -281,6 +301,7 @@ int main(int argc, char **argv) {
   }
   accountsForEveryFile();
   handlesEmptyInvalidAndAmbiguousFolders();
+  buildsCanonicalImmutableInventorySnapshot();
   identifiesExactDuplicateCopies();
   exposesOnlyHashMatchedCandidateEvidence();
   controllerPublishesOnlySuccessfulInventory();

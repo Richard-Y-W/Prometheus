@@ -6,6 +6,7 @@ Item {
     id: root
 
     required property var projectIntakeController
+    property var projectController: null
     property bool cadPartSelected: false
     property bool claimsExpanded: false
     property color panelColor: "#20262c"
@@ -91,6 +92,17 @@ Item {
             text: "Every discovered file stays visible. Only STEP is loadable in this prototype; recognized files are not silently treated as understood."
             color: root.mutedColor
             wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+        Label {
+            visible: root.projectController !== null
+                     && root.projectController.latestInventoryHash !== ""
+            text: "IMMUTABLE INVENTORY ANCHORED • "
+                  + root.projectController.latestInventoryHash
+            color: "#70c99a"
+            font.bold: true
+            font.pixelSize: 10
+            elide: Text.ElideMiddle
             Layout.fillWidth: true
         }
 

@@ -140,13 +140,33 @@ publishing a partial destination.
 This is automated clean-location evidence on the supported Windows build. A
 physical clean-machine user trial remains part of the Phase 4 exit gate.
 
+## Checkpoint 8: immutable accounted-folder inventory
+
+Every successful folder scan can now produce a canonical, content-addressed
+inventory snapshot. It retains each relative path, byte length, SHA-256 identity
+when readable, classification, analysis state, and the explicit explanation for
+that state. Unsupported, not-yet-evaluated, symlinked, and unreadable files stay
+visible; the snapshot does not convert accounting into semantic understanding.
+
+When the scanned folder contains the open project's exact current CAD source,
+the desktop anchors the snapshot to project history. This works whether the
+project already existed at scan time or is saved afterward. An unrelated or
+changed folder cannot be attached merely because it was scanned. Repeated scans
+of identical content reuse the immutable snapshot, and the inventory panel shows
+the anchored identity. Inventory roots are distinct from analysis runs, so run
+counts and replay views remain accurate.
+
+The portable-bundle graph now treats anchored inventory snapshots as reachable
+project evidence. Its relocation test opens the moved project and reads back the
+exact canonical inventory bytes alongside the embedded structural run. This
+checkpoint transports the accounting record, not every non-CAD source byte.
+
 ## Still required
 
-- persist full folder inventory identities and selected CAD/component mapping;
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct
   downstream setup, request, or result state when they change or disappear;
 - snapshot projects at execution boundaries;
-- persist and transport the complete accounted source-folder inventory rather
-  than only the selected CAD source and reachable execution graph;
+- embed the exact bytes of retained non-CAD source evidence selected for
+  portability, with explicit archive/quarantine policy;
 - prove relocation on a separate supported clean machine; and
 - define archive/quarantine behavior from encountered real formats.

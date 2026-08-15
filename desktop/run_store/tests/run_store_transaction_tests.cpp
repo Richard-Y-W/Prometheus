@@ -162,6 +162,25 @@ run_store::ObjectToStore structural_manifest_fixture() {
           std::move(bytes)};
 }
 
+run_store::ObjectToStore inventory_snapshot_fixture() {
+  const auto bytes = integrity::canonicalize_json_bytes(
+      std::string{"{\"$schema\":\""} +
+      std::string(run_store::project_inventory_schema_id) +
+      "\",\"artifacts\":[{\"analysis_state\":\"not_evaluated\","
+      "\"byte_length\":8,\"category\":\"document\","
+      "\"detail\":\"Content not interpreted\","
+      "\"relative_path\":\"docs/spec.pdf\",\"sha256\":\"sha256:" +
+      std::string(64U, 'a') +
+      "\"}],\"root_label\":\"portable-source\","
+      "\"schema_version\":\"1.0.0\","
+      "\"snapshot_kind\":\"accounted_project_folder\"}");
+  return {reference_for(bytes,
+                        std::string(run_store::project_inventory_media_type),
+                        std::string(run_store::project_inventory_schema_id),
+                        "1.0.0"),
+          bytes};
+}
+
 fs::path create_structural_archive_fixture(const fs::path &root) {
   const auto archive = root / "structural-archive";
   require(fs::create_directory(archive), "create structural archive fixture");
@@ -555,11 +574,15 @@ void test_embedded_structural_archive_round_trip() {
   require_success(run_store::publish_structural_archive(
                       portableProjectPath, portableObjects.value()),
                   "publish portable structural archive");
+  const auto inventory = inventory_snapshot_fixture();
+  require_success(run_store::commit_project_inventory_snapshot(
+                      portableProjectPath, inventory),
+                  "anchor portable project inventory");
   const auto bundleDirectory = root.path() / "portable-bundle";
   const auto bundle = run_store::export_project_bundle(
       portableProjectPath, bundleDirectory);
   require(bundle.has_value() && bundle.value().object_count ==
-                                    portableObjects.value().chunks.size() + 2U,
+                                    portableObjects.value().chunks.size() + 3U,
           "portable bundle contains exactly the reachable structural object graph");
   const auto movedBundle = root.path() / "moved-clean-machine-bundle";
   fs::rename(bundleDirectory, movedBundle);
@@ -568,8 +591,11 @@ void test_embedded_structural_archive_round_trip() {
   const auto movedProject = run_store::open_read_only(moved.value().project_path);
   require(movedProject.has_value() &&
               movedProject.value().cad_source == "sources/portable-bracket.step" &&
-              movedProject.value().execution.committed_runs.size() == 1U,
+              movedProject.value().execution.committed_runs.size() == 2U,
           "relocated bundle opens with relative CAD and structural history");
+  require(run_store::read_object(moved.value().project_path, inventory.reference)
+              .value() == inventory.bytes,
+          "relocated bundle retains exact project inventory snapshot");
   const auto bundleRestored = run_store::reconstruct_structural_archive(
       moved.value().project_path,
       movedProject.value().execution.committed_runs.front(),
