@@ -165,6 +165,20 @@ completed the existing SPOOLES smoke through the new runner in 1,249 ms and
 returned the unchanged `2.228571e-8 m` displacement and `3428.571 Pa` von Mises
 metrics. This remains execution wiring evidence, not bracket validation.
 
+## Checkpoint 7: scoped structural findings
+
+Completed metrics can now be compiled against only the displacement and/or von
+Mises obligations declared by the reviewed request. Each finding records the
+measured value, limit, signed margin, unit, and the bounded isotropic
+linear-elastic C3D4 scope. Values at or below a limit are described as
+`no_violation_detected_within_scope`; values above it are `violated`.
+
+A failed, timed-out, missing-output, or invalid-result execution evaluates zero
+obligations and creates no pass or violation findings. Tests exercise the same
+completed metrics against loose known-pass limits and tighter known-fail limits,
+and preserve an explicit limitation excluding safety, fatigue, buckling,
+contact, fasteners, nonlinear behavior, and project-wide correctness.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

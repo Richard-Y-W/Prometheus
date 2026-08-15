@@ -6,6 +6,7 @@ add_library(prometheus_structural STATIC
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
+  src/structural_findings.cpp
   src/structural_setup.cpp
 )
 if(WIN32)

@@ -3,6 +3,7 @@
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
+#include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
@@ -280,6 +281,24 @@ int main() {
               completed.standard_output.find("fixture stdout") != std::string::npos &&
               completed.standard_error.find("fixture stderr") != std::string::npos,
           "isolated solver process captures streams and parses required raw outputs");
+  const auto withinLimits = ps::compile_structural_findings(request, completed);
+  require(withinLimits.declared_obligations == 2 &&
+              withinLimits.evaluated_obligations == 2 &&
+              std::ranges::all_of(withinLimits.findings, [](const auto &finding) {
+                return finding.disposition ==
+                    ps::StructuralFindingDisposition::no_violation_detected_within_scope;
+              }) &&
+              withinLimits.limitation.find("project-wide") != std::string::npos,
+          "completed metrics compile into scoped no-violation findings");
+  auto strictRequest = request;
+  strictRequest.displacement_limit_m = 1.0e-6;
+  strictRequest.von_mises_limit_pa = 1.0e5;
+  const auto violated = ps::compile_structural_findings(strictRequest, completed);
+  require(std::ranges::all_of(violated.findings, [](const auto &finding) {
+            return finding.disposition == ps::StructuralFindingDisposition::violated &&
+                   finding.margin_to_limit < 0.0;
+          }),
+          "the same completed metrics produce known-fail violations at tighter limits");
   const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
   require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
               nonzero.exit_code == 7 && !nonzero.metrics,
@@ -290,6 +309,11 @@ int main() {
   const auto timedOut = runFixture("timeout", std::chrono::milliseconds(30));
   require(timedOut.status == ps::SolverRunStatus::timed_out && !timedOut.metrics,
           "solver timeout is terminated and classified without metrics");
+  const auto indeterminate = ps::compile_structural_findings(request, timedOut);
+  require(indeterminate.declared_obligations == 2 &&
+              indeterminate.evaluated_obligations == 0 &&
+              indeterminate.findings.empty(),
+          "failed execution cannot satisfy or violate engineering obligations");
   fs::remove_all(processRoot);
   return 0;
 }
