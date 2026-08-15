@@ -131,6 +131,45 @@ int main() {
   require(mesh.nodes.size() == 4 && mesh.elements.size() == 1 &&
               mesh.nodes.front().position_m[2] == 0.01,
           "Gmsh mesh parser retains only C3D4 and converts mm to m explicitly");
+  const auto boundary = ps::extract_boundary_faces(mesh);
+  require(boundary.size() == 4,
+          "one tetrahedron exposes four deterministic boundary faces");
+  double boundaryArea = 0.0;
+  for (const auto &face : boundary) {
+    boundaryArea += face.area_m2;
+    const auto oppositeId = *std::ranges::find_if(
+        mesh.elements.front().node_ids, [&](const int nodeId) {
+          return std::ranges::find(face.node_ids, nodeId) == face.node_ids.end();
+        });
+    const auto oppositeNode = std::ranges::find_if(
+        mesh.nodes, [&](const auto &node) { return node.id == oppositeId; });
+    require(oppositeNode != mesh.nodes.end(), "opposite boundary node exists");
+    const auto &opposite = oppositeNode->position_m;
+    const auto towardInterior = std::array<double, 3>{
+        opposite[0] - face.centroid_m[0], opposite[1] - face.centroid_m[1],
+        opposite[2] - face.centroid_m[2]};
+    require(face.outward_unit_normal[0] * towardInterior[0] +
+                    face.outward_unit_normal[1] * towardInterior[1] +
+                    face.outward_unit_normal[2] * towardInterior[2] <
+                0.0,
+            "boundary normals point away from the tetrahedron interior");
+  }
+  require(std::abs(boundaryArea - (0.00015 + std::sqrt(3.0) * 0.00005)) < 1e-12,
+          "boundary face areas are reported in square metres");
+
+  auto paired = mesh;
+  paired.nodes.push_back({5, {0.0, 0.0, -0.01}});
+  paired.elements.push_back({10, {1, 3, 2, 5}});
+  require(ps::extract_boundary_faces(paired).size() == 6,
+          "a shared tetrahedron face is excluded from the exterior boundary");
+  auto nonManifold = paired;
+  nonManifold.nodes.push_back({6, {0.0, 0.0, 0.02}});
+  nonManifold.elements.push_back({11, {1, 2, 3, 6}});
+  try {
+    (void)ps::extract_boundary_faces(nonManifold);
+    fail("non-manifold volume face was accepted");
+  } catch (const std::invalid_argument &) {
+  }
   try {
     (void)ps::parse_gmsh_abaqus_mesh(rawMesh, 0.0);
     fail("invalid mesh scale was accepted");

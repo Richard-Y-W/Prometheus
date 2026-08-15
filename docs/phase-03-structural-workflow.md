@@ -91,13 +91,29 @@ reproducible mesh identity. Run this checkpoint with:
 Meshing success does not authorize solver execution or demonstrate mesh
 convergence.
 
+## Checkpoint 3: reviewable exterior boundary
+
+The structural mesh adapter now derives the exterior triangular boundary from
+the volume tetrahedra without trusting Gmsh's auxiliary surface elements. It:
+
+- removes faces shared by exactly two tetrahedra;
+- rejects faces shared by more than two tetrahedra as non-manifold;
+- orients every retained face normal away from its owning tetrahedron;
+- reports deterministic node IDs, centroid, unit normal, and area in SI units;
+- rejects missing nodes, duplicate IDs, repeated tetrahedron nodes, zero-area
+  faces, and zero-volume orientation cases.
+
+For the exact local YUBI bracket mesh recorded above, the enhanced probe reports
+4,616 exterior triangular faces with total exterior area `0.0090477 m^2`. This
+is mesh topology evidence only. Prometheus has not inferred bolt faces, load
+faces, restraint faces, material, or a structural scenario from those faces.
+
 ## Next checkpoint
 
-1. Mesh the exact bracket through an isolated Gmsh invocation and retain the
-   exact mesh plus diagnostics.
-2. Present mesh statistics and face groups for human restraint/load selection.
-3. Obtain reviewed elastic properties for the exact A2024 applicability state.
-4. Define one bounded load and requirement without inferring them from bolt
+1. Present the extracted boundary in selectable face groups for human
+   restraint/load review, retaining the exact selected face and node IDs.
+2. Obtain reviewed elastic properties for the exact A2024 applicability state.
+3. Define one bounded load and requirement without inferring them from bolt
    torque or servo identity.
-5. Execute known-pass and known-fail cases, a refinement comparison, and an
+4. Execute known-pass and known-fail cases, a refinement comparison, and an
    independent analytic benchmark before evaluating the real bracket.
