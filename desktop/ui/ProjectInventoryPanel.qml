@@ -171,6 +171,14 @@ Item {
                         color: "#e0ac62"
                         font.pixelSize: 10
                     }
+                    Label {
+                        property var candidate: root.projectIntakeController.candidateComponents.length > 0
+                                                ? root.projectIntakeController.candidateComponents[0] : ({})
+                        text: (candidate.candidate_claims ? candidate.candidate_claims.length : 0)
+                              + " source-located specification candidates await human review"
+                        color: root.mutedColor
+                        font.pixelSize: 10
+                    }
                 }
                 Button {
                     text: "Bind candidate to selected part"

@@ -6,12 +6,15 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
 
 namespace {
@@ -264,6 +267,43 @@ QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,
     detail = "Candidate component source file is missing or has the wrong hash";
     return {};
   }
+  QVariantList claims;
+  QSet<QString> claimIds;
+  const auto claimValues = root.value("candidate_claims").toArray();
+  if (claimValues.size() > 32) {
+    detail = "Trial source manifest has too many candidate claims";
+    return {};
+  }
+  for (const auto &claimValue : claimValues) {
+    const auto claim = claimValue.toObject();
+    const auto id = claim.value("id").toString();
+    const auto label = claim.value("label").toString();
+    const auto quantity = claim.value("quantity").toString();
+    const auto originalValue = claim.value("original_value").toString();
+    const auto originalUnit = claim.value("original_unit").toString();
+    const auto siUnit = claim.value("si_unit").toString();
+    const auto valueSi = claim.value("value_si").toDouble(
+        std::numeric_limits<double>::quiet_NaN());
+    const auto sourcePage = claim.value("source_page").toInt();
+    if (id.isEmpty() || id.size() > 80 || claimIds.contains(id) ||
+        label.isEmpty() || quantity.isEmpty() || originalValue.isEmpty() ||
+        originalUnit.isEmpty() || siUnit.isEmpty() || !std::isfinite(valueSi) ||
+        sourcePage <= 0) {
+      detail = "Trial source manifest contains an invalid candidate claim";
+      return {};
+    }
+    claimIds.insert(id);
+    claims.append(QVariantMap{{"id", id},
+                              {"label", label},
+                              {"quantity", quantity},
+                              {"original_value", originalValue},
+                              {"original_unit", originalUnit},
+                              {"value_si", valueSi},
+                              {"si_unit", siUnit},
+                              {"source_file", sourceFile},
+                              {"source_page", sourcePage},
+                              {"review_state", "unreviewed"}});
+  }
   detail = "Candidate component source verified; specifications remain unreviewed";
   return {{"id", "candidate:" + manifestArtifact.value("sha256").toString()},
           {"manufacturer", manufacturer},
@@ -271,6 +311,7 @@ QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,
           {"relationship", component.value("relationship").toString()},
           {"source_file", sourceFile},
           {"source_sha256", expectedDigest},
+          {"candidate_claims", claims},
           {"review_state", "candidate_evidence_only"}};
 }
 

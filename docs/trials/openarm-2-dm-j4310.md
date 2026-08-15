@@ -53,6 +53,12 @@ This is an explicit session binding only: it does not mark specifications as
 reviewed, create an execution package, or enable analysis. Saving a Prometheus
 project preserves the binding through the existing project snapshot path.
 
+The generated source manifest includes eleven page-9 numeric candidates:
+rated voltage/current/torque/speed, peak current/torque, maximum no-load speed,
+reduction ratio, outer diameter, height, and approximate mass. Original text
+and units are retained alongside SI-normalized candidate values. Intake shows
+their count, but every claim remains `unreviewed`; none is an execution input.
+
 ## Questions this trial should answer
 
 1. Can a user find the intended J5–J8 motor geometry in the imported assembly?

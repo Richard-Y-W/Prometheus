@@ -162,6 +162,7 @@ void exposesOnlyHashMatchedCandidateEvidence() {
     "schema":"urn:prometheus:trial-source-manifest:0.1.0",
     "status":"candidate_evidence_only",
     "component":{"manufacturer":"DAMIAO","part_number":"DM-J4310-2EC V1.1","relationship":"joint candidate","source_file":"manual.pdf","source_sha256":"%1"},
+    "candidate_claims":[{"id":"rated_torque","label":"Rated torque","quantity":"torque","original_value":"3","original_unit":"N m","value_si":3.0,"si_unit":"N m","source_page":9}],
     "review":{"published_component":false,"geometry_binding_confirmed":false,"specification_claims_reviewed":false}
   })").arg(manualHash).toUtf8();
   writeFile(temporary.filePath("prometheus-trial-source-manifest.json"),
@@ -175,6 +176,12 @@ void exposesOnlyHashMatchedCandidateEvidence() {
               candidate.value("part_number") == "DM-J4310-2EC V1.1" &&
               candidate.value("review_state") == "candidate_evidence_only",
           "candidate identity remains explicitly unreviewed");
+  const auto claims = candidate.value("candidate_claims").toList();
+  require(claims.size() == 1 &&
+              claims.front().toMap().value("id") == "rated_torque" &&
+              claims.front().toMap().value("review_state") == "unreviewed" &&
+              claims.front().toMap().value("source_page") == 9,
+          "source-located candidate claim remains unreviewed");
 
   writeFile(temporary.filePath("manual.pdf"), "changed\n");
   const auto rejected = scanProjectFolder(temporary.path());

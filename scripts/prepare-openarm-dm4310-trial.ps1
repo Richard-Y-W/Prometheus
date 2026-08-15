@@ -44,6 +44,19 @@ $manifest = [ordered]@{
     source_file = 'DM-J4310-2EC-V1.1-manual.pdf'
     source_sha256 = $manualSha256.ToLowerInvariant()
   }
+  candidate_claims = @(
+    [ordered]@{ id='rated_voltage'; label='Rated voltage'; quantity='voltage'; original_value='24'; original_unit='V'; value_si=24.0; si_unit='V'; source_page=9 },
+    [ordered]@{ id='rated_current'; label='Rated current'; quantity='electric_current'; original_value='2.5'; original_unit='A'; value_si=2.5; si_unit='A'; source_page=9 },
+    [ordered]@{ id='peak_current'; label='Peak current'; quantity='electric_current'; original_value='7.5'; original_unit='A'; value_si=7.5; si_unit='A'; source_page=9 },
+    [ordered]@{ id='rated_torque'; label='Rated torque'; quantity='torque'; original_value='3'; original_unit='N m'; value_si=3.0; si_unit='N m'; source_page=9 },
+    [ordered]@{ id='peak_torque'; label='Peak torque'; quantity='torque'; original_value='7'; original_unit='N m'; value_si=7.0; si_unit='N m'; source_page=9 },
+    [ordered]@{ id='rated_speed'; label='Rated speed'; quantity='angular_speed'; original_value='120'; original_unit='rpm'; value_si=12.566370614359172; si_unit='rad/s'; source_page=9 },
+    [ordered]@{ id='maximum_no_load_speed'; label='Maximum no-load speed'; quantity='angular_speed'; original_value='200'; original_unit='rpm'; value_si=20.943951023931955; si_unit='rad/s'; source_page=9 },
+    [ordered]@{ id='reduction_ratio'; label='Reduction ratio'; quantity='ratio'; original_value='10:1'; original_unit='1'; value_si=10.0; si_unit='1'; source_page=9 },
+    [ordered]@{ id='outer_diameter'; label='Outer diameter'; quantity='length'; original_value='56'; original_unit='mm'; value_si=0.056; si_unit='m'; source_page=9 },
+    [ordered]@{ id='height'; label='Height'; quantity='length'; original_value='46'; original_unit='mm'; value_si=0.046; si_unit='m'; source_page=9 },
+    [ordered]@{ id='approximate_mass'; label='Approximate motor mass'; quantity='mass'; original_value='approximately 300'; original_unit='g'; value_si=0.3; si_unit='kg'; source_page=9 }
+  )
   review = [ordered]@{
     published_component = $false
     geometry_binding_confirmed = $false
