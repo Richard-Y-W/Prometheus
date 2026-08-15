@@ -94,6 +94,40 @@ Item {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
+        Rectangle {
+            visible: root.projectController !== null
+                     && root.projectController.inventoryChanges.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(5, root.projectController.inventoryChanges.length) * 24 + 34
+            color: "#2a2520"
+            border.color: "#e0ac62"
+            radius: 3
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                Label {
+                    text: "CHANGES SINCE ANCHORED INVENTORY"
+                    color: "#e0ac62"
+                    font.bold: true
+                    font.pixelSize: 10
+                }
+                Repeater {
+                    model: root.projectController === null ? []
+                           : root.projectController.inventoryChanges.slice(0, 5)
+                    Label {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        text: String(modelData.change).toUpperCase() + " • "
+                              + modelData.relative_path
+                              + (modelData.affects_current_assembly
+                                 ? " • STRUCTURAL SETUP REVOKED" : "")
+                        color: modelData.affects_current_assembly ? "#e87972" : root.textColor
+                        font.pixelSize: 10
+                        elide: Text.ElideMiddle
+                    }
+                }
+            }
+        }
         Label {
             visible: root.projectController !== null
                      && root.projectController.latestInventoryHash !== ""

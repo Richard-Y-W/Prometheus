@@ -161,6 +161,29 @@ project evidence. Its relocation test opens the moved project and reads back the
 exact canonical inventory bytes alongside the embedded structural run. This
 checkpoint transports the accounting record, not every non-CAD source byte.
 
+## Checkpoint 9: inventory change classification and scoped invalidation
+
+A rescan now compares the new canonical accounting record with the latest
+anchored snapshot by relative path, byte length, SHA-256 identity, and analysis
+state. The inventory panel reports added, missing, changed, and state-changed
+files. Identical snapshots are not recommitted.
+
+The comparison distinguishes dependency from mere co-location. A changed PDF,
+BOM candidate, source file, or other currently unbound artifact creates a new
+inventory snapshot and visible change record without revoking structural runs
+that never consumed it. A changed or missing selected CAD source immediately
+marks the assembly identity stale, refuses to anchor the changed snapshot as a
+valid project state, clears the runnable structural request, and adds an
+explicit surface-review blocker. Completed historical results remain viewable.
+Restoring the exact CAD bytes can restore the source identity, but the cleared
+structural request still requires ordinary geometry and surface review before a
+new run.
+
+Tests prove non-CAD evidence changes preserve current assembly state and run
+counts, while a CAD identity change emits the invalidation boundary and retains
+the last two valid inventory snapshots rather than laundering changed source
+bytes into project history.
+
 ## Still required
 
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct

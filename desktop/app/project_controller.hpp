@@ -8,6 +8,7 @@ namespace prometheus::run_store { struct ObjectToStore; }
 #include <QString>
 #include <QUrl>
 #include <QVariantMap>
+#include <QVariantList>
 
 #include <filesystem>
 #include <optional>
@@ -30,6 +31,9 @@ class ProjectController final : public QObject {
   Q_PROPERTY(int committedRunCount READ committedRunCount NOTIFY changed)
   Q_PROPERTY(int inventorySnapshotCount READ inventorySnapshotCount NOTIFY changed)
   Q_PROPERTY(QString latestInventoryHash READ latestInventoryHash NOTIFY changed)
+  Q_PROPERTY(QVariantList inventoryChanges READ inventoryChanges NOTIFY changed)
+  Q_PROPERTY(QString inventoryComparisonStatus READ inventoryComparisonStatus
+                 NOTIFY changed)
   Q_PROPERTY(bool bundleBusy READ bundleBusy NOTIFY changed)
   Q_PROPERTY(QString lastBundlePath READ lastBundlePath NOTIFY changed)
   Q_PROPERTY(QVariantMap legacyEngineeringState READ legacyEngineeringState
@@ -51,6 +55,10 @@ public:
   int committedRunCount() const;
   int inventorySnapshotCount() const;
   QString latestInventoryHash() const;
+  QVariantList inventoryChanges() const { return inventory_changes_; }
+  QString inventoryComparisonStatus() const {
+    return inventory_comparison_status_;
+  }
   bool bundleBusy() const { return bundle_busy_; }
   QString lastBundlePath() const { return last_bundle_path_; }
   QVariantMap legacyEngineeringState() const;
@@ -63,6 +71,9 @@ public:
   Q_INVOKABLE void exportPortableBundle(const QUrl &parentFolder);
   bool commitInventorySnapshot(
       const prometheus::run_store::ObjectToStore &snapshot);
+  bool assessInventorySnapshot(
+      const prometheus::run_store::ObjectToStore &snapshot,
+      const QString &cadRelativePath, bool cadCurrent);
 
   const std::optional<prometheus::run_store::ProjectV2> &project() const {
     return project_;
@@ -75,6 +86,7 @@ signals:
   void changed();
   void projectOpened();
   void projectSaved();
+  void assemblyArtifactInvalidated();
 
 private:
   CadController *cad_;
@@ -91,6 +103,8 @@ private:
   QString error_code_;
   bool bundle_busy_{};
   QString last_bundle_path_;
+  QVariantList inventory_changes_;
+  QString inventory_comparison_status_;
 
   void clearError();
   void setError(QString message, QString code);

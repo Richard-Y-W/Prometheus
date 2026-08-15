@@ -6,6 +6,9 @@
 #include <prometheus/run_store/legacy_project_v1.hpp>
 #include <prometheus/run_store/run_store.hpp>
 #include <prometheus/run_store/project_bundle.hpp>
+#include <prometheus/run_store/object_store.hpp>
+
+#include <nlohmann/json.hpp>
 
 #include <QDir>
 #include <QFileInfo>
@@ -17,7 +20,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <exception>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -386,6 +391,8 @@ void ProjectController::setError(QString message, QString code) {
 }
 
 void ProjectController::acceptProject(run_store::ProjectV2 project) {
+  inventory_changes_.clear();
+  inventory_comparison_status_.clear();
   project_ = std::move(project);
   emit changed();
 }
@@ -453,9 +460,94 @@ bool ProjectController::commitInventorySnapshot(
   return true;
 }
 
+bool ProjectController::assessInventorySnapshot(
+    const run_store::ObjectToStore &snapshot, const QString &cadRelativePath,
+    const bool cadCurrent) {
+  inventory_changes_.clear();
+  inventory_comparison_status_ = "initial_inventory";
+  try {
+    using Json = nlohmann::json;
+    std::optional<run_store::StoredObjectReference> previous;
+    if (project_)
+      for (auto reference = project_->execution.committed_runs.crbegin();
+           reference != project_->execution.committed_runs.crend(); ++reference)
+        if (reference->schema_id == run_store::project_inventory_schema_id) {
+          previous = *reference;
+          break;
+        }
+    if (previous) {
+      const auto oldBytes = run_store::read_object(projectPath(), *previous);
+      if (!oldBytes.has_value()) {
+        setError(QString::fromStdString(oldBytes.diagnostic().message),
+                 QString::fromStdString(oldBytes.diagnostic().code));
+        emit changed();
+        return false;
+      }
+      const auto oldDocument = Json::parse(oldBytes.value());
+      const auto newDocument = Json::parse(snapshot.bytes);
+      std::map<std::string, Json> oldArtifacts;
+      std::map<std::string, Json> newArtifacts;
+      for (const auto &artifact : oldDocument.at("artifacts"))
+        oldArtifacts.emplace(artifact.at("relative_path").get<std::string>(),
+                             artifact);
+      for (const auto &artifact : newDocument.at("artifacts"))
+        newArtifacts.emplace(artifact.at("relative_path").get<std::string>(),
+                             artifact);
+      std::set<std::string> paths;
+      for (const auto &[path, artifact] : oldArtifacts) {
+        (void)artifact;
+        paths.insert(path);
+      }
+      for (const auto &[path, artifact] : newArtifacts) {
+        (void)artifact;
+        paths.insert(path);
+      }
+      for (const auto &path : paths) {
+        QString change;
+        if (!oldArtifacts.contains(path)) change = "added";
+        else if (!newArtifacts.contains(path)) change = "missing";
+        else if (oldArtifacts.at(path).at("sha256") !=
+                     newArtifacts.at(path).at("sha256") ||
+                 oldArtifacts.at(path).at("byte_length") !=
+                     newArtifacts.at(path).at("byte_length"))
+          change = "changed";
+        else if (oldArtifacts.at(path).at("analysis_state") !=
+                 newArtifacts.at(path).at("analysis_state"))
+          change = "state_changed";
+        if (!change.isEmpty())
+          inventory_changes_.append(QVariantMap{
+              {"relative_path", QString::fromStdString(path)},
+              {"change", change},
+              {"affects_current_assembly",
+               QString::fromStdString(path) == cadRelativePath}});
+      }
+      inventory_comparison_status_ = inventory_changes_.isEmpty()
+                                         ? "inventory_unchanged"
+                                         : "inventory_changed";
+    }
+  } catch (const std::exception &failure) {
+    setError(QString("Inventory comparison failed: %1").arg(failure.what()),
+             "inventory_comparison_failed");
+    emit changed();
+    return false;
+  }
+  if (!cadCurrent) {
+    assembly_artifact_current_ = false;
+    setError("The accounted CAD source changed. Structural rerun is revoked until geometry and surface selections are reviewed.",
+             "assembly_artifact_changed");
+    emit changed();
+    emit assemblyArtifactInvalidated();
+    return false;
+  }
+  assembly_artifact_current_ = true;
+  return commitInventorySnapshot(snapshot);
+}
+
 void ProjectController::restoreProject(const run_store::ProjectV2 &project,
                                        const QString &projectPath,
                                        const QString &degradedStoreCode) {
+  inventory_changes_.clear();
+  inventory_comparison_status_.clear();
   project_ = project;
   current_project_path_ = projectPath;
   const auto state = cadState(project, projectPath);

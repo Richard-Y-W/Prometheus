@@ -33,19 +33,34 @@ int main(int argc, char* argv[]) {
                          source).absoluteFilePath();
     const auto expected = QString::fromStdString(
         project.project()->assembly_artifact_hash);
+    QString sourceRelativePath;
+    QString accountedSourceHash;
     const auto sourceAccounted = std::any_of(
         intake.result().artifacts.cbegin(), intake.result().artifacts.cend(),
         [&](const QVariant &value) {
           const auto artifact = value.toMap();
-          return QFileInfo(artifact.value("absolute_path").toString()) ==
-                     QFileInfo(source) &&
-                 artifact.value("sha256").toString() == expected;
+          if (QFileInfo(artifact.value("absolute_path").toString()) !=
+              QFileInfo(source))
+            return false;
+          sourceRelativePath = artifact.value("relative_path").toString();
+          accountedSourceHash = artifact.value("sha256").toString();
+          return true;
         });
-    if (!sourceAccounted) return;
+    if (!sourceAccounted) {
+      const auto relative = QDir::fromNativeSeparators(
+          QDir(intake.result().root_path).relativeFilePath(source));
+      if (relative == ".." || relative.startsWith("../") ||
+          QFileInfo(relative).isAbsolute())
+        return;
+      sourceRelativePath = relative;
+    }
     const auto snapshot = buildProjectInventorySnapshot(intake.result());
-    if (project.latestInventoryHash() !=
-        QString::fromStdString(snapshot.reference.object_hash))
-      project.commitInventorySnapshot(snapshot);
+    if (project.latestInventoryHash() ==
+            QString::fromStdString(snapshot.reference.object_hash) &&
+        accountedSourceHash == expected)
+      return;
+    project.assessInventorySnapshot(snapshot, sourceRelativePath,
+                                    accountedSourceHash == expected);
   };
   QObject::connect(&intake, &ProjectIntakeController::scanFinished, &project,
                    [anchorInventory](const bool success) {

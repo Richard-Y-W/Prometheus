@@ -104,6 +104,25 @@ run_store::StoredObjectReference manifestReference(const char digit)
         "1.0.0"};
 }
 
+run_store::ObjectToStore inventorySnapshot(const std::string &cadHash,
+                                           const std::string &evidenceHash) {
+    const auto bytes = integrity::canonicalize_json_bytes(
+        std::string{"{\"$schema\":\""} +
+        std::string(run_store::project_inventory_schema_id) +
+        "\",\"artifacts\":[{\"analysis_state\":\"ready\","
+        "\"byte_length\":10,\"category\":\"geometry\",\"detail\":\"STEP\","
+        "\"relative_path\":\"assembly.step\",\"sha256\":\"" + cadHash +
+        "\"},{\"analysis_state\":\"not_evaluated\",\"byte_length\":5,"
+        "\"category\":\"document\",\"detail\":\"Not interpreted\","
+        "\"relative_path\":\"docs/spec.pdf\",\"sha256\":\"" + evidenceHash +
+        "\"}],\"root_label\":\"fixture\",\"schema_version\":\"1.0.0\","
+        "\"snapshot_kind\":\"accounted_project_folder\"}");
+    return {{integrity::sha256_bytes(bytes), bytes.size(),
+             std::string(run_store::project_inventory_media_type),
+             std::string(run_store::project_inventory_schema_id), "1.0.0"},
+            bytes};
+}
+
 void replaceProject(
     const QString& path, const run_store::ProjectV2& project)
 {
@@ -438,6 +457,54 @@ void current_save_preserves_newer_execution_references()
         "controller refreshes to the locked saved project");
 }
 
+void inventory_rescan_invalidates_only_changed_dependencies()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "inventory comparison root exists");
+    const auto cadPath = temporary.filePath("assembly.step");
+    const QByteArray cadBytes("CAD source");
+    writeBytes(cadPath, cadBytes);
+    const auto cadHash = utf8(objectHash(cadBytes));
+    const auto projectPath = temporary.filePath("inventory.prometheus");
+    require(run_store::create_project_v2(
+                nativePath(projectPath), projectForCad(cadPath, QString::fromStdString(cadHash)))
+                .has_value(),
+        "inventory comparison project creates");
+    CadController cad;
+    EngineeringController engineering;
+    ProjectController controller(&cad, &engineering);
+    controller.openProject(QUrl::fromLocalFile(projectPath));
+
+    const auto first = inventorySnapshot(cadHash, "sha256:" + std::string(64U, '1'));
+    require(controller.assessInventorySnapshot(first, "assembly.step", true),
+        "initial inventory anchors");
+    const auto evidenceChanged =
+        inventorySnapshot(cadHash, "sha256:" + std::string(64U, '2'));
+    require(controller.assessInventorySnapshot(
+                evidenceChanged, "assembly.step", true)
+            && controller.inventoryChanges().size() == 1
+            && !controller.inventoryChanges().front().toMap()
+                    .value("affects_current_assembly").toBool()
+            && controller.assemblyArtifactCurrent()
+            && controller.committedRunCount() == 0
+            && controller.inventorySnapshotCount() == 2,
+        "non-CAD evidence change is recorded without revoking structural source");
+
+    int invalidated = 0;
+    QObject::connect(&controller,
+        &ProjectController::assemblyArtifactInvalidated,
+        &controller, [&invalidated] { ++invalidated; });
+    const auto cadChanged = inventorySnapshot(
+        "sha256:" + std::string(64U, '3'), "sha256:" + std::string(64U, '2'));
+    require(!controller.assessInventorySnapshot(
+                cadChanged, "assembly.step", false)
+            && invalidated == 1
+            && !controller.assemblyArtifactCurrent()
+            && controller.errorCode() == "assembly_artifact_changed"
+            && controller.inventorySnapshotCount() == 2,
+        "CAD identity change revokes current source without anchoring it as valid");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -447,5 +514,6 @@ int main(int argc, char** argv)
     open_degrades_without_cad_or_sidecar();
     changed_cad_blocks_execution_and_history_remains_visible();
     current_save_preserves_newer_execution_references();
+    inventory_rescan_invalidates_only_changed_dependencies();
     return 0;
 }

@@ -215,6 +215,22 @@ StructuralController::StructuralController(ProjectController *project,
             this, &StructuralController::reloadProject);
     connect(project_, &ProjectController::projectSaved,
             this, &StructuralController::reloadProject);
+    connect(project_, &ProjectController::assemblyArtifactInvalidated, this,
+            [this] {
+      compiled_request_.reset();
+      compiled_setup_evidence_.clear();
+      can_run_ = false;
+      const auto present = std::any_of(
+          blockers_.cbegin(), blockers_.cend(), [](const QVariant &value) {
+            return value.toMap().value("code").toString() ==
+                   "source_artifact_changed";
+          });
+      if (!present)
+        blockers_.append(QVariantMap{
+            {"code", "source_artifact_changed"},
+            {"message", "The accounted CAD bytes changed. Historical results remain viewable, but geometry and selected load/restraint surfaces must be reviewed before rerun."}});
+      emit changed();
+    });
   }
   rebuildPreview();
   reloadProject();
