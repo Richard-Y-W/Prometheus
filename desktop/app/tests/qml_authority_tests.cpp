@@ -61,6 +61,8 @@ public:
     }};
   }
   bool busy() const { return false; }
+  Q_INVOKABLE void reviewCandidateClaim(const QString &, const QString &,
+                                        const QString &) {}
   QVariantMap candidate() const {
     if (!review_mode_) {
       return {};

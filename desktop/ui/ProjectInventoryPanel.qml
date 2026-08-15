@@ -7,6 +7,7 @@ Item {
 
     required property var projectIntakeController
     property bool cadPartSelected: false
+    property bool claimsExpanded: false
     property color panelColor: "#20262c"
     property color lineColor: "#35404a"
     property color textColor: "#dfe7ed"
@@ -180,10 +181,59 @@ Item {
                         font.pixelSize: 10
                     }
                 }
-                Button {
-                    text: "Bind candidate to selected part"
-                    enabled: root.cadPartSelected
-                    onClicked: root.bindCandidateRequested(root.projectIntakeController.candidateComponents[0])
+                ColumnLayout {
+                    Button {
+                        text: root.claimsExpanded ? "Hide claims" : "Review claims"
+                        onClicked: root.claimsExpanded = !root.claimsExpanded
+                    }
+                    Button {
+                        text: "Bind candidate to selected part"
+                        enabled: root.cadPartSelected
+                        onClicked: root.bindCandidateRequested(root.projectIntakeController.candidateComponents[0])
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 260
+            visible: root.claimsExpanded
+                     && root.projectIntakeController.candidateComponents.length > 0
+            color: "#171e24"
+            border.color: root.lineColor
+            radius: 3
+            ListView {
+                id: candidateClaimList
+                anchors.fill: parent
+                anchors.margins: 8
+                clip: true
+                spacing: 5
+                model: root.projectIntakeController.candidateComponents.length > 0
+                       ? root.projectIntakeController.candidateComponents[0].candidate_claims : []
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width
+                    height: 58
+                    color: "#202830"
+                    border.color: modelData.review_state === "accepted" ? "#70c99a"
+                                  : modelData.review_state === "rejected" ? "#e87972"
+                                  : root.lineColor
+                    radius: 3
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Label { text: modelData.label + "  " + modelData.original_value + " " + modelData.original_unit; color: root.textColor; font.bold: true }
+                            Label { text: "SI: " + Number(modelData.value_si).toPrecision(8) + " " + modelData.si_unit + "  •  " + modelData.source_file + " p." + modelData.source_page; color: root.mutedColor; font.pixelSize: 9 }
+                        }
+                        Label { text: String(modelData.review_state).toUpperCase(); color: modelData.review_state === "accepted" ? "#70c99a" : modelData.review_state === "rejected" ? "#e87972" : "#e0ac62"; font.bold: true; font.pixelSize: 9 }
+                        Button { text: "Accept"; onClicked: root.projectIntakeController.reviewCandidateClaim(root.projectIntakeController.candidateComponents[0].id, modelData.id, "accepted") }
+                        Button { text: "Reject"; onClicked: root.projectIntakeController.reviewCandidateClaim(root.projectIntakeController.candidateComponents[0].id, modelData.id, "rejected") }
+                        Button { text: "Reset"; enabled: modelData.review_state !== "unreviewed"; onClicked: root.projectIntakeController.reviewCandidateClaim(root.projectIntakeController.candidateComponents[0].id, modelData.id, "unreviewed") }
+                    }
                 }
             }
         }

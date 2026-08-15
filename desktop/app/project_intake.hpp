@@ -51,6 +51,9 @@ public:
   bool busy() const { return busy_; }
 
   Q_INVOKABLE void scanFolder(const QUrl &folder);
+  Q_INVOKABLE void reviewCandidateClaim(const QString &candidateId,
+                                        const QString &claimId,
+                                        const QString &decision);
 
 signals:
   void changed();

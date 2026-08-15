@@ -349,6 +349,40 @@ void ProjectIntakeController::scanFolder(const QUrl &folder) {
       [path = folder.toLocalFile()] { return scanProjectFolder(path); }));
 }
 
+void ProjectIntakeController::reviewCandidateClaim(const QString &candidateId,
+                                                   const QString &claimId,
+                                                   const QString &decision) {
+  if (decision != "accepted" && decision != "rejected" &&
+      decision != "unreviewed") {
+    return;
+  }
+  bool changed = false;
+  for (auto &candidateValue : result_.candidate_components) {
+    auto candidate = candidateValue.toMap();
+    if (candidate.value("id").toString() != candidateId)
+      continue;
+    auto claims = candidate.value("candidate_claims").toList();
+    for (auto &claimValue : claims) {
+      auto claim = claimValue.toMap();
+      if (claim.value("id").toString() != claimId)
+        continue;
+      if (claim.value("review_state").toString() == decision)
+        return;
+      claim.insert("review_state", decision);
+      claimValue = claim;
+      changed = true;
+      break;
+    }
+    if (changed) {
+      candidate.insert("candidate_claims", claims);
+      candidateValue = candidate;
+    }
+    break;
+  }
+  if (changed)
+    emit this->changed();
+}
+
 void ProjectIntakeController::apply(ProjectIntakeResult result) {
   busy_ = false;
   const bool success = result.ok;

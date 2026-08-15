@@ -183,6 +183,31 @@ void exposesOnlyHashMatchedCandidateEvidence() {
               claims.front().toMap().value("source_page") == 9,
           "source-located candidate claim remains unreviewed");
 
+  ProjectIntakeController controller;
+  QSignalSpy finished(&controller, &ProjectIntakeController::scanFinished);
+  controller.scanFolder(QUrl::fromLocalFile(temporary.path()));
+  require(finished.wait(5000) && finished.takeFirst().front().toBool(),
+          "controller loads candidate claims");
+  const auto candidateId =
+      controller.candidateComponents().front().toMap().value("id").toString();
+  controller.reviewCandidateClaim(candidateId, "rated_torque", "accepted");
+  auto reviewedClaims = controller.candidateComponents()
+                            .front().toMap()
+                            .value("candidate_claims").toList();
+  require(reviewedClaims.front().toMap().value("review_state") == "accepted",
+          "explicit session review accepts one candidate claim");
+  controller.reviewCandidateClaim(candidateId, "rated_torque", "rejected");
+  reviewedClaims = controller.candidateComponents()
+                       .front().toMap()
+                       .value("candidate_claims").toList();
+  require(reviewedClaims.front().toMap().value("review_state") == "rejected",
+          "explicit session review can reject the candidate claim");
+  controller.reviewCandidateClaim(candidateId, "rated_torque", "invalid");
+  require(controller.candidateComponents()
+              .front().toMap().value("candidate_claims").toList()
+              .front().toMap().value("review_state") == "rejected",
+          "unknown review decision cannot change state");
+
   writeFile(temporary.filePath("manual.pdf"), "changed\n");
   const auto rejected = scanProjectFolder(temporary.path());
   require(rejected.candidate_components.isEmpty(),

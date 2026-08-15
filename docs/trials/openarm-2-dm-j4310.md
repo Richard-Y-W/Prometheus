@@ -58,6 +58,11 @@ rated voltage/current/torque/speed, peak current/torque, maximum no-load speed,
 reduction ratio, outer diameter, height, and approximate mass. Original text
 and units are retained alongside SI-normalized candidate values. Intake shows
 their count, but every claim remains `unreviewed`; none is an execution input.
+Choose **Review claims** to inspect the original value/unit, normalized SI
+candidate, exact source file, and page for each property. Accept, reject, and
+reset decisions are independent and session-only in this prototype. They are
+discarded by a folder rescan and do not publish a component package; this is
+intentional until real-project trials establish the durable review UX.
 
 ## Questions this trial should answer
 
