@@ -31,6 +31,16 @@ Run:
 .\scripts\prepare-openarm-dm4310-trial.ps1
 ```
 
+To prepare, build, and open the complete mixed-folder workflow in one command,
+run:
+
+```powershell
+.\scripts\run-openarm-component-trial.ps1
+```
+
+This sets `PROMETHEUS_STARTUP_PROJECT_FOLDER`; it does not bypass intake by
+opening the STEP file directly.
+
 The script verifies both external artifacts and creates the ignored folder
 `out/trials/openarm-2-dm-j4310`. It includes the STEP assembly, component
 manual, and a source-only manifest. The manifest explicitly records that no
