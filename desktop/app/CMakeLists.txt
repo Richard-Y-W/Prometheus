@@ -1,8 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_controller.cpp structural_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store)
+target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store prometheus_structural)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 set_source_files_properties(../ui/ComponentPackagePanel.qml PROPERTIES QT_RESOURCE_ALIAS ComponentPackagePanel.qml)
@@ -10,6 +10,7 @@ set_source_files_properties(../ui/MotorScenarioDialog.qml PROPERTIES QT_RESOURCE
 set_source_files_properties(../ui/MotorRunPanel.qml PROPERTIES QT_RESOURCE_ALIAS MotorRunPanel.qml)
 set_source_files_properties(../ui/RunHistoryPanel.qml PROPERTIES QT_RESOURCE_ALIAS RunHistoryPanel.qml)
 set_source_files_properties(../ui/ProjectInventoryPanel.qml PROPERTIES QT_RESOURCE_ALIAS ProjectInventoryPanel.qml)
+set_source_files_properties(../ui/StructuralSetupPanel.qml PROPERTIES QT_RESOURCE_ALIAS StructuralSetupPanel.qml)
 qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_FILES
   ../ui/Main.qml
   ../ui/ComponentPackagePanel.qml
@@ -17,6 +18,7 @@ qt_add_qml_module(prometheus_desktop URI Prometheus VERSION 1.0 NO_CACHEGEN QML_
   ../ui/MotorRunPanel.qml
   ../ui/RunHistoryPanel.qml
   ../ui/ProjectInventoryPanel.qml
+  ../ui/StructuralSetupPanel.qml
 )
 target_link_libraries(prometheus_desktop PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Quick3D Qt6::Concurrent prometheus_core prometheus_desktop_support)
 if(TARGET prometheus_cad)
@@ -57,6 +59,18 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_engineering_controller
     COMMAND prometheus_engineering_controller_tests
+  )
+
+  add_executable(prometheus_structural_controller_tests
+    tests/structural_controller_tests.cpp
+  )
+  target_link_libraries(prometheus_structural_controller_tests PRIVATE
+    Qt6::Core
+    prometheus_desktop_support
+  )
+  add_test(
+    NAME prometheus_structural_controller
+    COMMAND prometheus_structural_controller_tests
   )
 
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)

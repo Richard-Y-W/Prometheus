@@ -207,6 +207,23 @@ The solver runner also now rejects a directory containing pre-existing raw
 outputs, preventing stale `.dat`, `.frd`, or `.sta` bytes from becoming a new
 completed run.
 
+## Checkpoint 9: desktop structural setup review
+
+The Windows desktop now has a dedicated structural setup panel backed by a Qt
+adapter over the authoritative Qt-free structural library. It can load an
+isolated Gmsh/Abaqus C3D4 mesh, display mesh/boundary statistics, list
+deterministic geometric patches with area and representative normal, assign
+load and fully-fixed roles, collect reviewed material/load/restraint/
+requirement/mesh/scenario fields, and display deduplicated authoritative
+blocker codes or a compiled request preview.
+
+The real YUBI mesh renders as 2,451 nodes, 7,566 tetrahedra, 4,616 exterior
+faces, and 263 patches at the panel's conservative 15-degree default. The panel
+does not infer surface meaning and does not expose execution merely because a
+mesh loaded. A controller test proves that a complete reviewed tetra setup
+becomes ready and that removing material review blocks it again. Execution and
+durable project storage remain the next separate boundaries.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

@@ -11,6 +11,7 @@
 #include "project_intake.hpp"
 #include "project_controller.hpp"
 #include "service_controller.hpp"
+#include "structural_controller.hpp"
 int main(int argc, char* argv[]) {
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName("Prometheus");
@@ -20,13 +21,16 @@ int main(int argc, char* argv[]) {
   ProjectController project(&cad,&engineering);
   ProjectIntakeController intake;
   ExecutionController execution(&project,&service);
+  StructuralController structural;
   QQmlApplicationEngine engine;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");
   const bool demo_cad_inspect=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_CAD_INSPECT");
   const bool demo_placement=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_PLACEMENT");
+  const bool demo_structural=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_STRUCTURAL");
   const auto startup_step_path=qEnvironmentVariable("PROMETHEUS_STARTUP_STEP");
   const auto startup_project_folder_path=qEnvironmentVariable("PROMETHEUS_STARTUP_PROJECT_FOLDER");
+  const auto startup_structural_mesh_path=qEnvironmentVariable("PROMETHEUS_STARTUP_STRUCTURAL_MESH");
   const auto startup_project_folder=startup_project_folder_path.isEmpty()?QUrl{}:QUrl::fromLocalFile(startup_project_folder_path);
   engine.rootContext()->setContextProperty("cadController",&cad);
   engine.rootContext()->setContextProperty("serviceController",&service);
@@ -34,12 +38,15 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("projectController",&project);
   engine.rootContext()->setContextProperty("projectIntakeController",&intake);
   engine.rootContext()->setContextProperty("executionController",&execution);
+  engine.rootContext()->setContextProperty("structuralController",&structural);
   engine.rootContext()->setContextProperty("demoResearch",demo_research);
   engine.rootContext()->setContextProperty("demoEngineering",demo_engineering);
   engine.rootContext()->setContextProperty("demoCadInspect",demo_cad_inspect);
   engine.rootContext()->setContextProperty("demoPlacement",demo_placement);
+  engine.rootContext()->setContextProperty("demoStructural",demo_structural);
   engine.rootContext()->setContextProperty("startupStepPath",startup_step_path);
   engine.rootContext()->setContextProperty("startupProjectFolder",startup_project_folder);
+  if(!startup_structural_mesh_path.isEmpty())structural.loadMesh(QUrl::fromLocalFile(startup_structural_mesh_path),0.001,15.0);
   engine.loadFromModule("Prometheus", "Main");
   if (engine.rootObjects().isEmpty()) return -1;
   const auto screenshot_path=qEnvironmentVariable("PROMETHEUS_SCREENSHOT_PATH");

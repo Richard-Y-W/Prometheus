@@ -22,6 +22,7 @@ ApplicationWindow {
     readonly property var projectApi: projectController
     readonly property var intakeApi: projectIntakeController
     readonly property var engineeringApi: engineeringController
+    readonly property var structuralApi: typeof structuralController !== "undefined" ? structuralController : null
     readonly property bool hasSelection: selectedIndex >= 0 && selectedIndex < cadController.parts.length
     readonly property var selectedPart: hasSelection ? cadController.parts[selectedIndex] : null
     readonly property bool hasJointParts: engineeringController.jointConfigured && engineeringController.joint.source_index >= 0 && engineeringController.joint.target_index >= 0 && engineeringController.joint.source_index < cadController.parts.length && engineeringController.joint.target_index < cadController.parts.length
@@ -141,6 +142,8 @@ ApplicationWindow {
             engineeringController.defineRevoluteJoint(1, 2, "Z", 0, 90, cadController.parts[1].centerX, cadController.parts[1].centerY, cadController.parts[1].centerZ);
             cadController.runJointSweepAsync(2, 1, engineeringController.joint.pivot_x, engineeringController.joint.pivot_y, engineeringController.joint.pivot_z, "Z", 0, 90);
         }
+        if (typeof demoStructural !== "undefined" && demoStructural)
+            structuralWorkflowDialog.open();
     }
     header: Column {
         width: parent.width
@@ -255,6 +258,12 @@ ApplicationWindow {
                     text: "Motor Analysis"
                     enabled: projectController.currentProjectPath !== "" || cadController.parts.length > 0
                     onClicked: motorWorkflowDialog.open()
+                }
+                Button {
+                    objectName: "structuralAnalysisButton"
+                    text: "Structural"
+                    enabled: window.structuralApi !== null
+                    onClicked: structuralWorkflowDialog.open()
                 }
                 Button {
                     text: "Transform"
@@ -1594,6 +1603,30 @@ ApplicationWindow {
                     mutedColor: muted
                 }
             }
+        }
+    }
+    Popup {
+        id: structuralWorkflowDialog
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(1320, window.width - 30)
+        height: Math.min(800, window.height - 50)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle {
+            color: "#222a31"
+            border.color: "#53616c"
+            radius: 3
+        }
+        StructuralSetupPanel {
+            anchors.fill: parent
+            anchors.margins: 16
+            structuralController: window.structuralApi
+            panelColor: panel
+            lineColor: line
+            textColor: window.text
+            mutedColor: muted
+            onCloseRequested: structuralWorkflowDialog.close()
         }
     }
     MotorScenarioDialog {
