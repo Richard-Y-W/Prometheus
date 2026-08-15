@@ -353,6 +353,68 @@ validate_publication_graph(const ProjectV2 &project,
   }
 }
 
+Result<detail::Unit>
+validate_structural_manifest(const ObjectToStore &manifest) {
+  const auto stored =
+      detail::verify_stored_object(manifest.reference, manifest.bytes);
+  if (!stored.has_value()) return stored;
+  if (manifest.reference.media_type != structural_manifest_media_type ||
+      manifest.reference.schema_id != structural_manifest_schema_id ||
+      manifest.reference.schema_version != "1.0.0") {
+    return Result<detail::Unit>::failure(detail::store_diagnostic(
+        "structural_manifest_reference_invalid",
+        "structural manifest reference has the wrong registered contract"));
+  }
+  try {
+    const auto root = Json::parse(manifest.bytes);
+    if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                           "analysis_id", "component_name", "geometry_sha256",
+                           "solver_identity", "job_name", "execution",
+                           "artifacts", "metrics", "requirements", "coverage",
+                           "findings", "limitation"}) ||
+        !string_equals(root, "$schema", structural_manifest_schema_id) ||
+        !string_equals(root, "schema_version", "1.0.0") ||
+        !string_equals(root, "archive_kind", "completed_linear_static_run")) {
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_manifest_contract_invalid",
+          "structural manifest is not the closed completed-run archive contract"));
+    }
+    const auto &artifacts = root.at("artifacts");
+    if (!exact_keys(artifacts,
+                    {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"})) {
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_manifest_contract_invalid",
+          "structural manifest artifact set is incomplete"));
+    }
+    std::unordered_set<std::string> filenames;
+    for (const auto key : {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"}) {
+      const auto &artifact = artifacts.at(key);
+      if (!exact_keys(artifact, {"file", "byte_length", "sha256"}) ||
+          !artifact.at("file").is_string() ||
+          !artifact.at("byte_length").is_number_unsigned() ||
+          !artifact.at("sha256").is_string()) {
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_manifest_contract_invalid",
+            "structural artifact reference is invalid"));
+      }
+      const auto filename = artifact.at("file").get<std::string>();
+      const auto hash = artifact.at("sha256").get<std::string>();
+      if (filename.empty() || filename.size() > 128U ||
+          filename.find('/') != std::string::npos ||
+          filename.find('\\') != std::string::npos ||
+          !filenames.insert(filename).second || !is_valid_object_hash(hash)) {
+        return Result<detail::Unit>::failure(detail::store_diagnostic(
+            "structural_manifest_contract_invalid",
+            "structural artifact identity is unsafe or duplicated"));
+      }
+    }
+    return Result<detail::Unit>::success(detail::Unit{});
+  } catch (const std::exception &failure) {
+    return Result<detail::Unit>::failure(detail::store_diagnostic(
+        "structural_manifest_contract_invalid", failure.what()));
+  }
+}
+
 std::string utc_now() {
   const auto now = std::chrono::system_clock::now();
   const auto time = std::chrono::system_clock::to_time_t(now);
@@ -666,6 +728,64 @@ publish_completed_run(const std::filesystem::path &project_path,
   } catch (...) {
     return Result<Publication>::failure(detail::store_diagnostic(
         "run_publication_failed", "unknown run publication failure",
+        std::nullopt, project_path));
+  }
+}
+
+Result<Publication> commit_structural_archive_manifest(
+    const std::filesystem::path &project_path, const ObjectToStore &manifest,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) return failure_from<Publication>(lock.diagnostic());
+    auto projectResult = read_locked_project(project_path);
+    if (!projectResult.has_value())
+      return failure_from<Publication>(projectResult.diagnostic());
+    if (const auto cancelled = detail::check_cancelled(options); cancelled)
+      return Result<Publication>::failure(*cancelled);
+    const auto valid = validate_structural_manifest(manifest);
+    if (!valid.has_value()) return failure_from<Publication>(valid.diagnostic());
+
+    auto project = std::move(projectResult.value());
+    bool alreadyCommitted = false;
+    for (const auto &reference : project.execution.committed_runs) {
+      if (reference.object_hash != manifest.reference.object_hash) continue;
+      if (reference != manifest.reference)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "committed_run_reference_conflict",
+            "manifest hash is already committed with different metadata"));
+      alreadyCommitted = true;
+    }
+    const auto installed = detail::install_object_file(
+        project_path, manifest.reference, manifest.bytes, options);
+    if (!installed.has_value())
+      return failure_from<Publication>(installed.diagnostic());
+    if (!alreadyCommitted) {
+      if (project.execution.committed_runs.size() >= maximum_committed_runs)
+        return Result<Publication>::failure(detail::store_diagnostic(
+            "committed_run_limit_exceeded",
+            "project already has the maximum committed runs"));
+      project.execution.committed_runs.push_back(manifest.reference);
+    }
+    const auto event = append_event(
+        project,
+        alreadyCommitted ? "structural_run_invoked" : "structural_run_anchored",
+        alreadyCommitted ? "already_committed" : "completed",
+        manifest.reference.object_hash);
+    if (!event.has_value()) return failure_from<Publication>(event.diagnostic());
+    const auto persisted = persist_project(project_path, project, true, options);
+    if (!persisted.has_value())
+      return failure_from<Publication>(persisted.diagnostic());
+    return Result<Publication>::success(
+        Publication{persisted.value(), alreadyCommitted});
+  } catch (const std::exception &failure) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "structural_manifest_commit_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "structural_manifest_commit_failed", "unknown structural commit failure",
         std::nullopt, project_path));
   }
 }

@@ -131,6 +131,34 @@ run_store::CompletedRunObjects motor_a_run() {
   };
 }
 
+run_store::ObjectToStore structural_manifest_fixture() {
+  const auto artifact = [](const std::string &file, const char hashCharacter) {
+    return std::string{"{\"byte_length\":1,\"file\":\""} + file +
+           "\",\"sha256\":\"sha256:" + std::string(64U, hashCharacter) + "\"}";
+  };
+  const auto document =
+      std::string{"{\"$schema\":\"urn:prometheus:schema:structural-run-archive:1.0.0\","}
+      + "\"analysis_id\":\"analysis\",\"archive_kind\":\"completed_linear_static_run\","
+      + "\"artifacts\":{\"dat\":" + artifact("run.dat", '1') +
+      ",\"deck\":" + artifact("run.inp", '2') +
+      ",\"frd\":" + artifact("run.frd", '3') +
+      ",\"setup\":" + artifact("setup.json", '4') +
+      ",\"sta\":" + artifact("run.sta", '5') +
+      ",\"stderr\":" + artifact("stderr.txt", '6') +
+      ",\"stdout\":" + artifact("stdout.txt", '7') + "},"
+      + "\"component_name\":\"component\",\"coverage\":{},\"execution\":{},"
+      + "\"findings\":[],\"geometry_sha256\":\"sha256:" + std::string(64U, '8') +
+      "\",\"job_name\":\"run\",\"limitation\":\"bounded\",\"metrics\":{},"
+      + "\"requirements\":{},\"schema_version\":\"1.0.0\","
+      + "\"solver_identity\":\"fixture\"}";
+  auto bytes = integrity::canonicalize_json_bytes(document);
+  return {reference_for(bytes,
+                        std::string(run_store::structural_manifest_media_type),
+                        std::string(run_store::structural_manifest_schema_id),
+                        "1.0.0"),
+          std::move(bytes)};
+}
+
 run_store::ObjectToStore motor_b_package() {
   return object_fixture(
       "fixtures/contracts/execution-component-v2.motor-b.jcs",
@@ -334,6 +362,54 @@ void test_normal_operations_and_idempotency() {
   require(historical_retry.already_committed &&
               historical_retry.project.execution.committed_runs.size() == 1U,
           "already-committed manifest remains idempotent after binding changes");
+}
+
+void test_structural_manifest_anchor() {
+  TemporaryRoot root;
+  const auto projectPath = root.path() / "structural.prometheus";
+  require_success(run_store::create_project_v2(projectPath, initial_project()),
+                  "create structural project");
+  const auto manifest = structural_manifest_fixture();
+  const auto &anchored = require_success(
+      run_store::commit_structural_archive_manifest(projectPath, manifest),
+      "anchor structural manifest");
+  require(!anchored.already_committed &&
+              anchored.project.execution.committed_runs.size() == 1U &&
+              anchored.project.execution.committed_runs.front() ==
+                  manifest.reference &&
+              anchored.project.execution.events.back().event_kind ==
+                  "structural_run_anchored",
+          "structural manifest gets a distinct immutable project history entry");
+  const auto retained = run_store::read_object(projectPath, manifest.reference);
+  require(retained.has_value() && retained.value() == manifest.bytes,
+          "anchored structural manifest resolves to exact canonical bytes");
+  const auto &repeated = require_success(
+      run_store::commit_structural_archive_manifest(projectPath, manifest),
+      "repeat structural manifest anchor");
+  require(repeated.already_committed &&
+              repeated.project.execution.committed_runs.size() == 1U &&
+              repeated.project.execution.events.back().event_kind ==
+                  "structural_run_invoked",
+          "structural manifest anchoring is idempotent");
+  const auto reopened = run_store::open_read_only(projectPath);
+  require(reopened.has_value() &&
+              reopened.value().execution.committed_runs.front() ==
+                  manifest.reference,
+          "structural manifest reference survives close and reopen");
+
+  auto invalid = manifest;
+  invalid.bytes.replace(invalid.bytes.find("run.dat"), 7U, "../xdat");
+  invalid.reference = reference_for(
+      invalid.bytes, std::string(run_store::structural_manifest_media_type),
+      std::string(run_store::structural_manifest_schema_id), "1.0.0");
+  const auto rejected =
+      run_store::commit_structural_archive_manifest(projectPath, invalid);
+  require_failure(rejected, "structural_manifest_contract_invalid",
+                  "unsafe structural artifact identity");
+  require(run_store::open_read_only(projectPath)
+              .value()
+              .execution.committed_runs.size() == 1U,
+          "rejected structural manifest does not alter project history");
 }
 
 void test_create_failure_boundaries() {
@@ -750,6 +826,7 @@ void test_kernel_lock_contention_and_recovery() {
 int main() {
   try {
     test_normal_operations_and_idempotency();
+    test_structural_manifest_anchor();
     test_create_failure_boundaries();
     test_binding_failure_boundaries();
     test_scenario_failure_is_atomic();

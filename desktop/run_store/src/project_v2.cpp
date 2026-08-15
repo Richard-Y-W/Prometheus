@@ -208,7 +208,9 @@ bool ascii_identifier(const std::string_view value) {
   });
 }
 
-enum class ReferenceKind { package, scenario, request, result, manifest };
+enum class ReferenceKind {
+  package, scenario, request, result, manifest, committed_manifest
+};
 
 bool reference_matches(const StoredObjectReference &reference,
                        const ReferenceKind kind) {
@@ -233,6 +235,11 @@ bool reference_matches(const StoredObjectReference &reference,
     return reference.media_type == manifest_media_type &&
            reference.schema_id == manifest_schema_id &&
            reference.schema_version == "1.0.0";
+  case ReferenceKind::committed_manifest:
+    return reference_matches(reference, ReferenceKind::manifest) ||
+           (reference.media_type == structural_manifest_media_type &&
+            reference.schema_id == structural_manifest_schema_id &&
+            reference.schema_version == "1.0.0");
   }
   return false;
 }
@@ -681,7 +688,7 @@ ExecutionIndex parse_execution(const Json &value) {
   for (std::size_t index = 0U; index < runs.size(); ++index) {
     auto reference = parse_reference(
         runs[index], "execution.committed_runs[" + std::to_string(index) + "]",
-        ReferenceKind::manifest);
+        ReferenceKind::committed_manifest);
     if (!manifest_hashes.insert(reference.object_hash).second) {
       reject("duplicate_committed_run",
              "a manifest may be committed only once",
@@ -955,7 +962,8 @@ bool is_supported_object_reference(
          reference_matches(reference, ReferenceKind::scenario) ||
          reference_matches(reference, ReferenceKind::request) ||
          reference_matches(reference, ReferenceKind::result) ||
-         reference_matches(reference, ReferenceKind::manifest);
+         reference_matches(reference, ReferenceKind::manifest) ||
+         reference_matches(reference, ReferenceKind::committed_manifest);
 }
 
 Result<ProjectV2> parse_project_v2(const std::string_view bytes) noexcept {

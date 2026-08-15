@@ -1,10 +1,13 @@
 #include "structural_controller.hpp"
+#include "project_controller.hpp"
 
 #include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/calculix_deck.hpp"
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_archive.hpp"
+#include "prometheus/integrity/canonical_json.hpp"
+#include "prometheus/run_store/run_store.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -65,8 +68,56 @@ std::optional<double> positiveOptional(const QVariantMap &draft,
 
 } // namespace
 
-StructuralController::StructuralController(QObject *parent) : QObject(parent) {
+StructuralController::StructuralController(ProjectController *project,
+                                           QObject *parent)
+    : QObject(parent), project_(project) {
   rebuildPreview();
+}
+
+void StructuralController::commitLastRun() {
+  if (!project_ || project_->currentProjectPath().isEmpty()) {
+    error_ = "Open or save a Prometheus project before committing this run.";
+    emit changed();
+    return;
+  }
+  const auto manifestText = last_run_.value("archive_manifest").toString();
+  if (manifestText.isEmpty()) {
+    error_ = "A completed verified structural archive is required.";
+    emit changed();
+    return;
+  }
+  try {
+    const auto manifestPath = std::filesystem::path(manifestText.toStdWString());
+    const auto verified = ps::verify_structural_archive(manifestPath);
+    if (!verified.valid)
+      throw std::runtime_error(verified.code + ": " + verified.detail);
+    std::ifstream input(manifestPath, std::ios::binary);
+    if (!input) throw std::runtime_error("structural archive manifest is missing");
+    const std::string bytes{std::istreambuf_iterator<char>(input),
+                            std::istreambuf_iterator<char>()};
+    prometheus::run_store::ObjectToStore object{
+        {prometheus::integrity::object_hash(bytes),
+         static_cast<std::uint64_t>(bytes.size()),
+         std::string(prometheus::run_store::structural_manifest_media_type),
+         std::string(prometheus::run_store::structural_manifest_schema_id),
+         "1.0.0"},
+        bytes};
+    const auto committed = prometheus::run_store::commit_structural_archive_manifest(
+        project_->projectPath(), object);
+    if (!committed.has_value())
+      throw std::runtime_error(committed.diagnostic().code + ": " +
+                               committed.diagnostic().message);
+    project_->acceptProject(committed.value().project);
+    last_run_["project_anchored"] = true;
+    last_run_["project_manifest_hash"] =
+        QString::fromStdString(object.reference.object_hash);
+    last_run_["project_already_committed"] = committed.value().already_committed;
+    error_.clear();
+  } catch (const std::exception &exception) {
+    error_ = QString::fromUtf8(exception.what());
+    last_run_["project_anchored"] = false;
+  }
+  emit changed();
 }
 
 QVariantList StructuralController::selectedLoadPatchIds() const {

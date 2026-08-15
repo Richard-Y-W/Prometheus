@@ -12,6 +12,8 @@
 #include <optional>
 #include <string>
 
+class ProjectController;
+
 class StructuralController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString status READ status NOTIFY changed)
@@ -28,7 +30,8 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QVariantList findings READ findings NOTIFY changed)
 
 public:
-  explicit StructuralController(QObject *parent = nullptr);
+  explicit StructuralController(ProjectController *project = nullptr,
+                                QObject *parent = nullptr);
 
   QString status() const { return status_; }
   QString error() const { return error_; }
@@ -50,6 +53,7 @@ public:
   Q_INVOKABLE void reviewSetup(const QVariantMap &draft);
   Q_INVOKABLE void runAnalysis(const QUrl &calculixExecutable,
                                const QUrl &outputRoot);
+  Q_INVOKABLE void commitLastRun();
   Q_INVOKABLE void reset();
 
 signals:
@@ -76,4 +80,5 @@ private:
   std::vector<prometheus::structural::SurfacePatch> patches_;
   std::vector<int> load_patch_ids_;
   std::vector<int> restraint_patch_ids_;
+  ProjectController *project_{};
 };

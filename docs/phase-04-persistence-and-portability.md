@@ -24,8 +24,8 @@ primitive, not the Phase 4 exit gate.
 
 ## Still required
 
-- commit reviewed structural setup and run objects to the project transaction
-  store;
+- embed the reviewed structural setup and raw run artifacts behind the anchored
+  manifest in the project transaction store;
 - restore the complete supported workflow after close/reopen;
 - persist full folder inventory identities and selected CAD/component mapping;
 - invalidate setup, request, and results when their source geometry or evidence
@@ -34,3 +34,24 @@ primitive, not the Phase 4 exit gate.
 - export and import a complete project plus content-addressed sidecar;
 - prove interrupted save recovery and clean-machine relocation; and
 - define archive/quarantine behavior from encountered real formats.
+
+## Checkpoint 2: project-anchored structural manifests
+
+The project execution index now accepts a second, explicitly registered
+committed-run contract for structural archives. It does not relabel structural
+evidence as the older motor-analysis manifest. Before anchoring, the desktop
+re-verifies the complete local archive and the transaction store independently
+verifies the canonical manifest object, closed root and artifact set, safe
+unique filenames, declared hashes, and registered media/schema identity.
+
+Anchoring installs the immutable manifest in the content-addressed sidecar,
+appends its exact reference and a `structural_run_anchored` event under the
+existing exclusive writer lock, and atomically replaces the project index.
+Repeating the operation is idempotent and records only a
+`structural_run_invoked` display event. Close/reopen retains the reference and
+resolves its exact canonical bytes. Unsafe manifests do not alter history.
+
+This checkpoint anchors the archive's root identity, including the hashes and
+lengths of setup and solver artifacts. It deliberately does not claim those raw
+artifacts are embedded in the project sidecar yet; portable object chunking and
+complete project bundling remain open.

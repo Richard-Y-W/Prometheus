@@ -20,6 +20,10 @@ inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_package_bindings = 10000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
+inline constexpr std::string_view structural_manifest_media_type =
+    "application/vnd.prometheus.structural-run-archive+json";
+inline constexpr std::string_view structural_manifest_schema_id =
+    "urn:prometheus:schema:structural-run-archive:1.0.0";
 
 struct Diagnostic final {
   std::string stage;

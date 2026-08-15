@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
   ProjectController project(&cad,&engineering);
   ProjectIntakeController intake;
   ExecutionController execution(&project,&service);
-  StructuralController structural;
+  StructuralController structural(&project);
   QQmlApplicationEngine engine;
   const bool demo_research=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_RESEARCH");
   const bool demo_engineering=qEnvironmentVariableIsSet("PROMETHEUS_DEMO_ENGINEERING");

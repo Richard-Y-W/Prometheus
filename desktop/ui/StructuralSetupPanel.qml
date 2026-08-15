@@ -249,6 +249,12 @@ Item {
                         enabled: structuralController.canRun && !structuralController.busy && root.calculixExecutable.toString() !== "" && root.outputRoot.toString() !== ""
                         onClicked: structuralController.runAnalysis(root.calculixExecutable, root.outputRoot)
                     }
+                    Button {
+                        Layout.fillWidth: true
+                        text: structuralController.lastRun.project_anchored ? "Committed to project ✓" : "Commit verified run to project"
+                        enabled: structuralController.lastRun.archived === true && !structuralController.lastRun.project_anchored
+                        onClicked: structuralController.commitLastRun()
+                    }
                     Label {
                         Layout.fillWidth: true
                         visible: structuralController.lastRun.status !== undefined
@@ -325,7 +331,9 @@ Item {
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: "Local run artifacts are retained in the selected output folder but are not yet committed to the Prometheus project. Readiness or scoped non-violation does not mean the component is safe or validated for this real scenario."
+                        text: structuralController.lastRun.project_anchored ?
+                              "The immutable archive manifest is anchored in project history. Raw solver artifacts still live in the archive directory until full project bundling is complete. This is not a safety or validation claim." :
+                              "Local run artifacts are retained in the selected output folder but are not yet committed to the Prometheus project. Readiness or scoped non-violation does not mean the component is safe or validated for this real scenario."
                         color: mutedColor
                         wrapMode: Text.WordWrap
                         font.pixelSize: 10

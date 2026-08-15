@@ -97,6 +97,14 @@ publish_completed_run(const std::filesystem::path &project_path,
                       const CompletedRunObjects &objects,
                       TransactionOptions options = {}) noexcept;
 
+// Anchors a verified structural archive manifest in the project history. Raw
+// solver artifacts remain external until the portable-bundle checkpoint; their
+// exact hashes and lengths are closed over by this immutable manifest.
+[[nodiscard]] Result<Publication> commit_structural_archive_manifest(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &manifest,
+    TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] Result<ProjectV2>
 open_read_only(const std::filesystem::path &project_path,
                TransactionOptions options = {}) noexcept;
