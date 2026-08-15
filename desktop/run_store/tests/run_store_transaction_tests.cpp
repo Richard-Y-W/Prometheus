@@ -2,6 +2,7 @@
 #include <prometheus/run_store/object_store.hpp>
 #include <prometheus/run_store/run_store.hpp>
 #include <prometheus/run_store/structural_archive_store.hpp>
+#include <prometheus/run_store/project_bundle.hpp>
 
 #include <atomic>
 #include <array>
@@ -537,6 +538,57 @@ void test_embedded_structural_archive_round_trip() {
               .value()
               .execution.committed_runs.size() == 1U,
           "rejected embedded graph does not alter committed history");
+
+  const auto cadPath = root.path() / "portable-bracket.step";
+  write_file(cadPath, "portable CAD source bytes\n");
+  const auto cadHash = integrity::sha256_file(cadPath);
+  auto portableProject = initial_project();
+  portableProject.cad_source = cadPath.string();
+  portableProject.assembly_artifact_hash = cadHash;
+  const auto portableProjectPath = root.path() / "portable-source.prometheus";
+  require_success(run_store::create_project_v2(portableProjectPath,
+                                                portableProject),
+                  "create portable structural project");
+  auto portableObjects = run_store::build_structural_archive_objects(
+      sourceManifest, cadHash);
+  require(portableObjects.has_value(), "pack portable structural archive");
+  require_success(run_store::publish_structural_archive(
+                      portableProjectPath, portableObjects.value()),
+                  "publish portable structural archive");
+  const auto bundleDirectory = root.path() / "portable-bundle";
+  const auto bundle = run_store::export_project_bundle(
+      portableProjectPath, bundleDirectory);
+  require(bundle.has_value() && bundle.value().object_count ==
+                                    portableObjects.value().chunks.size() + 2U,
+          "portable bundle contains exactly the reachable structural object graph");
+  const auto movedBundle = root.path() / "moved-clean-machine-bundle";
+  fs::rename(bundleDirectory, movedBundle);
+  const auto moved = run_store::verify_project_bundle(movedBundle);
+  require(moved.has_value(), "whole project bundle verifies after directory relocation");
+  const auto movedProject = run_store::open_read_only(moved.value().project_path);
+  require(movedProject.has_value() &&
+              movedProject.value().cad_source == "sources/portable-bracket.step" &&
+              movedProject.value().execution.committed_runs.size() == 1U,
+          "relocated bundle opens with relative CAD and structural history");
+  const auto bundleRestored = run_store::reconstruct_structural_archive(
+      moved.value().project_path,
+      movedProject.value().execution.committed_runs.front(),
+      root.path() / "bundle-restored-run");
+  require(bundleRestored.has_value(),
+          "relocated bundle reconstructs its embedded structural archive");
+  for (const auto &entry : fs::directory_iterator(sourceManifest.parent_path())) {
+    require(read_file(entry.path()) ==
+                read_file(bundleRestored.value().parent_path() /
+                          entry.path().filename()),
+            "relocated bundle retains exact structural artifact bytes");
+  }
+  write_file(cadPath, "changed CAD source bytes\n");
+  const auto changedSourceBundle = run_store::export_project_bundle(
+      portableProjectPath, root.path() / "changed-source-bundle");
+  require_failure(changedSourceBundle, "bundle_source_changed",
+                  "portable export with changed CAD source");
+  require(!fs::exists(root.path() / "changed-source-bundle"),
+          "rejected portable export publishes no destination");
 
   write_file(sourceManifest.parent_path() / "run.frd", "changed\n");
   const auto corrupt = run_store::build_structural_archive_objects(

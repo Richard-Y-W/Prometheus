@@ -217,6 +217,11 @@ ApplicationWindow {
                             onTriggered: openDialog.open()
                         }
                         MenuItem {
+                            text: projectController.bundleBusy ? "Exporting portable bundle…" : "Export portable project bundle…"
+                            enabled: projectController.currentProjectPath !== "" && !projectController.bundleBusy
+                            onTriggered: bundleFolderDialog.open()
+                        }
+                        MenuItem {
                             text: projectIntakeController.rootPath === "" ? "Project inventory unavailable" : "Project inventory (" + projectIntakeController.totalCount + ")"
                             enabled: projectIntakeController.rootPath !== ""
                             onTriggered: inventoryDialog.open()
@@ -1300,6 +1305,11 @@ ApplicationWindow {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Prometheus project (*.prometheus)"]
         onAccepted: projectController.openProject(selectedFile)
+    }
+    FolderDialog {
+        id: bundleFolderDialog
+        title: "Choose parent folder for portable project bundle"
+        onAccepted: projectController.exportPortableBundle(selectedFolder)
     }
     Shortcut {
         sequence: "F"

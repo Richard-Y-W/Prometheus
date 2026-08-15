@@ -118,12 +118,35 @@ but request compilation is revoked, `canRun` is false, and an explicit
 new execution. Tests cover mismatched publication rejection and viewable but
 non-runnable stale restoration after an assembly identity change.
 
+## Checkpoint 7: complete portable project bundle
+
+The desktop can now export the open project into a new portable directory. The
+bundle contains a canonical project index with a relative CAD source path, the
+exact source CAD bytes, and only the immutable sidecar objects reachable from
+the project's package, scenario, motor-run, and structural-run history. A
+canonical bundle manifest closes over the project index, CAD source, and every
+reachable object's registered identity. Existing destinations are never
+overwritten, and a temporary export is published by directory rename only
+after complete verification.
+
+The verifier rejects changed project or CAD bytes, unsafe relative source
+paths, missing or conflicting objects, undeclared reachable objects, and
+declared objects that are not reachable from the project. The transaction test
+moves the complete directory, opens the relocated project, reconstructs an
+embedded multi-chunk structural run, and byte-compares all retained artifacts.
+It also proves that a changed source CAD file prevents export without
+publishing a partial destination.
+
+This is automated clean-location evidence on the supported Windows build. A
+physical clean-machine user trial remains part of the Phase 4 exit gate.
+
 ## Still required
 
 - persist full folder inventory identities and selected CAD/component mapping;
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct
   downstream setup, request, or result state when they change or disappear;
 - snapshot projects at execution boundaries;
-- export and import a complete project plus content-addressed sidecar;
-- prove clean-machine relocation; and
+- persist and transport the complete accounted source-folder inventory rather
+  than only the selected CAD source and reachable execution graph;
+- prove relocation on a separate supported clean machine; and
 - define archive/quarantine behavior from encountered real formats.

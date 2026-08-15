@@ -5,11 +5,14 @@
 
 #include <prometheus/run_store/legacy_project_v1.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/project_bundle.hpp>
 
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QFutureWatcher>
+#include <QtConcurrent>
 
 #include <cstddef>
 #include <exception>
@@ -363,6 +366,51 @@ void ProjectController::setError(QString message, QString code) {
 void ProjectController::acceptProject(run_store::ProjectV2 project) {
   project_ = std::move(project);
   emit changed();
+}
+
+void ProjectController::exportPortableBundle(const QUrl &parentFolder) {
+  if (bundle_busy_ || current_project_path_.isEmpty()) return;
+  const auto parent = parentFolder.toLocalFile();
+  if (parent.isEmpty() || !QFileInfo(parent).isDir()) {
+    setError("Select an existing destination folder for the portable bundle.",
+             "bundle_parent_invalid");
+    return;
+  }
+  const auto source = projectPath();
+  const auto base = QFileInfo(current_project_path_).completeBaseName();
+  const auto destination = QDir(parent).filePath(base + "-portable-bundle");
+  bundle_busy_ = true;
+  last_bundle_path_.clear();
+  clearError();
+  emit changed();
+  struct BundleResult final {
+    QString path;
+    QString code;
+    QString message;
+  };
+  auto *watcher = new QFutureWatcher<BundleResult>(this);
+  connect(watcher, &QFutureWatcher<BundleResult>::finished, this,
+          [this, watcher] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    bundle_busy_ = false;
+    if (!result.code.isEmpty()) setError(result.message, result.code);
+    else {
+      clearError();
+      last_bundle_path_ = result.path;
+    }
+    emit changed();
+  });
+  watcher->setFuture(QtConcurrent::run([source, destination] {
+    const auto exported = run_store::export_project_bundle(
+        source, nativePath(destination));
+    if (!exported.has_value())
+      return BundleResult{{}, QString::fromStdString(exported.diagnostic().code),
+                          QString::fromStdString(exported.diagnostic().message)};
+    return BundleResult{QString::fromStdWString(
+                            exported.value().bundle_directory.wstring()),
+                        {}, {}};
+  }));
 }
 
 void ProjectController::restoreProject(const run_store::ProjectV2 &project,
