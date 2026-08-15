@@ -728,17 +728,19 @@ Each domain begins with one real project question, one authoritative backend, be
 
 ## 8. Immediate next actions
 
-1. Record the clean YUBI gripper trial as the small/medium project report.
-2. Complete and measure the large OpenArm project report.
-3. Select a genuinely messy mixed-folder project with ambiguous revisions and unsupported files.
-4. Have at least one person outside the core development work run a trial without developer intervention.
-5. Rank import, hierarchy, unit, performance, selection, semantic, and UX failures across all three trials.
-6. Choose one real component and one structural requirement from that evidence.
-7. Design the smallest CalculiX linear-static slice that answers the question.
-8. Implement its benchmark, known-pass case, and known-fail case with the solver adapter.
-9. Add non-synthetic component intake only for sources required by the chosen trial.
-10. Consolidate persistence around the proven project workflow.
-11. Add recovery and clean-machine packaging evidence before calling the product an alpha.
+1. Run one documented outside-user session without live developer guidance.
+2. Confirm that the outside user can find a loadable STEP, recognize ambiguity,
+   and avoid interpreting inventory as a project-wide pass.
+3. Use the selected YUBI `BRACKET_GRIPPER` component to design the smallest
+   CalculiX linear-static slice.
+4. Require explicit reviewed material, load, restraint, displacement limit,
+   stress limit, mesh controls, and model assumptions before execution.
+5. Implement an analytic benchmark, a known-pass case, and a known-fail case
+   with the solver adapter.
+6. Add non-synthetic component intake only for sources required by that slice.
+7. Consolidate persistence around the proven project workflow.
+8. Add recovery and clean-machine packaging evidence before calling the
+   product an alpha.
 
 ---
 

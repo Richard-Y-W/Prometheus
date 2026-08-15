@@ -12,6 +12,26 @@ Item {
     property color lineColor: "#35404a"
     property color textColor: "#dfe7ed"
     property color mutedColor: "#91a0ab"
+    property string artifactQuery: ""
+    property string artifactFilter: "all"
+    property var filteredArtifacts: projectIntakeController.artifacts.filter(function (artifact) {
+        const query = root.artifactQuery.trim().toLowerCase()
+        const matchesQuery = query === ""
+                             || String(artifact.relative_path).toLowerCase().includes(query)
+                             || String(artifact.category).toLowerCase().includes(query)
+                             || String(artifact.analysis_state).toLowerCase().includes(query)
+        if (!matchesQuery)
+            return false
+        if (root.artifactFilter === "ready")
+            return artifact.loadable
+        if (root.artifactFilter === "recognized")
+            return artifact.analysis_state !== "unsupported"
+        if (root.artifactFilter === "unsupported")
+            return artifact.analysis_state === "unsupported"
+        if (root.artifactFilter === "duplicates")
+            return artifact.duplicate_copy
+        return true
+    })
 
     signal loadRequested(string path)
     signal bindCandidateRequested(var candidate)
@@ -238,13 +258,44 @@ Item {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            TextField {
+                id: artifactSearch
+                objectName: "artifactSearch"
+                Layout.fillWidth: true
+                placeholderText: "Search file path, category, or state"
+                text: root.artifactQuery
+                onTextChanged: root.artifactQuery = text
+            }
+            ComboBox {
+                id: artifactStateFilter
+                objectName: "artifactStateFilter"
+                textRole: "label"
+                valueRole: "value"
+                model: [
+                    { label: "All files", value: "all" },
+                    { label: "Loadable STEP", value: "ready" },
+                    { label: "Recognized", value: "recognized" },
+                    { label: "Unsupported", value: "unsupported" },
+                    { label: "Duplicate copies", value: "duplicates" }
+                ]
+                onCurrentValueChanged: root.artifactFilter = currentValue
+            }
+            Label {
+                text: root.filteredArtifacts.length + " shown"
+                color: root.mutedColor
+                font.pixelSize: 10
+            }
+        }
+
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !root.projectIntakeController.busy
             clip: true
             spacing: 7
-            model: root.projectIntakeController.artifacts
+            model: root.filteredArtifacts
 
             delegate: Rectangle {
                 required property int index

@@ -3,7 +3,9 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QJsonDocument>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -251,6 +253,32 @@ void controllerPublishesOnlySuccessfulInventory() {
 
 int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
+  if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--scan-only") {
+    QElapsedTimer timer;
+    timer.start();
+    const auto result = scanProjectFolder(QString::fromLocal8Bit(argv[2]));
+    QVariantMap summary{{"ok", result.ok},
+                        {"error", result.error},
+                        {"root_path", result.root_path},
+                        {"total_files", result.artifacts.size()},
+                        {"primary_step_path", result.primary_step_path},
+                        {"elapsed_ms", timer.elapsed()}};
+    for (const auto &state : {"ready", "not_evaluated", "unsupported",
+                              "unreadable"}) {
+      int count = 0;
+      for (const auto &artifact : result.artifacts)
+        count += artifact.toMap().value("analysis_state").toString() == state;
+      summary.insert(QString(state) + "_files", count);
+    }
+    int duplicateCopies = 0;
+    for (const auto &artifact : result.artifacts)
+      duplicateCopies += artifact.toMap().value("duplicate_copy").toBool();
+    summary.insert("duplicate_copies", duplicateCopies);
+    std::cout << QJsonDocument::fromVariant(summary).toJson(QJsonDocument::Compact)
+                     .constData()
+              << '\n';
+    return result.ok ? 0 : 2;
+  }
   accountsForEveryFile();
   handlesEmptyInvalidAndAmbiguousFolders();
   identifiesExactDuplicateCopies();

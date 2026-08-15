@@ -1,9 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
-$trialFolder = & (Join-Path $PSScriptRoot 'prepare-yubi-gripper-trial.ps1') |
+$trialFolder = & (Join-Path $PSScriptRoot 'prepare-jpl-rover-trial.ps1') |
   Select-Object -Last 1
-$assembly = Join-Path $trialFolder 'YUBI Gripper Assy_DYNAMIXEL.stp'
 
 cmake --preset windows-release
 if ($LASTEXITCODE -ne 0) { throw 'Windows Release configuration failed.' }
@@ -11,9 +10,9 @@ cmake --build --preset windows-release
 if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed.' }
 
 $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
-& (Join-Path $repo 'out/build/windows-release/desktop/cad/prometheus_step_import_tests.exe') --import-only $assembly
+& (Join-Path $repo 'out/build/windows-release/desktop/app/prometheus_project_intake_tests.exe') --scan-only $trialFolder
 if ($LASTEXITCODE -ne 0) {
-  throw "The production STEP importer rejected the YUBI assembly (exit $LASTEXITCODE)."
+  throw "The production project intake rejected the JPL Rover folder (exit $LASTEXITCODE)."
 }
 
 $env:PROMETHEUS_STARTUP_PROJECT_FOLDER = $trialFolder

@@ -688,6 +688,23 @@ void verifyProjectInventoryPanel() {
       std::cerr << error.toString().toStdString() << '\n';
   }
   require(root != nullptr, "project inventory panel instantiates offscreen");
+  root->setProperty("artifactQuery", "does-not-exist");
+  QCoreApplication::processEvents();
+  require(root->property("filteredArtifacts").toList().isEmpty(),
+          "inventory search hides non-matching artifacts");
+  root->setProperty("artifactQuery", "assembly");
+  QCoreApplication::processEvents();
+  require(root->property("filteredArtifacts").toList().size() == 1,
+          "inventory search matches a STEP path");
+  root->setProperty("artifactQuery", "");
+  root->setProperty("artifactFilter", "unsupported");
+  QCoreApplication::processEvents();
+  require(root->property("filteredArtifacts").toList().isEmpty(),
+          "unsupported filter excludes the ready STEP row");
+  root->setProperty("artifactFilter", "ready");
+  QCoreApplication::processEvents();
+  require(root->property("filteredArtifacts").toList().size() == 1,
+          "loadable filter retains the ready STEP row");
   QQuickWindow window;
   window.setGeometry(0, 0, 980, 700);
   auto *panelItem = qobject_cast<QQuickItem *>(root.get());

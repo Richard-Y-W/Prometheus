@@ -107,6 +107,33 @@ intentional until real-project trials establish the durable review UX.
 - screenshots or logs of the first consequential finding;
 - all user confusion and manual workarounds.
 
+## Observed Windows Release result
+
+The 2026-08-15 measurement used the conservative no-automatic-healing STEP
+transfer policy introduced after the YUBI trial.
+
+| Observation | Result |
+| --- | --- |
+| Accounted project files | 3 |
+| Production intake time | 733 ms |
+| Automatically selected STEP | 1 unambiguous assembly |
+| Assembly size | Approximately 48 MB |
+| Import hierarchy | 1 root and 607 leaf parts |
+| Display mesh | 230,433 triangles |
+| Production import time | 9,013 ms |
+| Static interference | Deferred; no clearance claim |
+
+The first conservative-transfer attempt exposed an OCCT
+`Standard_ConstructionError` while bounding one raw topology node. Prometheus
+now contains per-node OCCT topology failures: the hierarchy remains visible,
+usable nodes continue to tessellate, and skipped geometry is reported instead
+of terminating the process. YUBI and the synthetic regression fixture remain
+green under the same policy.
+
+The technical import is reproducible, but the trial is not complete as a
+usability study until an outside user attempts to identify the intended J5–J8
+motor geometry and bind the candidate component without developer guidance.
+
 ## Exit decision
 
 This trial succeeds when an ordinary user can open the folder, understand what
