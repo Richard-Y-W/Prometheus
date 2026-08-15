@@ -5,6 +5,7 @@ add_library(prometheus_structural STATIC
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
+  src/structural_setup.cpp
 )
 target_compile_features(prometheus_structural PUBLIC cxx_std_20)
 target_include_directories(prometheus_structural PUBLIC

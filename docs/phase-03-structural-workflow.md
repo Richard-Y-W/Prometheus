@@ -128,6 +128,26 @@ to sum to the reviewed total vector.
 No patch is automatically classified as a fastener, contact, load, or
 restraint surface. Those meanings still require explicit review.
 
+## Checkpoint 5: reviewed setup compiler
+
+A separate Qt-free setup contract now retains the meaning and provenance that
+must not be reduced to solver numbers prematurely:
+
+- material designation, exact source SHA-256, applicability statement,
+  Young's modulus, Poisson ratio, and review state;
+- exact load and fully fixed restraint boundary selections plus the reviewed
+  total load vector;
+- displacement and/or von Mises limits with a source or explicit exploratory
+  rationale;
+- minimum and maximum SI mesh sizes, mesher identity, and review state;
+- a non-empty scenario description and explicit final confirmation.
+
+The setup compiler rejects unreviewed fields, invalid provenance, missing or
+changed boundary topology, stale selection areas/node sets, overlapping load
+and fixed faces, invalid mesh controls, and absent requirement rationale. Only
+then does it create the narrow numerical `StructuralRequest`. No YUBI material,
+load, restraint, or requirement has been supplied or inferred by this work.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

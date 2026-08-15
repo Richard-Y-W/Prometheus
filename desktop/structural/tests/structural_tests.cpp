@@ -2,6 +2,7 @@
 #include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
+#include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
 
@@ -195,6 +196,48 @@ int main() {
   try {
     (void)ps::group_boundary_faces(flatFaces, -1.0);
     fail("invalid surface grouping angle was accepted");
+  } catch (const std::invalid_argument &) {
+  }
+
+  const auto tetraPatches = ps::group_boundary_faces(boundary, 1.0);
+  ps::StructuralSetup setup{
+      .analysis_id = "reviewed-tetra-setup",
+      .component_name = "benchmark tetrahedron",
+      .geometry_sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      .mesh = mesh,
+      .boundary_faces = boundary,
+      .material = {"benchmark isotropic material",
+                   "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                   "applies only to this analytic benchmark", 7.0e10, 0.33, true},
+      .load = {ps::resolve_boundary_selection("load", tetraPatches, {1}),
+               {0.0, 0.0, -100.0}, true},
+      .restraint = {ps::resolve_boundary_selection("fixed", tetraPatches, {2}), true},
+      .requirement = {0.001, 1.0e8, "explicit exploratory benchmark limits", true},
+      .mesh_controls = {0.001, 0.003, "test mesher 1.0", true},
+      .scenario_description = "one bounded linear-static benchmark scenario",
+      .scenario_confirmed = true};
+  require(ps::validate_setup(setup).empty(),
+          "reviewed setup with provenance and exact topology validates");
+  const auto compiledSetup = ps::compile_structural_request(setup);
+  require(compiledSetup.fully_fixed_node_ids.size() == 3 &&
+              compiledSetup.nodal_forces.size() == 3,
+          "reviewed surface setup compiles into the narrow solver request");
+  auto unreviewedSetup = setup;
+  unreviewedSetup.material.reviewed = false;
+  unreviewedSetup.requirement.source_or_exploratory_rationale.clear();
+  unreviewedSetup.scenario_confirmed = false;
+  const auto setupIssues = ps::validate_setup(unreviewedSetup);
+  require(hasIssue(setupIssues, "material_unreviewed") &&
+              hasIssue(setupIssues, "requirement_provenance_missing") &&
+              hasIssue(setupIssues, "scenario_unconfirmed"),
+          "unreviewed setup and missing rationale remain explicit blockers");
+  auto staleSelection = setup;
+  staleSelection.load.selection.area_m2 *= 2.0;
+  require(hasIssue(ps::validate_setup(staleSelection), "load_selection_invalid"),
+          "stale exact boundary selection is rejected before solver compilation");
+  try {
+    (void)ps::compile_structural_request(unreviewedSetup);
+    fail("unreviewed structural setup compiled into a solver request");
   } catch (const std::invalid_argument &) {
   }
 
