@@ -17,7 +17,8 @@ struct StructuralArchiveObjects final {
 };
 
 [[nodiscard]] Result<StructuralArchiveObjects> build_structural_archive_objects(
-    const std::filesystem::path &archive_manifest_path) noexcept;
+    const std::filesystem::path &archive_manifest_path,
+    std::string assembly_artifact_hash) noexcept;
 
 // Reconstructs into a destination that must not exist and publishes by atomic
 // directory rename only after every decoded artifact matches the archive.

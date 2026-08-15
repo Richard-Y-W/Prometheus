@@ -453,13 +453,18 @@ void test_structural_manifest_anchor() {
 void test_embedded_structural_archive_round_trip() {
   TemporaryRoot root;
   const auto sourceManifest = create_structural_archive_fixture(root.path());
-  auto packed = run_store::build_structural_archive_objects(sourceManifest);
+  auto packed = run_store::build_structural_archive_objects(
+      sourceManifest, initial_project().assembly_artifact_hash);
   if (!packed.has_value())
     throw std::runtime_error("pack structural archive: " +
                              packed.diagnostic().code + ": " +
                              packed.diagnostic().message);
   require(packed.value().chunks.size() == 8U,
           "structural archive packs all artifacts and splits a large DAT file");
+  require_failure(run_store::build_structural_archive_objects(
+                      sourceManifest, "sha256:invalid"),
+                  "assembly_artifact_hash_invalid",
+                  "structural archive without exact assembly identity");
   const auto projectPath = root.path() / "embedded.prometheus";
   require_success(run_store::create_project_v2(projectPath, initial_project()),
                   "create embedded structural project");
@@ -534,7 +539,8 @@ void test_embedded_structural_archive_round_trip() {
           "rejected embedded graph does not alter committed history");
 
   write_file(sourceManifest.parent_path() / "run.frd", "changed\n");
-  const auto corrupt = run_store::build_structural_archive_objects(sourceManifest);
+  const auto corrupt = run_store::build_structural_archive_objects(
+      sourceManifest, initial_project().assembly_artifact_hash);
   require_failure(corrupt, "artifact_identity_mismatch",
                   "changed source artifact cannot be packed");
 
@@ -555,6 +561,21 @@ void test_embedded_structural_archive_round_trip() {
   require(retry.has_value() &&
               retry.value().project.execution.committed_runs.size() == 1U,
           "structural publication recovers by retrying retained immutable objects");
+
+  const auto changedAssemblyPath = root.path() / "changed-assembly.prometheus";
+  auto changedAssemblyProject = initial_project();
+  changedAssemblyProject.assembly_artifact_hash =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  require_success(run_store::create_project_v2(changedAssemblyPath,
+                                                changedAssemblyProject),
+                  "create changed-assembly structural project");
+  const auto stalePublication = run_store::publish_structural_archive(
+      changedAssemblyPath, packed.value());
+  require_failure(stalePublication, "assembly_artifact_mismatch",
+                  "structural run built against another assembly");
+  require(run_store::open_read_only(changedAssemblyPath)
+              .value().execution.committed_runs.empty(),
+          "assembly mismatch cannot enter structural project history");
 }
 
 void test_create_failure_boundaries() {

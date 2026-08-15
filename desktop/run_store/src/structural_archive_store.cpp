@@ -132,8 +132,13 @@ std::string base64Decode(const std::string_view text) {
 } // namespace
 
 Result<StructuralArchiveObjects> build_structural_archive_objects(
-    const std::filesystem::path &manifestPath) noexcept {
+    const std::filesystem::path &manifestPath,
+    std::string assemblyArtifactHash) noexcept {
   try {
+    if (!is_valid_object_hash(assemblyArtifactHash))
+      return failure<StructuralArchiveObjects>(
+          "assembly_artifact_hash_invalid",
+          "structural publication requires the exact project assembly identity");
     auto manifestBytes = integrity::verify_canonical_bytes(readFile(manifestPath));
     const auto archive = Json::parse(manifestBytes);
     if (archive.value("$schema", "") != structural_manifest_schema_id ||
@@ -201,6 +206,7 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
         {"$schema", structural_project_run_schema_id},
         {"schema_version", "1.0.0"},
         {"manifest_kind", "embedded_structural_run"},
+        {"assembly_artifact_hash", std::move(assemblyArtifactHash)},
         {"archive_manifest", referenceJson(result.archive_manifest.reference)},
         {"artifacts", std::move(storedArtifacts)}};
     result.project_manifest = object(

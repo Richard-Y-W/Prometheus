@@ -102,11 +102,27 @@ accept it. Missing or changed selections cannot silently become defaults. The
 desktop integration test proves a fresh controller restores both exact selected
 surface roles and a `canRun` reviewed setup from embedded project history.
 
+## Checkpoint 6: assembly dependency binding and stale restoration
+
+Every new embedded structural project-run manifest now closes over the exact
+project assembly SHA-256 present at publication. The transaction rechecks that
+identity while holding the project writer lock, so a run packaged against a
+different or concurrently changed assembly cannot enter current history. An
+already committed historical run remains idempotently readable.
+
+On reopen, structural history compares its bound assembly identity with the
+current project snapshot. A changed assembly is labeled `STALE SOURCE`.
+Historical setup, findings, raw evidence, and visualization remain restorable,
+but request compilation is revoked, `canRun` is false, and an explicit
+`source_artifact_changed` blocker requires geometry and surface review before a
+new execution. Tests cover mismatched publication rejection and viewable but
+non-runnable stale restoration after an assembly identity change.
+
 ## Still required
 
 - persist full folder inventory identities and selected CAD/component mapping;
-- invalidate setup, request, and results when their source geometry or evidence
-  changes or disappears;
+- bind non-CAD inventory/evidence dependencies and invalidate only their correct
+  downstream setup, request, or result state when they change or disappear;
 - snapshot projects at execution boundaries;
 - export and import a complete project plus content-addressed sidecar;
 - prove clean-machine relocation; and

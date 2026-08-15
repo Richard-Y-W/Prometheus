@@ -195,6 +195,39 @@ int main(int argc, char **argv) {
               restoredController.lastRun().value("status") ==
                   "restored_verified",
           "reopened desktop restores editable reviewed setup and result visualization");
+  auto changedSnapshot = *reopened.project();
+  changedSnapshot.assembly_artifact_hash =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  require(prometheus::run_store::save_project_snapshot(projectPath,
+                                                        changedSnapshot)
+              .has_value(),
+          "project source identity changes for stale structural test");
+  CadController staleCad;
+  EngineeringController staleEngineering;
+  ProjectController staleProject(&staleCad, &staleEngineering);
+  staleProject.openProject(QUrl::fromLocalFile(
+      QString::fromStdWString(projectPath.wstring())));
+  StructuralController staleController(&staleProject);
+  require(staleController.storedRuns().front().toMap()
+              .value("source_current").toBool() == false,
+          "reopened structural history marks changed assembly source stale");
+  QEventLoop staleLoop;
+  QObject::connect(&staleController, &StructuralController::changed,
+                   &staleLoop, [&] {
+    if (!staleController.busy() &&
+        (staleController.status() == "structural_archive_restored_stale" ||
+         staleController.status() == "structural_archive_restore_failed"))
+      staleLoop.quit();
+  });
+  QTimer::singleShot(10000, &staleLoop, &QEventLoop::quit);
+  staleController.restoreStoredRun(0, QUrl::fromLocalFile(temporary.path()));
+  staleLoop.exec();
+  require(staleController.status() == "structural_archive_restored_stale" &&
+              staleController.resultGeometry() != nullptr &&
+              !staleController.canRun() &&
+              staleController.blockers().back().toMap().value("code") ==
+                  "source_artifact_changed",
+          "stale structural evidence remains viewable but cannot be rerun");
   const auto restoredDirectory =
       std::filesystem::path(temporary.path().toStdWString()) / "restored-from-project";
   const auto restored = prometheus::run_store::reconstruct_structural_archive(

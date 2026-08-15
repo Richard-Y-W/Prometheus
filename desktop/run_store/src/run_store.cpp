@@ -455,7 +455,8 @@ validate_structural_manifest(const ObjectToStore &manifest) {
 }
 
 Result<detail::Unit> validate_embedded_structural_graph(
-    const StructuralArchiveObjects &objects) {
+    const ProjectV2 &project, const StructuralArchiveObjects &objects,
+    const bool requireCurrentAssembly) {
   const auto archiveValid = validate_structural_manifest(objects.archive_manifest);
   if (!archiveValid.has_value()) return archiveValid;
   const auto projectValid = detail::verify_stored_object(
@@ -472,7 +473,7 @@ Result<detail::Unit> validate_embedded_structural_graph(
     const auto projectManifest = Json::parse(objects.project_manifest.bytes);
     if (!exact_keys(projectManifest,
                     {"$schema", "schema_version", "manifest_kind",
-                     "archive_manifest", "artifacts"}) ||
+                     "assembly_artifact_hash", "archive_manifest", "artifacts"}) ||
         !string_equals(projectManifest, "$schema",
                        structural_project_run_schema_id) ||
         !string_equals(projectManifest, "schema_version", "1.0.0") ||
@@ -483,6 +484,15 @@ Result<detail::Unit> validate_embedded_structural_graph(
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_project_manifest_invalid",
           "embedded structural project manifest is invalid"));
+    if (!projectManifest.at("assembly_artifact_hash").is_string() ||
+        !is_valid_object_hash(
+            projectManifest.at("assembly_artifact_hash").get<std::string>()) ||
+        (requireCurrentAssembly &&
+         projectManifest.at("assembly_artifact_hash").get<std::string>() !=
+             project.assembly_artifact_hash))
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "assembly_artifact_mismatch",
+          "structural run assembly identity does not match the project snapshot"));
     const auto archiveReference =
         reference_from_json(projectManifest.at("archive_manifest"));
     if (!archiveReference || *archiveReference != objects.archive_manifest.reference)
@@ -973,8 +983,6 @@ Result<Publication> publish_structural_archive(
       return failure_from<Publication>(projectResult.diagnostic());
     if (const auto cancelled = detail::check_cancelled(options); cancelled)
       return Result<Publication>::failure(*cancelled);
-    const auto graph = validate_embedded_structural_graph(objects);
-    if (!graph.has_value()) return failure_from<Publication>(graph.diagnostic());
     auto project = std::move(projectResult.value());
     bool alreadyCommitted = false;
     for (const auto &reference : project.execution.committed_runs) {
@@ -986,6 +994,9 @@ Result<Publication> publish_structural_archive(
             "structural project manifest hash has conflicting metadata"));
       alreadyCommitted = true;
     }
+    const auto graph = validate_embedded_structural_graph(
+        project, objects, !alreadyCommitted);
+    if (!graph.has_value()) return failure_from<Publication>(graph.diagnostic());
     const auto archiveInstalled = detail::install_object_file(
         project_path, objects.archive_manifest.reference,
         objects.archive_manifest.bytes, options);

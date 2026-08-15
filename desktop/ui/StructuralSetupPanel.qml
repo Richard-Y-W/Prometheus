@@ -383,7 +383,8 @@ Item {
                             required property int index
                             width: structuralHistory.width
                             text: modelData.analysis_id ?
-                                  "Restore " + modelData.analysis_id + " • " + modelData.component_name :
+                                  "Restore " + modelData.analysis_id + " • " + modelData.component_name +
+                                  (modelData.source_current === false ? " • STALE SOURCE" : "") :
                                   "Structural run " + modelData.status
                             enabled: modelData.restorable && !structuralController.busy && root.outputRoot.toString() !== ""
                             onClicked: structuralController.restoreStoredRun(index, root.outputRoot)

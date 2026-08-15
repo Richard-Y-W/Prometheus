@@ -235,6 +235,7 @@ void StructuralController::commitLastRun() {
   }
   const auto manifestPath = std::filesystem::path(manifestText.toStdWString());
   const auto projectPath = project_->projectPath();
+  const auto assemblyHash = project_->project()->assembly_artifact_hash;
   busy_ = true;
   status_ = "publishing_structural_archive";
   error_.clear();
@@ -262,13 +263,13 @@ void StructuralController::commitLastRun() {
     emit changed();
   });
   watcher->setFuture(QtConcurrent::run(
-      [manifestPath, projectPath] {
+      [manifestPath, projectPath, assemblyHash] {
         const auto verified = ps::verify_structural_archive(manifestPath);
         if (!verified.valid)
           return DesktopStructuralCommitResult{
               std::nullopt, false, {}, verified.code + ": " + verified.detail};
         auto objects = prometheus::run_store::build_structural_archive_objects(
-            manifestPath);
+            manifestPath, assemblyHash);
         if (!objects.has_value())
           return DesktopStructuralCommitResult{
               std::nullopt, false, {}, objects.diagnostic().code + ": " +
@@ -330,6 +331,13 @@ void StructuralController::reloadProject() {
       stored_runs_.append(display);
       continue;
     }
+    const auto boundAssembly =
+        projectDocument.object().value("assembly_artifact_hash").toString();
+    const auto sourceCurrent =
+        boundAssembly.toStdString() == project_->project()->assembly_artifact_hash;
+    display["assembly_artifact_hash"] = boundAssembly;
+    display["source_current"] = sourceCurrent;
+    if (!sourceCurrent) display["status"] = "stale_source_changed";
     const auto archive = prometheus::run_store::read_object(
         project_->projectPath(), *archiveReference);
     if (archive.has_value()) {
@@ -360,6 +368,7 @@ void StructuralController::restoreStoredRun(const int index,
     return;
   }
   const auto rootPath = outputRoot.toLocalFile();
+  const auto sourceCurrent = selected.value("source_current", true).toBool();
   if (rootPath.isEmpty()) {
     error_ = "Select an output folder for the reconstructed archive.";
     emit changed();
@@ -391,7 +400,7 @@ void StructuralController::restoreStoredRun(const int index,
   emit changed();
   auto *watcher = new QFutureWatcher<DesktopStructuralRestoreResult>(this);
   connect(watcher, &QFutureWatcher<DesktopStructuralRestoreResult>::finished,
-          this, [this, watcher] {
+          this, [this, watcher, sourceCurrent] {
     auto restored = watcher->result();
     watcher->deleteLater();
     busy_ = false;
@@ -506,6 +515,14 @@ void StructuralController::restoreStoredRun(const int index,
         {"scenario_description", scenario.value("description").toString()},
         {"scenario_confirmed", scenario.value("confirmed").toBool()}};
     rebuildPreview();
+    if (!sourceCurrent) {
+      compiled_request_.reset();
+      compiled_setup_evidence_.clear();
+      can_run_ = false;
+      blockers_.append(QVariantMap{
+          {"code", "source_artifact_changed"},
+          {"message", "The project assembly identity changed after this structural run. Historical evidence remains viewable, but rerun is blocked until geometry and selections are reviewed again."}});
+    }
     if (result_geometry_) result_geometry_->deleteLater();
     double minimumX = std::numeric_limits<double>::max();
     double minimumY = minimumX, minimumZ = minimumX;
@@ -583,7 +600,8 @@ void StructuralController::restoreStoredRun(const int index,
     last_run_["evaluated_obligations"] =
         coverage.value("evaluated_obligations").toInt();
     last_run_["limitation"] = archive.value("limitation").toString();
-    status_ = "structural_archive_restored";
+    status_ = sourceCurrent ? "structural_archive_restored"
+                            : "structural_archive_restored_stale";
     error_.clear();
     emit changed();
   });
