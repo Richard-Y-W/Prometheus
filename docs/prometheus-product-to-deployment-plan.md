@@ -400,7 +400,7 @@ At least one trial should involve someone outside the core development team.
 - one selected real component and engineering question for the first solver workflow;
 - evidence-based priorities for BOM, datasheet, and material intake.
 
-## Phase 3: Implement one real CalculiX structural workflow — active in parallel
+## Phase 3: Implement one real CalculiX structural workflow — technical workflow complete; real-component evidence open
 
 ### Objective
 

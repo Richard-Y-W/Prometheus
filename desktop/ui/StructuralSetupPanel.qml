@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtQuick3D
 
 Item {
     id: root
@@ -236,6 +237,72 @@ Item {
                         color: structuralController.canRun ? "#70c99a" : "#e0ac62"
                         font.bold: true
                         wrapMode: Text.WordWrap
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: structuralController.resultGeometry ? 220 : 0
+                        visible: structuralController.resultGeometry !== null
+                        color: "#10161b"
+                        border.color: lineColor
+                        View3D {
+                            anchors.fill: parent
+                            environment: SceneEnvironment {
+                                backgroundMode: SceneEnvironment.Color
+                                clearColor: "#10161b"
+                                antialiasingMode: SceneEnvironment.MSAA
+                            }
+                            Node {
+                                id: resultOrbit
+                                position: Qt.vector3d(
+                                    structuralController.resultView.center_x_mm || 0,
+                                    structuralController.resultView.center_y_mm || 0,
+                                    structuralController.resultView.center_z_mm || 0)
+                                eulerRotation: Qt.vector3d(-20, -30, 0)
+                                PerspectiveCamera {
+                                    id: resultCamera
+                                    z: 3.2 * (structuralController.resultView.radius_mm || 1)
+                                    clipNear: Math.max(0.01, (structuralController.resultView.radius_mm || 1) * 0.01)
+                                    clipFar: Math.max(1000, (structuralController.resultView.radius_mm || 1) * 20)
+                                }
+                            }
+                            DirectionalLight { eulerRotation: Qt.vector3d(-35, -35, 0); brightness: 1.2 }
+                            Model {
+                                geometry: structuralController.resultGeometry
+                                materials: PrincipledMaterial {
+                                    vertexColorsEnabled: true
+                                    roughness: 0.72
+                                    metalness: 0.0
+                                    cullMode: Material.NoCulling
+                                }
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            property real previousX
+                            property real previousY
+                            onPressed: mouse => { previousX = mouse.x; previousY = mouse.y }
+                            onPositionChanged: mouse => {
+                                if (!pressed) return
+                                resultOrbit.eulerRotation.y += mouse.x - previousX
+                                resultOrbit.eulerRotation.x += mouse.y - previousY
+                                previousX = mouse.x; previousY = mouse.y
+                            }
+                            onWheel: wheel => {
+                                resultCamera.z = Math.max(
+                                    1.2 * (structuralController.resultView.radius_mm || 1),
+                                    resultCamera.z * (wheel.angleDelta.y > 0 ? 0.88 : 1.14))
+                            }
+                        }
+                        Label {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 7
+                            color: "white"
+                            font.pixelSize: 9
+                            text: "VON MISES  blue 0 → red " +
+                                  Number(structuralController.resultView.color_max_pa || 0).toExponential(3) +
+                                  " Pa  •  deformation ×" + Number(structuralController.resultView.deformation_scale || 1).toFixed(1)
+                        }
                     }
                     RowLayout {
                         Layout.fillWidth: true

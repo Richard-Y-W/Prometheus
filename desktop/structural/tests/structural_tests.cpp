@@ -140,6 +140,20 @@ int main() {
               std::abs(metrics.maximum_displacement_m - 2.228571e-8) < 1e-15 &&
               std::abs(metrics.maximum_von_mises_pa - 3428.571) < 1e-6,
           "raw CalculiX displacement and stress rows compile to SI maxima");
+  auto resultRequest = request;
+  resultRequest.nodes = {request.nodes.front(), request.nodes.back()};
+  resultRequest.nodes[0].id = 1;
+  resultRequest.nodes[1].id = 4;
+  resultRequest.elements = {request.elements.front()};
+  resultRequest.elements.front().id = 1;
+  require(ps::validate_calculix_result_binding(resultRequest, metrics).empty(),
+          "solver field identities bind exactly to submitted node and element IDs");
+  auto incompleteMetrics = metrics;
+  incompleteMetrics.displacements.pop_back();
+  require(hasIssue(ps::validate_calculix_result_binding(resultRequest,
+                                                         incompleteMetrics),
+                   "displacement_mesh_mismatch"),
+          "incomplete solver field coverage fails closed");
   try {
     (void)ps::parse_calculix_dat("solver stopped before result output\n");
     fail("missing solver output became metrics");

@@ -73,13 +73,19 @@ std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
   const auto optionalNumber = [](const std::optional<double> value) {
     return value ? Json(*value) : Json(nullptr);
   };
+  Json nodeIds = Json::array();
+  for (const auto &node : setup.mesh.nodes) nodeIds.push_back(node.id);
+  Json elementIds = Json::array();
+  for (const auto &element : setup.mesh.elements) elementIds.push_back(element.id);
   const Json document{
       {"$schema", setupSchema}, {"schema_version", "1.0.0"},
       {"analysis_id", setup.analysis_id}, {"component_name", setup.component_name},
       {"geometry_sha256", setup.geometry_sha256},
       {"mesh", {{"node_count", setup.mesh.nodes.size()},
                  {"element_count", setup.mesh.elements.size()},
-                 {"boundary_face_count", setup.boundary_faces.size()}}},
+                 {"boundary_face_count", setup.boundary_faces.size()},
+                 {"node_ids", std::move(nodeIds)},
+                 {"element_ids", std::move(elementIds)}}},
       {"material", {{"designation", setup.material.designation},
                      {"source_sha256", setup.material.source_sha256},
                      {"applicability", setup.material.applicability},
@@ -242,6 +248,27 @@ StructuralArchiveVerification verify_structural_archive(
     if (!exact_keys(requirements, {"displacement_limit_m", "von_mises_limit_pa"}))
       return failure("archive_contract_invalid", "archive requirements are invalid");
     StructuralRequest replayRequest;
+    if (setup.contains("mesh") && setup.at("mesh").is_object() &&
+        setup.at("mesh").contains("node_ids") &&
+        setup.at("mesh").contains("element_ids")) {
+      if (!setup.at("mesh").at("node_ids").is_array() ||
+          !setup.at("mesh").at("element_ids").is_array())
+        return failure("setup_contract_invalid", "reviewed setup mesh identities are invalid");
+      for (const auto &id : setup.at("mesh").at("node_ids")) {
+        if (!id.is_number_integer())
+          return failure("setup_contract_invalid", "reviewed setup node identity is invalid");
+        replayRequest.nodes.push_back({id.get<int>(), {}});
+      }
+      for (const auto &id : setup.at("mesh").at("element_ids")) {
+        if (!id.is_number_integer())
+          return failure("setup_contract_invalid", "reviewed setup element identity is invalid");
+        replayRequest.elements.push_back({id.get<int>(), {}});
+      }
+      if (const auto binding = validate_calculix_result_binding(replayRequest, parsed);
+          !binding.empty())
+        return failure("replay_mesh_binding_mismatch",
+                       binding.front().code + ": " + binding.front().message);
+    }
     if (!requirements.at("displacement_limit_m").is_null())
       replayRequest.displacement_limit_m = requirements.at("displacement_limit_m").get<double>();
     if (!requirements.at("von_mises_limit_pa").is_null())

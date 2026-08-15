@@ -256,10 +256,11 @@ reproduced from the raw DAT file, and findings that cannot be recompiled from
 those metrics and archived limits. The desktop controller test proves a valid
 archive replays and that changing the retained DAT bytes invalidates it.
 
-This is local self-consistency evidence. Until Phase 4 commits the archive
-manifest hash into a Prometheus project transaction, someone with write access
-to the whole run directory could replace both artifacts and manifest. It is not
-a signature, certification record, or validation of the real bracket scenario.
+This is local self-consistency evidence until the user explicitly anchors the
+archive manifest hash through the Phase 4 Prometheus project transaction. The
+anchor detects replacement relative to project history, but raw artifact
+embedding remains open. It is not a signature, certification record, or
+validation of the real bracket scenario.
 
 ## Checkpoint 12: spatial field parsing and extrema presentation
 
@@ -270,17 +271,7 @@ components, the exact element/integration point carrying maximum von Mises
 stress, and the number of parsed rows in each field. This makes the displayed
 maximum traceable to spatial solver output rather than an unlocated scalar.
 
-The raw fields remain preserved in the archive and are replayed from DAT. A
-colored/deformed component overlay is still the next visualization checkpoint;
-the current presentation does not interpolate integration-point values to the
-surface and does not imply that unreported regions or failure modes passed.
-
-## Next checkpoint
-
-1. Visualize the bounded result on the reviewed component without implying a
-   project-wide pass or continuous-motion proof.
-2. Commit the reviewed setup and verified run archive through the Phase 4
-   content-addressed project store.
+The raw fields remain preserved in the archive and are replayed from DAT.
 
 The first Phase 4 transport boundary is now available through
 `prometheus_export_structural_archive`. It accepts only a fully verified source
@@ -289,3 +280,33 @@ sibling temporary directory, verifies the relocated copy, and publishes it by
 atomic directory rename. Existing destinations are never overwritten. This
 makes an individual run relocatable without weakening its identity, but it is
 not yet the complete portable Prometheus project bundle required by Phase 4.
+
+## Checkpoint 13: deformed stress visualization
+
+Completed bound fields now generate an exterior-triangle Quick3D result mesh.
+Nodal displacement vectors deform the reviewed mesh with an explicitly shown
+automatic scale factor; each exterior face receives the maximum von Mises value
+of its owning tetrahedron and a blue-to-red color ramp with numeric endpoints.
+The desktop provides mouse orbit and wheel zoom and continues to show exact
+node/element extrema, field-row coverage, findings, and limitations beside the
+view.
+
+Before any field is rendered or archived, displacement node IDs must exactly
+cover the submitted mesh nodes and stress element IDs must exactly cover its
+elements; duplicates, omissions, or foreign identities classify the run as
+`result_invalid`. New archives retain the reviewed node and element identity
+sets so offline replay repeats this binding check. The visual is a deformed
+linear-static result, not physical-scale motion, surface stress interpolation,
+continuous collision proof, or a safety claim.
+
+All technically implementable Phase 3 workflow steps are now present. The exit
+gate remains open because the selected real bracket still needs human-reviewed
+scenario inputs and independent real-component comparison evidence; synthetic
+fixtures and analytic benchmark geometry cannot honestly substitute for that.
+
+## Remaining Phase 3 evidence
+
+1. Obtain reviewed real-component material, load, restraint, requirement, and
+   mesh-convergence evidence for the selected YUBI bracket.
+2. Run the independent real-component comparison and retain the external
+   evidence needed to close the Phase 3 exit gate.

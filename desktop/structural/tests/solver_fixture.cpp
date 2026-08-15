@@ -21,6 +21,9 @@ int main(int argc, char **argv) {
  displacements (vx,vy,vz) for set NALL and time  0.1000000E+01
 
          1  0.000000E+00  0.000000E+00 -2.000000E-05
+         2  0.000000E+00  0.000000E+00  0.000000E+00
+         3  0.000000E+00  0.000000E+00  0.000000E+00
+         4  0.000000E+00  0.000000E+00  0.000000E+00
 
  stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) for set COMPONENT and time  0.1000000E+01
 

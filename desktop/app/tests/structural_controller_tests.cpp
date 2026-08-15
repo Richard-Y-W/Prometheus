@@ -94,11 +94,14 @@ int main(int argc, char **argv) {
               controller.lastRun().value("evaluated_obligations").toInt() == 2 &&
               controller.lastRun().value("maximum_displacement_node_id").toInt() == 1 &&
               controller.lastRun().value("maximum_stress_element_id").toInt() == 1 &&
-              controller.lastRun().value("displacement_rows").toInt() == 1 &&
+              controller.lastRun().value("displacement_rows").toInt() == 4 &&
+              controller.resultGeometry() != nullptr &&
+              controller.resultView().value("deformation_scale").toDouble() >= 1.0 &&
+              controller.resultView().value("color_max_pa").toDouble() == 1.0e6 &&
               controller.findings().size() == 2 &&
               controller.lastRun().value("archived").toBool() &&
               !controller.lastRun().value("archive_manifest").toString().isEmpty(),
-          "desktop executes asynchronously, archives, and exposes scoped findings");
+          "desktop executes, archives, and builds a traceable deformed stress view");
   const auto archivePath = controller.lastRun().value("archive_manifest").toString();
   const auto verified = prometheus::structural::verify_structural_archive(
       std::filesystem::path(archivePath.toStdWString()));

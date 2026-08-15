@@ -1,5 +1,7 @@
 #pragma once
 
+#include "prometheus/structural/types.hpp"
+
 #include <cstddef>
 #include <string_view>
 #include <vector>
@@ -36,5 +38,7 @@ struct CalculixMetrics final {
 };
 
 [[nodiscard]] CalculixMetrics parse_calculix_dat(std::string_view rawDat);
+[[nodiscard]] std::vector<ValidationIssue> validate_calculix_result_binding(
+    const StructuralRequest &request, const CalculixMetrics &result);
 
 } // namespace prometheus::structural

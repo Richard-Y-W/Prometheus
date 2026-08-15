@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prometheus/structural/gmsh_mesh.hpp"
+#include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/types.hpp"
 
@@ -8,11 +9,22 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QtQuick3D/QQuick3DGeometry>
 
 #include <optional>
 #include <string>
 
 class ProjectController;
+
+class StructuralResultGeometry final : public QQuick3DGeometry {
+  Q_OBJECT
+public:
+  StructuralResultGeometry(
+      const prometheus::structural::VolumeMesh &mesh,
+      const std::vector<prometheus::structural::BoundaryFace> &boundary,
+      const prometheus::structural::CalculixMetrics &fields,
+      double deformation_scale, QObject *parent = nullptr);
+};
 
 class StructuralController final : public QObject {
   Q_OBJECT
@@ -28,6 +40,8 @@ class StructuralController final : public QObject {
   Q_PROPERTY(bool busy READ busy NOTIFY changed)
   Q_PROPERTY(QVariantMap lastRun READ lastRun NOTIFY changed)
   Q_PROPERTY(QVariantList findings READ findings NOTIFY changed)
+  Q_PROPERTY(QQuick3DGeometry *resultGeometry READ resultGeometry NOTIFY changed)
+  Q_PROPERTY(QVariantMap resultView READ resultView NOTIFY changed)
 
 public:
   explicit StructuralController(ProjectController *project = nullptr,
@@ -45,6 +59,8 @@ public:
   bool busy() const { return busy_; }
   QVariantMap lastRun() const { return last_run_; }
   QVariantList findings() const { return findings_; }
+  QQuick3DGeometry *resultGeometry() const { return result_geometry_; }
+  QVariantMap resultView() const { return result_view_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);
@@ -81,4 +97,6 @@ private:
   std::vector<int> load_patch_ids_;
   std::vector<int> restraint_patch_ids_;
   ProjectController *project_{};
+  StructuralResultGeometry *result_geometry_{};
+  QVariantMap result_view_;
 };

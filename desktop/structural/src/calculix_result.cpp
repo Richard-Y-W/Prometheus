@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <set>
 
 namespace prometheus::structural {
 
@@ -62,6 +63,36 @@ CalculixMetrics parse_calculix_dat(const std::string_view rawDat) {
     throw std::runtime_error(
         "CalculiX output is missing required displacement or stress rows");
   return result;
+}
+
+std::vector<ValidationIssue> validate_calculix_result_binding(
+    const StructuralRequest &request, const CalculixMetrics &result) {
+  std::set<int> expectedNodes;
+  for (const auto &node : request.nodes) expectedNodes.insert(node.id);
+  std::set<int> actualNodes;
+  for (const auto &row : result.displacements) {
+    if (!actualNodes.insert(row.node_id).second)
+      return {{"duplicate_displacement_node",
+               "solver output contains duplicate displacement rows"}};
+  }
+  if (actualNodes != expectedNodes)
+    return {{"displacement_mesh_mismatch",
+             "solver displacement rows do not exactly cover the submitted mesh nodes"}};
+
+  std::set<int> expectedElements;
+  for (const auto &element : request.elements) expectedElements.insert(element.id);
+  std::set<int> actualElements;
+  std::set<std::pair<int, int>> integrationPoints;
+  for (const auto &row : result.stresses) {
+    actualElements.insert(row.element_id);
+    if (!integrationPoints.emplace(row.element_id, row.integration_point).second)
+      return {{"duplicate_stress_integration_point",
+               "solver output contains duplicate stress integration-point rows"}};
+  }
+  if (actualElements != expectedElements)
+    return {{"stress_mesh_mismatch",
+             "solver stress rows do not exactly cover the submitted mesh elements"}};
+  return {};
 }
 
 } // namespace prometheus::structural

@@ -15,6 +15,10 @@
 #include <iterator>
 #include <optional>
 #include <set>
+#include <unordered_map>
+#include <limits>
+
+#include <QVector3D>
 
 #include <QDateTime>
 #include <QDir>
@@ -67,6 +71,105 @@ std::optional<double> positiveOptional(const QVariantMap &draft,
 }
 
 } // namespace
+
+StructuralResultGeometry::StructuralResultGeometry(
+    const ps::VolumeMesh &mesh,
+    const std::vector<ps::BoundaryFace> &boundary,
+    const ps::CalculixMetrics &fields, const double deformationScale,
+    QObject *parent)
+    : QQuick3DGeometry(nullptr) {
+  setParent(parent);
+  std::unordered_map<int, ps::Node> nodes;
+  for (const auto &node : mesh.nodes) nodes.emplace(node.id, node);
+  std::unordered_map<int, ps::NodalDisplacement> displacement;
+  for (const auto &row : fields.displacements)
+    displacement.emplace(row.node_id, row);
+  std::unordered_map<int, double> stress;
+  for (const auto &row : fields.stresses) {
+    auto [entry, inserted] = stress.emplace(row.element_id, row.von_mises_pa);
+    if (!inserted) entry->second = std::max(entry->second, row.von_mises_pa);
+  }
+  const auto color = [&](const double value) {
+    const auto ratio = fields.maximum_von_mises_pa > 0.0
+        ? std::clamp(value / fields.maximum_von_mises_pa, 0.0, 1.0) : 0.0;
+    // Perceptually ordered blue -> cyan -> yellow -> red ramp.
+    if (ratio < 0.333333) {
+      const auto t = ratio * 3.0;
+      return std::array<float, 4>{0.05F, static_cast<float>(0.25 + 0.7 * t),
+                                  static_cast<float>(0.85 + 0.15 * t), 1.0F};
+    }
+    if (ratio < 0.666667) {
+      const auto t = (ratio - 0.333333) * 3.0;
+      return std::array<float, 4>{static_cast<float>(0.05 + 0.9 * t), 0.95F,
+                                  static_cast<float>(1.0 - 0.9 * t), 1.0F};
+    }
+    const auto t = (ratio - 0.666667) * 3.0;
+    return std::array<float, 4>{0.95F, static_cast<float>(0.95 - 0.85 * t),
+                                0.1F, 1.0F};
+  };
+  std::vector<float> vertices;
+  std::vector<std::uint32_t> indices;
+  vertices.reserve(boundary.size() * 3U * 10U);
+  indices.reserve(boundary.size() * 3U);
+  QVector3D minimum(std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max());
+  QVector3D maximum(std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest());
+  for (const auto &face : boundary) {
+    std::array<QVector3D, 3> positions;
+    for (std::size_t index = 0; index < 3U; ++index) {
+      const auto node = nodes.find(face.node_ids[index]);
+      if (node == nodes.end())
+        throw std::runtime_error("result face references an unknown mesh node");
+      auto position = node->second.position_m;
+      if (const auto moved = displacement.find(node->first);
+          moved != displacement.end()) {
+        position[0] += deformationScale * moved->second.x_m;
+        position[1] += deformationScale * moved->second.y_m;
+        position[2] += deformationScale * moved->second.z_m;
+      }
+      positions[index] = QVector3D(static_cast<float>(position[0] * 1000.0),
+                                   static_cast<float>(position[1] * 1000.0),
+                                   static_cast<float>(position[2] * 1000.0));
+      minimum.setX(std::min(minimum.x(), positions[index].x()));
+      minimum.setY(std::min(minimum.y(), positions[index].y()));
+      minimum.setZ(std::min(minimum.z(), positions[index].z()));
+      maximum.setX(std::max(maximum.x(), positions[index].x()));
+      maximum.setY(std::max(maximum.y(), positions[index].y()));
+      maximum.setZ(std::max(maximum.z(), positions[index].z()));
+    }
+    const auto normal = QVector3D::crossProduct(positions[1] - positions[0],
+                                                 positions[2] - positions[0])
+                            .normalized();
+    const auto stressValue = stress.contains(face.source_element_id)
+        ? stress.at(face.source_element_id) : 0.0;
+    const auto rgba = color(stressValue);
+    for (const auto &position : positions) {
+      vertices.insert(vertices.end(),
+          {position.x(), position.y(), position.z(), normal.x(), normal.y(),
+           normal.z(), rgba[0], rgba[1], rgba[2], rgba[3]});
+      indices.push_back(static_cast<std::uint32_t>(indices.size()));
+    }
+  }
+  clear();
+  setStride(10 * sizeof(float));
+  setPrimitiveType(QQuick3DGeometry::PrimitiveType::Triangles);
+  addAttribute(QQuick3DGeometry::Attribute::PositionSemantic, 0,
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::NormalSemantic, 3 * sizeof(float),
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::ColorSemantic, 6 * sizeof(float),
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::IndexSemantic, 0,
+               QQuick3DGeometry::Attribute::U32Type);
+  setVertexData(QByteArray(reinterpret_cast<const char *>(vertices.data()),
+                           static_cast<qsizetype>(vertices.size() * sizeof(float))));
+  setIndexData(QByteArray(reinterpret_cast<const char *>(indices.data()),
+                          static_cast<qsizetype>(indices.size() * sizeof(std::uint32_t))));
+  if (!vertices.empty()) setBounds(minimum, maximum);
+}
 
 StructuralController::StructuralController(ProjectController *project,
                                            QObject *parent)
@@ -131,6 +234,11 @@ QVariantList StructuralController::selectedRestraintPatchIds() const {
 void StructuralController::loadMesh(const QUrl &url,
                                     const double coordinateScaleToM,
                                     const double patchAngleDegrees) {
+  if (busy_) {
+    error_ = "Wait for the active structural execution before replacing its mesh.";
+    emit changed();
+    return;
+  }
   reset();
   const auto local = url.toLocalFile();
   if (local.isEmpty()) {
@@ -181,6 +289,11 @@ void StructuralController::loadMesh(const QUrl &url,
 void StructuralController::setPatchSelected(const int patchId,
                                             const QString &role,
                                             const bool selected) {
+  if (busy_) {
+    error_ = "Wait for the active structural execution before changing its setup.";
+    emit changed();
+    return;
+  }
   if (std::ranges::none_of(patches_, [&](const auto &patch) {
         return patch.id == patchId;
       })) {
@@ -204,9 +317,17 @@ void StructuralController::setPatchSelected(const int patchId,
 }
 
 void StructuralController::reviewSetup(const QVariantMap &draft) {
+  if (busy_) {
+    error_ = "Wait for the active structural execution before changing its setup.";
+    emit changed();
+    return;
+  }
   draft_ = draft;
   last_run_.clear();
   findings_.clear();
+  if (result_geometry_) result_geometry_->deleteLater();
+  result_geometry_ = nullptr;
+  result_view_.clear();
   rebuildPreview();
   emit changed();
 }
@@ -404,6 +525,40 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
         last_run_["maximum_stress_element_id"] = maximumStress->element_id;
         last_run_["maximum_stress_integration_point"] = maximumStress->integration_point;
       }
+      double minimumX = std::numeric_limits<double>::max();
+      double minimumY = std::numeric_limits<double>::max();
+      double minimumZ = std::numeric_limits<double>::max();
+      double maximumX = std::numeric_limits<double>::lowest();
+      double maximumY = std::numeric_limits<double>::lowest();
+      double maximumZ = std::numeric_limits<double>::lowest();
+      for (const auto &node : mesh_.nodes) {
+        minimumX = std::min(minimumX, node.position_m[0]);
+        minimumY = std::min(minimumY, node.position_m[1]);
+        minimumZ = std::min(minimumZ, node.position_m[2]);
+        maximumX = std::max(maximumX, node.position_m[0]);
+        maximumY = std::max(maximumY, node.position_m[1]);
+        maximumZ = std::max(maximumZ, node.position_m[2]);
+      }
+      const auto diagonal = std::hypot(maximumX - minimumX,
+                                       maximumY - minimumY,
+                                       maximumZ - minimumZ);
+      const auto deformationScale = completed.run.metrics->maximum_displacement_m > 0.0
+          ? std::clamp(0.1 * diagonal /
+                           completed.run.metrics->maximum_displacement_m,
+                       1.0, 1.0e6)
+          : 1.0;
+      if (result_geometry_) result_geometry_->deleteLater();
+      result_geometry_ = new StructuralResultGeometry(
+          mesh_, boundary_, *completed.run.metrics, deformationScale, this);
+      const auto radiusMm = std::max(1.0, 0.55 * diagonal * 1000.0);
+      result_view_ = {
+          {"center_x_mm", 500.0 * (minimumX + maximumX)},
+          {"center_y_mm", 500.0 * (minimumY + maximumY)},
+          {"center_z_mm", 500.0 * (minimumZ + maximumZ)},
+          {"radius_mm", radiusMm},
+          {"deformation_scale", deformationScale},
+          {"color_min_pa", 0.0},
+          {"color_max_pa", completed.run.metrics->maximum_von_mises_pa}};
     }
     for (const auto &finding : completed.evaluation.findings) {
       findings_.append(QVariantMap{
@@ -424,10 +579,19 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
   });
   watcher->setFuture(QtConcurrent::run(
       [request, setupEvidence, executablePath, runDirectory]() -> DesktopRunResult {
-        const auto run = ps::run_calculix({
+        auto run = ps::run_calculix({
             std::filesystem::path(executablePath.toStdWString()),
             std::filesystem::path(runDirectory.toStdWString()),
             "prometheus_structural_run", std::chrono::minutes(5)});
+        if (run.status == ps::SolverRunStatus::completed && run.metrics) {
+          const auto binding =
+              ps::validate_calculix_result_binding(request, *run.metrics);
+          if (!binding.empty()) {
+            run.status = ps::SolverRunStatus::result_invalid;
+            run.detail = binding.front().code + ": " + binding.front().message;
+            run.metrics.reset();
+          }
+        }
         const auto evaluation = ps::compile_structural_findings(request, run);
         std::optional<ps::StructuralArchive> archive;
         std::string archiveError;
@@ -447,6 +611,11 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
 }
 
 void StructuralController::reset() {
+  if (busy_) {
+    error_ = "Wait for the active structural execution before resetting its setup.";
+    emit changed();
+    return;
+  }
   status_ = "mesh_required";
   error_.clear();
   mesh_summary_.clear();
@@ -460,6 +629,9 @@ void StructuralController::reset() {
   findings_.clear();
   compiled_request_.reset();
   compiled_setup_evidence_.clear();
+  if (result_geometry_) result_geometry_->deleteLater();
+  result_geometry_ = nullptr;
+  result_view_.clear();
   mesh_ = {};
   boundary_.clear();
   patches_.clear();
