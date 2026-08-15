@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (job == "missing") return 0;
-  if (job != "success") return 8;
+  if (job != "success" && job != "prometheus_structural_run") return 8;
   std::ofstream(job + ".dat") << R"(
  displacements (vx,vy,vz) for set NALL and time  0.1000000E+01
 

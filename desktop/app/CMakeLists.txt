@@ -68,6 +68,12 @@ if(BUILD_TESTING)
     Qt6::Core
     prometheus_desktop_support
   )
+  target_compile_definitions(prometheus_structural_controller_tests PRIVATE
+    PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
+  )
+  add_dependencies(prometheus_structural_controller_tests
+    prometheus_structural_solver_fixture
+  )
   add_test(
     NAME prometheus_structural_controller
     COMMAND prometheus_structural_controller_tests

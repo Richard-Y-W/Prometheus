@@ -224,6 +224,22 @@ mesh loaded. A controller test proves that a complete reviewed tetra setup
 becomes ready and that removing material review blocks it again. Execution and
 durable project storage remain the next separate boundaries.
 
+## Checkpoint 10: asynchronous desktop execution and findings
+
+The structural panel can now launch a validated request through the isolated
+CalculiX adapter without blocking the UI. Each attempt creates a unique output
+directory, writes the exact generated deck, retains raw solver files and both
+captured streams, and reports elapsed time, exit classification, metrics,
+coverage, limitations, and scoped displacement/stress findings. The UI labels
+these artifacts as local and not yet committed to the Prometheus project.
+
+The desktop controller test executes a real child-process fixture
+asynchronously, evaluates both declared obligations, and receives two scoped
+findings. Editing any reviewed setup field clears the displayed run and
+findings, preventing stale results from surviving a changed scenario. The
+panel exposes no project-wide pass and repeats that a scoped non-violation is
+not safety or real-scenario validation.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

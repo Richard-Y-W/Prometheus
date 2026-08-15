@@ -2,7 +2,9 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QEventLoop>
 #include <QTemporaryDir>
+#include <QTimer>
 
 #include <cstdlib>
 #include <iostream>
@@ -76,6 +78,20 @@ int main(int argc, char **argv) {
               controller.requestPreview().value("fixed_nodes").toInt() == 3 &&
               controller.requestPreview().value("loaded_nodes").toInt() == 3,
           "reviewed desktop setup compiles through authoritative structural validation");
+  QEventLoop runLoop;
+  QObject::connect(&controller, &StructuralController::runFinished,
+                   &runLoop, &QEventLoop::quit);
+  QTimer::singleShot(5000, &runLoop, &QEventLoop::quit);
+  controller.runAnalysis(
+      QUrl::fromLocalFile(QString::fromUtf8(PROMETHEUS_SOLVER_FIXTURE_PATH)),
+      QUrl::fromLocalFile(temporary.path()));
+  runLoop.exec();
+  require(!controller.busy() && controller.status() == "execution_completed" &&
+              controller.lastRun().value("status") == "completed" &&
+              controller.lastRun().value("evaluated_obligations").toInt() == 2 &&
+              controller.findings().size() == 2 &&
+              !controller.lastRun().value("output_directory").toString().isEmpty(),
+          "desktop executes asynchronously and exposes scoped structural findings");
   auto blocked = reviewedDraft();
   blocked["material_reviewed"] = false;
   controller.reviewSetup(blocked);
@@ -84,8 +100,9 @@ int main(int argc, char **argv) {
     materialBlocked = materialBlocked ||
         value.toMap().value("code") == "material_unreviewed";
   require(!controller.canRun() && controller.status() == "setup_blocked" &&
-              materialBlocked,
-          "desktop cannot bypass explicit material review");
+              materialBlocked && controller.lastRun().isEmpty() &&
+              controller.findings().isEmpty(),
+          "desktop cannot bypass review or retain stale execution after setup changes");
   controller.reset();
   require(controller.status() == "mesh_required" &&
               controller.surfacePatches().isEmpty() && !controller.canRun(),

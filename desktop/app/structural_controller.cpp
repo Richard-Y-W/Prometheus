@@ -1,6 +1,9 @@
 #include "structural_controller.hpp"
 
 #include "prometheus/structural/structural_setup.hpp"
+#include "prometheus/structural/calculix_deck.hpp"
+#include "prometheus/structural/calculix_runner.hpp"
+#include "prometheus/structural/structural_findings.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -9,9 +12,35 @@
 #include <optional>
 #include <set>
 
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
+#include <QFutureWatcher>
+#include <QtConcurrent>
+#include <QUuid>
+
 namespace ps = prometheus::structural;
 
 namespace {
+
+struct DesktopRunResult final {
+  ps::SolverRunResult run;
+  ps::StructuralEvaluation evaluation;
+  QString output_directory;
+};
+
+QString runStatus(const ps::SolverRunStatus status) {
+  switch (status) {
+  case ps::SolverRunStatus::completed: return "completed";
+  case ps::SolverRunStatus::launch_failed: return "launch_failed";
+  case ps::SolverRunStatus::timed_out: return "timed_out";
+  case ps::SolverRunStatus::nonzero_exit: return "nonzero_exit";
+  case ps::SolverRunStatus::output_conflict: return "output_conflict";
+  case ps::SolverRunStatus::output_missing: return "output_missing";
+  case ps::SolverRunStatus::result_invalid: return "result_invalid";
+  }
+  return "unknown";
+}
 
 QVariantList ids(const std::vector<int> &values) {
   QVariantList result;
@@ -122,6 +151,8 @@ void StructuralController::setPatchSelected(const int patchId,
 
 void StructuralController::reviewSetup(const QVariantMap &draft) {
   draft_ = draft;
+  last_run_.clear();
+  findings_.clear();
   rebuildPreview();
   emit changed();
 }
@@ -130,6 +161,7 @@ void StructuralController::rebuildPreview() {
   blockers_.clear();
   request_preview_.clear();
   can_run_ = false;
+  compiled_request_.reset();
   if (mesh_.nodes.empty() || patches_.empty()) {
     blockers_.append(QVariantMap{{"code", "mesh_required"},
                                  {"message", "Load a structural volume mesh first."}});
@@ -198,6 +230,7 @@ void StructuralController::rebuildPreview() {
   }
   try {
     const auto request = ps::compile_structural_request(setup);
+    compiled_request_ = request;
     request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
                         {"component_name", QString::fromStdString(request.component_name)},
                         {"nodes", static_cast<qlonglong>(request.nodes.size())},
@@ -215,6 +248,105 @@ void StructuralController::rebuildPreview() {
   }
 }
 
+void StructuralController::runAnalysis(const QUrl &calculixExecutable,
+                                       const QUrl &outputRoot) {
+  if (busy_) return;
+  if (!can_run_ || !compiled_request_) {
+    error_ = "The reviewed structural setup is not ready for execution.";
+    emit changed();
+    return;
+  }
+  const QString executablePath = calculixExecutable.toLocalFile();
+  const QString rootPath = outputRoot.toLocalFile();
+  if (executablePath.isEmpty() || !QFileInfo::exists(executablePath) ||
+      rootPath.isEmpty()) {
+    error_ = "Select a local CalculiX executable and output directory.";
+    emit changed();
+    return;
+  }
+  QDir root(rootPath);
+  if (!root.exists() && !QDir().mkpath(rootPath)) {
+    error_ = "The structural output directory could not be created.";
+    emit changed();
+    return;
+  }
+  const QString runName = "structural-" +
+      QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
+      QUuid::createUuid().toString(QUuid::Id128).left(8);
+  if (!root.mkdir(runName)) {
+    error_ = "A unique structural run directory could not be created.";
+    emit changed();
+    return;
+  }
+  const QString runDirectory = root.filePath(runName);
+  constexpr auto jobName = "prometheus_structural_run";
+  std::ofstream deck(std::filesystem::path(runDirectory.toStdWString()) /
+                         (std::string(jobName) + ".inp"),
+                     std::ios::binary);
+  deck << ps::generate_calculix_deck(*compiled_request_);
+  deck.close();
+  if (!deck) {
+    error_ = "The exact structural solver deck could not be written.";
+    emit changed();
+    return;
+  }
+  const auto request = *compiled_request_;
+  error_.clear();
+  last_run_.clear();
+  findings_.clear();
+  busy_ = true;
+  status_ = "executing";
+  emit changed();
+
+  auto *watcher = new QFutureWatcher<DesktopRunResult>(this);
+  connect(watcher, &QFutureWatcher<DesktopRunResult>::finished, this,
+          [this, watcher] {
+    const auto completed = watcher->result();
+    watcher->deleteLater();
+    busy_ = false;
+    last_run_ = {{"status", runStatus(completed.run.status)},
+                 {"exit_code", completed.run.exit_code},
+                 {"elapsed_ms", static_cast<qlonglong>(completed.run.elapsed.count())},
+                 {"detail", QString::fromStdString(completed.run.detail)},
+                 {"stdout", QString::fromStdString(completed.run.standard_output)},
+                 {"stderr", QString::fromStdString(completed.run.standard_error)},
+                 {"output_directory", completed.output_directory},
+                 {"declared_obligations", completed.evaluation.declared_obligations},
+                 {"evaluated_obligations", completed.evaluation.evaluated_obligations},
+                 {"limitation", QString::fromStdString(completed.evaluation.limitation)}};
+    if (completed.run.metrics) {
+      last_run_["maximum_displacement_m"] =
+          completed.run.metrics->maximum_displacement_m;
+      last_run_["maximum_von_mises_pa"] =
+          completed.run.metrics->maximum_von_mises_pa;
+    }
+    for (const auto &finding : completed.evaluation.findings) {
+      findings_.append(QVariantMap{
+          {"obligation", QString::fromStdString(finding.obligation)},
+          {"disposition", finding.disposition ==
+                  ps::StructuralFindingDisposition::violated
+              ? "violated" : "no_violation_detected_within_scope"},
+          {"measured", finding.measured_value},
+          {"limit", finding.limit_value},
+          {"margin", finding.margin_to_limit},
+          {"unit", QString::fromStdString(finding.unit)},
+          {"scope", QString::fromStdString(finding.scope)}});
+    }
+    status_ = completed.run.status == ps::SolverRunStatus::completed
+        ? "execution_completed" : "execution_failed";
+    emit changed();
+    emit runFinished();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [request, executablePath, runDirectory]() -> DesktopRunResult {
+        const auto run = ps::run_calculix({
+            std::filesystem::path(executablePath.toStdWString()),
+            std::filesystem::path(runDirectory.toStdWString()),
+            "prometheus_structural_run", std::chrono::minutes(5)});
+        return {run, ps::compile_structural_findings(request, run), runDirectory};
+      }));
+}
+
 void StructuralController::reset() {
   status_ = "mesh_required";
   error_.clear();
@@ -224,6 +356,10 @@ void StructuralController::reset() {
   blockers_.clear();
   request_preview_.clear();
   can_run_ = false;
+  busy_ = false;
+  last_run_.clear();
+  findings_.clear();
+  compiled_request_.reset();
   mesh_ = {};
   boundary_.clear();
   patches_.clear();

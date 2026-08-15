@@ -9,6 +9,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <optional>
+
 class StructuralController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString status READ status NOTIFY changed)
@@ -20,6 +22,9 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QVariantList blockers READ blockers NOTIFY changed)
   Q_PROPERTY(QVariantMap requestPreview READ requestPreview NOTIFY changed)
   Q_PROPERTY(bool canRun READ canRun NOTIFY changed)
+  Q_PROPERTY(bool busy READ busy NOTIFY changed)
+  Q_PROPERTY(QVariantMap lastRun READ lastRun NOTIFY changed)
+  Q_PROPERTY(QVariantList findings READ findings NOTIFY changed)
 
 public:
   explicit StructuralController(QObject *parent = nullptr);
@@ -33,16 +38,22 @@ public:
   QVariantList blockers() const { return blockers_; }
   QVariantMap requestPreview() const { return request_preview_; }
   bool canRun() const { return can_run_; }
+  bool busy() const { return busy_; }
+  QVariantMap lastRun() const { return last_run_; }
+  QVariantList findings() const { return findings_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);
   Q_INVOKABLE void setPatchSelected(int patchId, const QString &role,
                                     bool selected);
   Q_INVOKABLE void reviewSetup(const QVariantMap &draft);
+  Q_INVOKABLE void runAnalysis(const QUrl &calculixExecutable,
+                               const QUrl &outputRoot);
   Q_INVOKABLE void reset();
 
 signals:
   void changed();
+  void runFinished();
 
 private:
   void rebuildPreview();
@@ -54,6 +65,10 @@ private:
   QVariantList blockers_;
   QVariantMap request_preview_;
   bool can_run_{};
+  bool busy_{};
+  QVariantMap last_run_;
+  QVariantList findings_;
+  std::optional<prometheus::structural::StructuralRequest> compiled_request_;
   prometheus::structural::VolumeMesh mesh_;
   std::vector<prometheus::structural::BoundaryFace> boundary_;
   std::vector<prometheus::structural::SurfacePatch> patches_;
