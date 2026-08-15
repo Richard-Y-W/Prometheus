@@ -34,8 +34,10 @@ CalculixMetrics parse_calculix_dat(const std::string_view rawDat) {
       if (row >> node >> x >> y >> z) {
         if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
           throw std::runtime_error("CalculiX displacement output is non-finite");
+        const auto magnitude = std::hypot(x, y, z);
         result.maximum_displacement_m =
-            std::max(result.maximum_displacement_m, std::hypot(x, y, z));
+            std::max(result.maximum_displacement_m, magnitude);
+        result.displacements.push_back({node, x, y, z, magnitude});
         ++result.displacement_rows;
       }
     } else if (section == Section::stress) {
@@ -50,6 +52,8 @@ CalculixMetrics parse_calculix_dat(const std::string_view rawDat) {
           throw std::runtime_error("CalculiX stress output is non-finite");
         result.maximum_von_mises_pa =
             std::max(result.maximum_von_mises_pa, vonMises);
+        result.stresses.push_back(
+            {element, integrationPoint, xx, yy, zz, xy, xz, yz, vonMises});
         ++result.stress_rows;
       }
     }

@@ -254,7 +254,10 @@ Item {
                         visible: structuralController.lastRun.status !== undefined
                         text: "Last local run: " + structuralController.lastRun.status +
                               "\n" + (structuralController.lastRun.maximum_displacement_m !== undefined ?
-                              "max displacement  " + Number(structuralController.lastRun.maximum_displacement_m).toExponential(5) + " m\nmax von Mises  " + Number(structuralController.lastRun.maximum_von_mises_pa).toExponential(5) + " Pa\n" : "") +
+                              "max displacement  " + Number(structuralController.lastRun.maximum_displacement_m).toExponential(5) + " m at node " + structuralController.lastRun.maximum_displacement_node_id +
+                              "\n  vector [" + Number(structuralController.lastRun.maximum_displacement_x_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_y_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_z_m).toExponential(3) + "] m" +
+                              "\nmax von Mises  " + Number(structuralController.lastRun.maximum_von_mises_pa).toExponential(5) + " Pa at element " + structuralController.lastRun.maximum_stress_element_id + ", integration point " + structuralController.lastRun.maximum_stress_integration_point +
+                              "\nfield coverage  " + structuralController.lastRun.displacement_rows + " nodal rows • " + structuralController.lastRun.stress_rows + " integration-point rows\n" : "") +
                               structuralController.lastRun.evaluated_obligations + " / " + structuralController.lastRun.declared_obligations + " obligations evaluated"
                         color: structuralController.lastRun.status === "completed" ? "#70c99a" : "#e87972"
                         wrapMode: Text.WordWrap

@@ -134,6 +134,9 @@ int main() {
 )";
   const auto metrics = ps::parse_calculix_dat(rawDat);
   require(metrics.displacement_rows == 2 && metrics.stress_rows == 1 &&
+              metrics.displacements.size() == 2 &&
+              metrics.displacements.back().node_id == 4 &&
+              metrics.stresses.size() == 1 && metrics.stresses.front().element_id == 1 &&
               std::abs(metrics.maximum_displacement_m - 2.228571e-8) < 1e-15 &&
               std::abs(metrics.maximum_von_mises_pa - 3428.571) < 1e-6,
           "raw CalculiX displacement and stress rows compile to SI maxima");

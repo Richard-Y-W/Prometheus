@@ -331,10 +331,28 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
           QString::fromStdString(completed.archive_error);
     }
     if (completed.run.metrics) {
+      const auto &displacements = completed.run.metrics->displacements;
+      const auto maximumDisplacement = std::ranges::max_element(
+          displacements, {}, &ps::NodalDisplacement::magnitude_m);
+      const auto &stresses = completed.run.metrics->stresses;
+      const auto maximumStress = std::ranges::max_element(
+          stresses, {}, &ps::ElementStress::von_mises_pa);
       last_run_["maximum_displacement_m"] =
           completed.run.metrics->maximum_displacement_m;
       last_run_["maximum_von_mises_pa"] =
           completed.run.metrics->maximum_von_mises_pa;
+      last_run_["displacement_rows"] = static_cast<qlonglong>(displacements.size());
+      last_run_["stress_rows"] = static_cast<qlonglong>(stresses.size());
+      if (maximumDisplacement != displacements.end()) {
+        last_run_["maximum_displacement_node_id"] = maximumDisplacement->node_id;
+        last_run_["maximum_displacement_x_m"] = maximumDisplacement->x_m;
+        last_run_["maximum_displacement_y_m"] = maximumDisplacement->y_m;
+        last_run_["maximum_displacement_z_m"] = maximumDisplacement->z_m;
+      }
+      if (maximumStress != stresses.end()) {
+        last_run_["maximum_stress_element_id"] = maximumStress->element_id;
+        last_run_["maximum_stress_integration_point"] = maximumStress->integration_point;
+      }
     }
     for (const auto &finding : completed.evaluation.findings) {
       findings_.append(QVariantMap{

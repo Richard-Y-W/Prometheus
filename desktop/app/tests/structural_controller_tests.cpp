@@ -92,6 +92,9 @@ int main(int argc, char **argv) {
   require(!controller.busy() && controller.status() == "execution_completed" &&
               controller.lastRun().value("status") == "completed" &&
               controller.lastRun().value("evaluated_obligations").toInt() == 2 &&
+              controller.lastRun().value("maximum_displacement_node_id").toInt() == 1 &&
+              controller.lastRun().value("maximum_stress_element_id").toInt() == 1 &&
+              controller.lastRun().value("displacement_rows").toInt() == 1 &&
               controller.findings().size() == 2 &&
               controller.lastRun().value("archived").toBool() &&
               !controller.lastRun().value("archive_manifest").toString().isEmpty(),

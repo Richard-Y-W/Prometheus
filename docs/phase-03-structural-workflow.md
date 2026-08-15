@@ -261,11 +261,23 @@ manifest hash into a Prometheus project transaction, someone with write access
 to the whole run directory could replace both artifacts and manifest. It is not
 a signature, certification record, or validation of the real bracket scenario.
 
+## Checkpoint 12: spatial field parsing and extrema presentation
+
+The DAT parser now retains every nodal displacement vector and every element
+integration-point stress tensor with its derived von Mises value. The desktop
+reports the exact node carrying maximum displacement, its three displacement
+components, the exact element/integration point carrying maximum von Mises
+stress, and the number of parsed rows in each field. This makes the displayed
+maximum traceable to spatial solver output rather than an unlocated scalar.
+
+The raw fields remain preserved in the archive and are replayed from DAT. A
+colored/deformed component overlay is still the next visualization checkpoint;
+the current presentation does not interpolate integration-point values to the
+surface and does not imply that unreported regions or failure modes passed.
+
 ## Next checkpoint
 
-1. Parse and present spatial displacement and stress fields, including the
-   locations of extrema, instead of showing only scalar maxima.
-2. Visualize the bounded result on the reviewed component without implying a
+1. Visualize the bounded result on the reviewed component without implying a
    project-wide pass or continuous-motion proof.
-3. Commit the reviewed setup and verified run archive through the Phase 4
+2. Commit the reviewed setup and verified run archive through the Phase 4
    content-addressed project store.
