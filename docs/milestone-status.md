@@ -65,4 +65,15 @@ The optional OpenArm 2.0 workflow records an on-demand hash-verified, licensed l
 
 ## Next gate
 
-Program 01C safe evidence acquisition is next and has not started. It must preserve source bytes, add bounded sandboxed deterministic parsers and optional candidate extraction, retain provenance and licensing state, and require human review before any candidate can reach the Program 01B execution boundary. Universal intake, semantic reconstruction, planning, and solver work remain later roadmap gates.
+Program 01C closed on 2026-08-15 at implementation commit `519e06c` after the
+[completion record](program/01-trust-kernel/01c-windows-screening-completion.md)
+captured a fresh Windows OCCT Release build, 22/22 native suites, and a pinned
+independent YUBI trial importing one root, 90 leaves, and 37,367 triangles.
+The trial found and removed an OCCT automatic-shape-healing crash while keeping
+the disabled repair visible as a limitation.
+
+Program 01D multi-project evidence is current. It must complete three written,
+materially different project trials, include at least one outside user, rank
+observed import/semantic/UX failures, and select one real component and bounded
+structural question. Universal intake, semantic reconstruction, general
+planning, and broader solver work remain later roadmap gates.

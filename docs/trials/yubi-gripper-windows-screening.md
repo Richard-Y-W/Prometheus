@@ -46,6 +46,40 @@ The expected screen is deliberately partial:
   unknown or deferred;
 - the UI never reports that the gripper or project passed.
 
+## Observed Windows Release result
+
+The 2026-08-15 trial used implementation `519e06c` and upstream revision
+`e8334ff04945ccf56c0576a56f6fab74b63daaa2`.
+
+| Observation | Result |
+| --- | --- |
+| Prepared folder | 5 files: STEP, CSV, PDF, license text, and JSON manifest |
+| Assembly size | 7,613,253 bytes |
+| Import hierarchy | 1 root and 90 leaf parts |
+| Display mesh | 37,367 triangles |
+| Static interference | Deferred; no clearance claim |
+| Windows Release suite | 22/22 passed in 57.26 seconds |
+| Desktop startup | Ordinary project-folder startup remained running |
+
+The first import attempt crashed inside OCCT automatic solid reconstruction.
+That is the first consequential Phase 2 finding: a valid independent project
+exposed a transfer path not exercised by the motor fixture or OpenArm. The
+importer now disables automatic shape healing after initializing every STEP
+transfer session, preserves the received topology, and makes that limitation
+visible. The exact same assembly then imported successfully with the counts
+above.
+
+Current friction and unknowns:
+
+- BOM rows and the PDF assembly guide are inventoried but not understood.
+- No catalog component is automatically matched to any CAD leaf.
+- Material, mass, joints, loads, restraints, and operating conditions are
+  unknown.
+- There is no structural, fatigue, fastening, tolerance, manufacturability, or
+  safety result.
+- The trial still needs an outside user to measure setup time, selection
+  clarity, and whether the unknown/deferred language is understandable.
+
 ## Evidence to retain
 
 Record the importer root, leaf, and triangle counts; visible file states;

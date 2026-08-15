@@ -53,12 +53,12 @@ Program 01 prevents candidate evidence, stale state, or failed computation from 
 
 - **[01A — Integrity and contracts](01-trust-kernel/01a-amended-implementation-plan.md) — complete under the amended `contract_tested` gate:** the v2 code provides stable claims, append-only review, immutable RFC 8785 objects, durable publication replay, database backstops, and independent C++ byte verification. The [amended completion record](01-trust-kernel/01a-amended-completion.md) cites the successful database, Python, frontend, and native release matrix. These controls establish reviewed-input integrity only; the package is not an engineering result.
 - **01B — Package-to-C++ execution — complete under the bounded `contract_tested` gate:** the shared C++ execution path consumes exact reviewed Motor A/B packages, persists immutable run objects, changes the holding outcome under one unchanged scenario, and reproduces exact results offline. The [completion record](01-trust-kernel/01b-package-driven-execution-completion.md) binds the claim to the implementation SHA and successful release matrix.
-- **01C — Windows-first real-project screening — current:** select a project folder, account for every file, load an unambiguous STEP assembly, run the supported static geometry screen, and expose unevaluated mechanical questions. The [lean design](../superpowers/specs/2026-08-14-windows-first-project-screening-design.md) deliberately keeps the inventory session-only until project trials establish the persistence requirements.
-- **01D — Multi-project evidence:** run the workflow on at least three materially different mechanical projects, rank the observed failures, and choose the first structural component from that evidence.
+- **[01C — Windows-first real-project screening](01-trust-kernel/01c-windows-screening-completion.md) — complete:** a pinned independent YUBI project now opens through the ordinary Windows folder path, all artifacts retain visible states, its 90-leaf STEP assembly imports reproducibly, and unsupported questions remain explicit. The conservative importer preserves topology without automatic OCCT shape healing after a real assembly exposed an access violation.
+- **01D — Multi-project evidence — current:** run the workflow on at least three materially different mechanical projects, involve at least one outside user, rank the observed failures, and choose the first structural component from that evidence.
 
-Program 01C is the current prototype gate. Local evidence covers the motor-arm
-folder and the large OpenArm import boundary; a Windows OCCT-enabled checkpoint
-and additional independent projects remain required before it closes. The
+Program 01D is the current prototype gate. Program 01C evidence covers the
+motor-arm folder, the large OpenArm import boundary, a clean Windows OCCT
+Release build, and the independent YUBI gripper trial. The
 former v1 record remains [historical evidence](01-trust-kernel/01a-integrity-and-contracts.md),
 and its mutation/export endpoints are retired under the
 [migration guide](../migration/program-01a-v1-to-v2.md). Program 01B proved

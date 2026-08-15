@@ -3,8 +3,8 @@
 ## Document status
 
 - **Purpose:** Define the product Prometheus is intended to become, record the capabilities already established, and provide an evidence-driven path from the current prototype to a usable deployed product.
-- **Current implementation reference:** `feature/program-01a-integrity-contracts` at `f3e4127` as reviewed on 2026-08-14.
-- **Current maturity:** Windows-first mechanical-project screening prototype with a strong trust boundary, real STEP/XDE import, one synthetic package-driven C++ analysis backend, and early real-folder intake.
+- **Current implementation reference:** `main` at `519e06c` as verified on 2026-08-15.
+- **Current maturity:** Phase 1 Windows real-folder screening is complete; Phase 2 multi-project evidence is active. The prototype has a strong trust boundary, real STEP/XDE import, one synthetic package-driven C++ analysis backend, and two materially different open-source project inputs under trial.
 - **First deployable target:** A bounded Windows mechanical-design screening application. It is not initially a universal engineering authority.
 - **Long-term target:** A local CAD-centered engineering project compiler and solver-orchestration environment that can assemble reviewed real-world component data, model operating scenarios, run appropriate bounded analyses, and reveal failures, unknowns, and incomplete coverage before an expensive physical prototype is built.
 
@@ -299,7 +299,12 @@ Prometheus does not yet:
 - determine whether an arbitrary engineering project works;
 - ship as a signed, recoverable, clean-machine Windows product.
 
-The latest local OCCT-enabled build compiled successfully. Eighteen of twenty-two native test suites passed. Three failures were caused by unavailable Windows symlink creation under the current account, and one unresolved-state project persistence fixture failed to save. These failures must be classified and resolved before a release claim.
+The fresh Windows OCCT-enabled Release build compiled successfully and all 22
+native suites passed on 2026-08-15. The earlier symlink and unresolved-state
+fixture failures are no longer present in the current baseline. The independent
+YUBI trial also exposed an OCCT automatic shape-healing access violation; the
+production importer now preserves raw transferred topology without that repair
+and reports the limitation explicitly.
 
 ---
 
@@ -332,7 +337,7 @@ Turn the large feature branch into a stable, understood baseline without destroy
 - no unresolved critical or high trust issue;
 - accepted baseline integrated into `main`.
 
-## Phase 1: Close the Windows real-folder screening gate
+## Phase 1: Close the Windows real-folder screening gate — complete
 
 ### Objective
 
@@ -359,7 +364,7 @@ Let a user open one real mechanical project folder and receive a useful, honest 
 - unsupported questions remain visible;
 - no UI language implies the entire project passed.
 
-## Phase 2: Test three materially different real projects
+## Phase 2: Test three materially different real projects — current
 
 ### Objective
 
@@ -723,18 +728,17 @@ Each domain begins with one real project question, one authoritative backend, be
 
 ## 8. Immediate next actions
 
-1. Continue evaluating the running `f3e4127` Windows OCCT build.
-2. Diagnose the four local native test failures.
-3. obtain complete CI evidence for the seven post-01B commits.
-4. Run a small real project folder through the current workflow.
-5. Run a large and a messy mixed project folder.
-6. Record import, hierarchy, unit, performance, selection, semantic, and UX failures.
-7. Choose one real component and one structural requirement from those trials.
-8. Design the smallest CalculiX linear-static slice that answers the question.
-9. Implement its benchmarks at the same time as its solver adapter.
-10. Add non-synthetic component intake only for the component sources actually required by the trial.
-11. Consolidate persistence around the proven project workflow.
-12. Package an alpha only after the native failures, recovery behavior, and clean-machine build are resolved.
+1. Record the clean YUBI gripper trial as the small/medium project report.
+2. Complete and measure the large OpenArm project report.
+3. Select a genuinely messy mixed-folder project with ambiguous revisions and unsupported files.
+4. Have at least one person outside the core development work run a trial without developer intervention.
+5. Rank import, hierarchy, unit, performance, selection, semantic, and UX failures across all three trials.
+6. Choose one real component and one structural requirement from that evidence.
+7. Design the smallest CalculiX linear-static slice that answers the question.
+8. Implement its benchmark, known-pass case, and known-fail case with the solver adapter.
+9. Add non-synthetic component intake only for sources required by the chosen trial.
+10. Consolidate persistence around the proven project workflow.
+11. Add recovery and clean-machine packaging evidence before calling the product an alpha.
 
 ---
 
