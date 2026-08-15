@@ -148,6 +148,23 @@ and fixed faces, invalid mesh controls, and absent requirement rationale. Only
 then does it create the narrow numerical `StructuralRequest`. No YUBI material,
 load, restraint, or requirement has been supplied or inferred by this work.
 
+## Checkpoint 6: isolated CalculiX process authority
+
+The Qt-free structural library now owns a shell-free CalculiX process adapter
+with explicit executable, working directory, safe job identity, and timeout.
+It captures stdout and stderr independently, records elapsed time and exit code,
+terminates timed-out work, and distinguishes launch failure, timeout, nonzero
+exit, missing required output, invalid result data, and completed execution.
+Completed status requires `.dat`, `.frd`, and `.sta` files plus successfully
+parsed displacement and stress rows.
+
+Cross-platform executable-boundary tests exercise successful output parsing,
+nonzero exit, missing output, and forced timeout. The ordinary smoke script now
+uses this production runner rather than invoking `ccx` directly. CalculiX 2.23
+completed the existing SPOOLES smoke through the new runner in 1,249 ms and
+returned the unchanged `2.228571e-8 m` displacement and `3428.571 Pa` von Mises
+metrics. This remains execution wiring evidence, not bracket validation.
+
 ## Next checkpoint
 
 1. Present the selectable patches in the desktop and retain reviewed load and

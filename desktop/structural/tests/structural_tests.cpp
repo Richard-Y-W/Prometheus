@@ -1,5 +1,6 @@
 #include "prometheus/structural/calculix_deck.hpp"
 #include "prometheus/structural/calculix_result.hpp"
+#include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/structural_setup.hpp"
@@ -9,10 +10,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
 namespace ps = prometheus::structural;
+namespace fs = std::filesystem;
 
 [[noreturn]] void fail(const char *message) {
   std::cerr << "FAILED: " << message << '\n';
@@ -259,5 +263,33 @@ int main() {
     fail("invalid mesh scale was accepted");
   } catch (const std::invalid_argument &) {
   }
+
+  const auto processRoot = fs::temp_directory_path() /
+      ("prometheus-structural-process-" + std::to_string(std::rand()));
+  fs::create_directories(processRoot);
+  const auto fixture = fs::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
+  const auto runFixture = [&](const std::string &job,
+                              const std::chrono::milliseconds timeout) {
+    std::ofstream(processRoot / (job + ".inp")) << "fixture input\n";
+    return ps::run_calculix({fixture, processRoot, job, timeout});
+  };
+  const auto completed = runFixture("success", std::chrono::seconds(5));
+  require(completed.status == ps::SolverRunStatus::completed &&
+              completed.exit_code == 0 && completed.metrics.has_value() &&
+              std::abs(completed.metrics->maximum_displacement_m - 2.0e-5) < 1e-15 &&
+              completed.standard_output.find("fixture stdout") != std::string::npos &&
+              completed.standard_error.find("fixture stderr") != std::string::npos,
+          "isolated solver process captures streams and parses required raw outputs");
+  const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
+  require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
+              nonzero.exit_code == 7 && !nonzero.metrics,
+          "nonzero solver exit cannot become completed metrics");
+  const auto missing = runFixture("missing", std::chrono::seconds(5));
+  require(missing.status == ps::SolverRunStatus::output_missing && !missing.metrics,
+          "successful process without required raw files fails closed");
+  const auto timedOut = runFixture("timeout", std::chrono::milliseconds(30));
+  require(timedOut.status == ps::SolverRunStatus::timed_out && !timedOut.metrics,
+          "solver timeout is terminated and classified without metrics");
+  fs::remove_all(processRoot);
   return 0;
 }
