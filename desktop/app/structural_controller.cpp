@@ -55,6 +55,8 @@ struct DesktopStructuralRestoreResult final {
   std::optional<ps::CalculixMetrics> metrics;
   QString manifest_path;
   QString output_directory;
+  std::string setup_bytes;
+  std::string archive_bytes;
   std::string error;
 };
 
@@ -401,7 +403,109 @@ void StructuralController::restoreStoredRun(const int index,
     }
     mesh_ = std::move(restored.mesh);
     boundary_ = std::move(restored.boundary);
-    patches_ = ps::group_boundary_faces(boundary_, 15.0);
+    const auto setup = QJsonDocument::fromJson(
+        QByteArray::fromStdString(restored.setup_bytes)).object();
+    const auto patchAngle = setup.value("selection_patch_angle_degrees").toDouble(15.0);
+    patches_ = ps::group_boundary_faces(boundary_, patchAngle);
+    const auto selectedFaces = [&](const char *role) {
+      std::set<std::array<int, 3>> result;
+      const auto faces = setup.value(role).toObject().value("selection")
+                             .toObject().value("face_node_ids").toArray();
+      for (const auto &value : faces) {
+        const auto row = value.toArray();
+        if (row.size() != 3) continue;
+        std::array<int, 3> face{row[0].toInt(), row[1].toInt(), row[2].toInt()};
+        std::ranges::sort(face);
+        result.insert(face);
+      }
+      return result;
+    };
+    const auto loadFaces = selectedFaces("load");
+    const auto restraintFaces = selectedFaces("restraint");
+    const auto selectedPatchIds = [&](const std::set<std::array<int, 3>> &faces) {
+      std::vector<int> ids;
+      std::size_t covered = 0U;
+      for (const auto &patch : patches_) {
+        const auto contained = std::ranges::all_of(
+            patch.face_node_ids, [&](auto face) {
+              std::ranges::sort(face);
+              return faces.contains(face);
+            });
+        if (contained) {
+          ids.push_back(patch.id);
+          covered += patch.face_node_ids.size();
+        }
+      }
+      if (covered != faces.size()) return std::vector<int>{};
+      return ids;
+    };
+    load_patch_ids_ = selectedPatchIds(loadFaces);
+    restraint_patch_ids_ = selectedPatchIds(restraintFaces);
+    if (load_patch_ids_.empty() || restraint_patch_ids_.empty()) {
+      error_ = "Stored reviewed surface selections do not map to restored patches.";
+      status_ = "structural_archive_restore_failed";
+      emit changed();
+      return;
+    }
+    mesh_summary_.clear();
+    surface_patches_.clear();
+    double exteriorArea = 0.0;
+    for (const auto &face : boundary_) exteriorArea += face.area_m2;
+    mesh_summary_ = {{"nodes", static_cast<qlonglong>(mesh_.nodes.size())},
+                     {"elements", static_cast<qlonglong>(mesh_.elements.size())},
+                     {"exterior_faces", static_cast<qlonglong>(boundary_.size())},
+                     {"surface_patches", static_cast<qlonglong>(patches_.size())},
+                     {"patch_angle_degrees", patchAngle},
+                     {"exterior_area_m2", exteriorArea},
+                     {"coordinate_scale_to_m", 1.0}};
+    for (const auto &patch : patches_) {
+      surface_patches_.append(QVariantMap{
+          {"id", patch.id},
+          {"face_count", static_cast<qlonglong>(patch.face_node_ids.size())},
+          {"node_count", static_cast<qlonglong>(patch.node_ids.size())},
+          {"area_m2", patch.area_m2},
+          {"centroid_x_m", patch.area_weighted_centroid_m[0]},
+          {"centroid_y_m", patch.area_weighted_centroid_m[1]},
+          {"centroid_z_m", patch.area_weighted_centroid_m[2]},
+          {"normal_x", patch.representative_unit_normal[0]},
+          {"normal_y", patch.representative_unit_normal[1]},
+          {"normal_z", patch.representative_unit_normal[2]}});
+    }
+    const auto material = setup.value("material").toObject();
+    const auto load = setup.value("load").toObject();
+    const auto restraint = setup.value("restraint").toObject();
+    const auto requirement = setup.value("requirement").toObject();
+    const auto meshControls = setup.value("mesh_controls").toObject();
+    const auto scenario = setup.value("scenario").toObject();
+    const auto force = load.value("total_force_n").toArray();
+    draft_ = {
+        {"restored", true}, {"analysis_id", setup.value("analysis_id").toString()},
+        {"component_name", setup.value("component_name").toString()},
+        {"geometry_sha256", setup.value("geometry_sha256").toString()},
+        {"material_designation", material.value("designation").toString()},
+        {"material_source_sha256", material.value("source_sha256").toString()},
+        {"material_applicability", material.value("applicability").toString()},
+        {"youngs_modulus_pa", material.value("youngs_modulus_pa").toDouble()},
+        {"poisson_ratio", material.value("poisson_ratio").toDouble()},
+        {"material_reviewed", material.value("reviewed").toBool()},
+        {"force_x_n", force.at(0).toDouble()},
+        {"force_y_n", force.at(1).toDouble()},
+        {"force_z_n", force.at(2).toDouble()},
+        {"load_reviewed", load.value("reviewed").toBool()},
+        {"restraint_reviewed", restraint.value("reviewed").toBool()},
+        {"displacement_limit_m",
+         requirement.value("displacement_limit_m").toDouble()},
+        {"von_mises_limit_pa", requirement.value("von_mises_limit_pa").toDouble()},
+        {"requirement_rationale",
+         requirement.value("source_or_exploratory_rationale").toString()},
+        {"requirement_reviewed", requirement.value("reviewed").toBool()},
+        {"mesh_minimum_size_m", meshControls.value("minimum_size_m").toDouble()},
+        {"mesh_maximum_size_m", meshControls.value("maximum_size_m").toDouble()},
+        {"mesher_identity", meshControls.value("mesher_identity").toString()},
+        {"mesh_controls_reviewed", meshControls.value("reviewed").toBool()},
+        {"scenario_description", scenario.value("description").toString()},
+        {"scenario_confirmed", scenario.value("confirmed").toBool()}};
+    rebuildPreview();
     if (result_geometry_) result_geometry_->deleteLater();
     double minimumX = std::numeric_limits<double>::max();
     double minimumY = minimumX, minimumZ = minimumX;
@@ -431,6 +535,24 @@ void StructuralController::restoreStoredRun(const int index,
                     {"radius_mm", std::max(1.0, 0.55 * diagonal * 1000.0)},
                     {"deformation_scale", scale}, {"color_min_pa", 0.0},
                     {"color_max_pa", restored.metrics->maximum_von_mises_pa}};
+    findings_.clear();
+    const auto archive = QJsonDocument::fromJson(
+        QByteArray::fromStdString(restored.archive_bytes)).object();
+    for (const auto &value : archive.value("findings").toArray()) {
+      const auto finding = value.toObject();
+      findings_.append(QVariantMap{
+          {"obligation", finding.value("obligation").toString()},
+          {"disposition", finding.value("disposition").toString()},
+          {"measured", finding.value("measured").toDouble()},
+          {"limit", finding.value("limit").toDouble()},
+          {"margin", finding.value("margin").toDouble()},
+          {"unit", finding.value("unit").toString()},
+          {"scope", finding.value("scope").toString()}});
+    }
+    const auto maximumDisplacement = std::ranges::max_element(
+        restored.metrics->displacements, {}, &ps::NodalDisplacement::magnitude_m);
+    const auto maximumStress = std::ranges::max_element(
+        restored.metrics->stresses, {}, &ps::ElementStress::von_mises_pa);
     last_run_ = {{"status", "restored_verified"},
                  {"archive_manifest", restored.manifest_path},
                  {"output_directory", restored.output_directory},
@@ -444,6 +566,23 @@ void StructuralController::restoreStoredRun(const int index,
                   static_cast<qlonglong>(restored.metrics->displacements.size())},
                  {"stress_rows",
                   static_cast<qlonglong>(restored.metrics->stresses.size())}};
+    if (maximumDisplacement != restored.metrics->displacements.end()) {
+      last_run_["maximum_displacement_node_id"] = maximumDisplacement->node_id;
+      last_run_["maximum_displacement_x_m"] = maximumDisplacement->x_m;
+      last_run_["maximum_displacement_y_m"] = maximumDisplacement->y_m;
+      last_run_["maximum_displacement_z_m"] = maximumDisplacement->z_m;
+    }
+    if (maximumStress != restored.metrics->stresses.end()) {
+      last_run_["maximum_stress_element_id"] = maximumStress->element_id;
+      last_run_["maximum_stress_integration_point"] =
+          maximumStress->integration_point;
+    }
+    const auto coverage = archive.value("coverage").toObject();
+    last_run_["declared_obligations"] =
+        coverage.value("declared_obligations").toInt();
+    last_run_["evaluated_obligations"] =
+        coverage.value("evaluated_obligations").toInt();
+    last_run_["limitation"] = archive.value("limitation").toString();
     status_ = "structural_archive_restored";
     error_.clear();
     emit changed();
@@ -456,12 +595,12 @@ void StructuralController::restoreStoredRun(const int index,
             std::filesystem::path(destination.toStdWString()));
         if (!restored.has_value())
           return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination,
+              {}, {}, std::nullopt, {}, destination, {}, {},
               restored.diagnostic().code + ": " + restored.diagnostic().message};
         const auto verification = ps::verify_structural_archive(restored.value());
         if (!verification.valid)
           return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination,
+              {}, {}, std::nullopt, {}, destination, {}, {},
               verification.code + ": " + verification.detail};
         const auto manifestBytes = [&] {
           std::ifstream input(restored.value(), std::ios::binary);
@@ -485,18 +624,24 @@ void StructuralController::restoreStoredRun(const int index,
                           std::ios::binary);
         const std::string datBytes{std::istreambuf_iterator<char>(dat),
                                    std::istreambuf_iterator<char>()};
+        std::ifstream setup(directory /
+                            std::filesystem::path(artifact("setup").toStdWString()),
+                            std::ios::binary);
+        const std::string setupBytes{std::istreambuf_iterator<char>(setup),
+                                     std::istreambuf_iterator<char>()};
         auto mesh = ps::parse_gmsh_abaqus_mesh(deckBytes, 1.0);
         auto boundary = ps::extract_boundary_faces(mesh);
         auto metrics = ps::parse_calculix_dat(datBytes);
         return DesktopStructuralRestoreResult{
             std::move(mesh), std::move(boundary), std::move(metrics),
-            QString::fromStdWString(restored.value().wstring()), destination, {}};
+            QString::fromStdWString(restored.value().wstring()), destination,
+            setupBytes, manifestBytes, {}};
         } catch (const std::exception &exception) {
           return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination, exception.what()};
+              {}, {}, std::nullopt, {}, destination, {}, {}, exception.what()};
         } catch (...) {
           return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination,
+              {}, {}, std::nullopt, {}, destination, {}, {},
               "unknown structural restore failure"};
         }
       }));
@@ -668,6 +813,8 @@ void StructuralController::rebuildPreview() {
                         draft_.value("mesh_controls_reviewed").toBool()},
       .scenario_description = draft_.value("scenario_description").toString().toStdString(),
       .scenario_confirmed = draft_.value("scenario_confirmed").toBool()};
+  setup.selection_patch_angle_degrees =
+      mesh_summary_.value("patch_angle_degrees", 15.0).toDouble();
   for (const auto &issue : ps::validate_setup(setup))
     blockers_.append(QVariantMap{{"code", QString::fromStdString(issue.code)},
                                  {"message", QString::fromStdString(issue.message)}});

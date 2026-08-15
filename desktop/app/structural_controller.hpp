@@ -43,6 +43,7 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QQuick3DGeometry *resultGeometry READ resultGeometry NOTIFY changed)
   Q_PROPERTY(QVariantMap resultView READ resultView NOTIFY changed)
   Q_PROPERTY(QVariantList storedRuns READ storedRuns NOTIFY changed)
+  Q_PROPERTY(QVariantMap setupDraft READ setupDraft NOTIFY changed)
 
 public:
   explicit StructuralController(ProjectController *project = nullptr,
@@ -63,6 +64,7 @@ public:
   QQuick3DGeometry *resultGeometry() const { return result_geometry_; }
   QVariantMap resultView() const { return result_view_; }
   QVariantList storedRuns() const { return stored_runs_; }
+  QVariantMap setupDraft() const { return draft_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);

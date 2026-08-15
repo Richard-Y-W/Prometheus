@@ -58,6 +58,7 @@ struct StructuralSetup final {
   ReviewedMeshControls mesh_controls;
   std::string scenario_description;
   bool scenario_confirmed{};
+  double selection_patch_angle_degrees{15.0};
 };
 
 [[nodiscard]] std::vector<ValidationIssue> validate_setup(

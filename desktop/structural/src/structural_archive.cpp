@@ -107,7 +107,8 @@ std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
                           {"mesher_identity", setup.mesh_controls.mesher_identity},
                           {"reviewed", setup.mesh_controls.reviewed}}},
       {"scenario", {{"description", setup.scenario_description},
-                     {"confirmed", setup.scenario_confirmed}}}};
+                     {"confirmed", setup.scenario_confirmed}}},
+      {"selection_patch_angle_degrees", setup.selection_patch_angle_degrees}};
   return integrity::canonicalize_json_bytes(document.dump(),
       integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U, 100000U,
                         4U * 1024U * 1024U});

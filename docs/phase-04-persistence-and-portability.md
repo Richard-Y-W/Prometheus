@@ -87,10 +87,23 @@ publishes a child-process run, creates a fresh project/controller pair, lists
 the embedded history, restores it through the ordinary controller action, and
 receives a verified result geometry.
 
+## Checkpoint 5: editable reviewed-setup restoration
+
+Structural setup evidence now retains the exact surface-patch grouping angle in
+addition to exact face/node identities. After reconstructing an embedded run,
+the desktop rebuilds the volume boundary and deterministic patches at that
+angle, proves the stored load and restraint faces map completely back to those
+patches, restores every reviewed material, force, restraint, requirement, mesh,
+scenario, and provenance field, recompiles the authoritative request, and
+repopulates the form, findings, extrema, limitations, and result view.
+
+The restored workflow is runnable only if the ordinary current validators still
+accept it. Missing or changed selections cannot silently become defaults. The
+desktop integration test proves a fresh controller restores both exact selected
+surface roles and a `canRun` reviewed setup from embedded project history.
+
 ## Still required
 
-- restore the editable reviewed structural setup—not only its verified result
-  visualization—from embedded project history after close/reopen;
 - persist full folder inventory identities and selected CAD/component mapping;
 - invalidate setup, request, and results when their source geometry or evidence
   changes or disappears;

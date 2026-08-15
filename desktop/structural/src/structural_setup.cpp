@@ -67,6 +67,11 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
   if (setup.mesh.nodes.empty() || setup.mesh.elements.empty() ||
       setup.boundary_faces.empty())
     issue(issues, "missing_mesh", "A volume mesh and exterior boundary are required.");
+  if (!std::isfinite(setup.selection_patch_angle_degrees) ||
+      setup.selection_patch_angle_degrees <= 0.0 ||
+      setup.selection_patch_angle_degrees > 180.0)
+    issue(issues, "selection_patch_angle_invalid",
+          "Surface selection patch angle must be in (0, 180] degrees.");
 
   if (!setup.material.reviewed)
     issue(issues, "material_unreviewed", "Material applicability and properties require review.");

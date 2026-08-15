@@ -14,6 +14,46 @@ Item {
     signal closeRequested()
     property url calculixExecutable
     property url outputRoot
+    property string appliedRestoredManifest
+
+    function applyRestoredDraft() {
+        const draft = structuralController.setupDraft
+        const marker = structuralController.lastRun.archive_manifest || ""
+        if (!draft.restored || !draft.analysis_id || !marker || appliedRestoredManifest === marker)
+            return
+        appliedRestoredManifest = marker
+        analysisId.text = draft.analysis_id
+        componentName.text = draft.component_name
+        geometryHash.text = draft.geometry_sha256
+        materialName.text = draft.material_designation
+        materialHash.text = draft.material_source_sha256
+        materialApplicability.text = draft.material_applicability
+        youngsModulus.text = String(draft.youngs_modulus_pa)
+        poissonRatio.text = String(draft.poisson_ratio)
+        materialReviewed.checked = draft.material_reviewed
+        forceX.text = String(draft.force_x_n)
+        forceY.text = String(draft.force_y_n)
+        forceZ.text = String(draft.force_z_n)
+        loadReviewed.checked = draft.load_reviewed
+        restraintReviewed.checked = draft.restraint_reviewed
+        displacementLimit.text = String(draft.displacement_limit_m || 0)
+        stressLimit.text = String(draft.von_mises_limit_pa || 0)
+        requirementRationale.text = draft.requirement_rationale
+        requirementReviewed.checked = draft.requirement_reviewed
+        meshMinimum.text = String(draft.mesh_minimum_size_m)
+        meshMaximum.text = String(draft.mesh_maximum_size_m)
+        mesherIdentity.text = draft.mesher_identity
+        meshReviewed.checked = draft.mesh_controls_reviewed
+        scenarioDescription.text = draft.scenario_description
+        scenarioConfirmed.checked = draft.scenario_confirmed
+        coordinateScale.text = "1"
+        patchAngle.text = String(structuralController.meshSummary.patch_angle_degrees || 15)
+    }
+
+    Connections {
+        target: structuralController
+        function onChanged() { root.applyRestoredDraft() }
+    }
 
     function submitReview() {
         structuralController.reviewSetup({

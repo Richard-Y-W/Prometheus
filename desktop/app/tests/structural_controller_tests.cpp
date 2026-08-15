@@ -186,9 +186,15 @@ int main(int argc, char **argv) {
               << restoredController.error().toStdString() << '\n';
   require(restoredController.status() == "structural_archive_restored" &&
               restoredController.resultGeometry() != nullptr &&
+              restoredController.canRun() &&
+              restoredController.setupDraft().value("analysis_id") ==
+                  "desktop-structural-preview" &&
+              restoredController.selectedLoadPatchIds().size() == 1 &&
+              restoredController.selectedRestraintPatchIds().size() == 1 &&
+              restoredController.findings().size() == 2 &&
               restoredController.lastRun().value("status") ==
                   "restored_verified",
-          "reopened desktop restores verified structural result visualization");
+          "reopened desktop restores editable reviewed setup and result visualization");
   const auto restoredDirectory =
       std::filesystem::path(temporary.path().toStdWString()) / "restored-from-project";
   const auto restored = prometheus::run_store::reconstruct_structural_archive(

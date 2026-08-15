@@ -280,6 +280,11 @@ int main() {
   staleSelection.load.selection.area_m2 *= 2.0;
   require(hasIssue(ps::validate_setup(staleSelection), "load_selection_invalid"),
           "stale exact boundary selection is rejected before solver compilation");
+  auto invalidPatchAngle = setup;
+  invalidPatchAngle.selection_patch_angle_degrees = 0.0;
+  require(hasIssue(ps::validate_setup(invalidPatchAngle),
+                   "selection_patch_angle_invalid"),
+          "invalid reviewed surface grouping angle is rejected");
   try {
     (void)ps::compile_structural_request(unreviewedSetup);
     fail("unreviewed structural setup compiled into a solver request");
