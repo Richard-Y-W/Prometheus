@@ -40,7 +40,7 @@ This checkpoint will not:
 - choose one of the 23 STEP files as the rover assembly;
 - parse the external Onshape assembly, PCB sources, BOM semantics, or manuals;
 - claim mechanical, electrical, or project-wide correctness;
-- modify the structural-analysis work running on another branch.
+- use Rover intake evidence as a substitute for structural-analysis evidence.
 
 ## Approaches Considered
 
