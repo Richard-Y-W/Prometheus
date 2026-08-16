@@ -44,7 +44,8 @@ bool read_file_without_automatic_healing(STEPCAFControl_Reader& reader,const std
   configure_reader(reader);
   return true;
 }
-struct LeafShape { std::string id;TopoDS_Shape shape;Bnd_Box bounds; };
+enum class BoundsSource { unavailable, closed_brep, tessellation };
+struct LeafShape { std::string id;TopoDS_Shape shape;Bnd_Box bounds;BoundsSource bounds_source{BoundsSource::unavailable}; };
 std::string label_id(const TDF_Label& label) { TCollection_AsciiString id; TDF_Tool::Entry(label,id); return id.ToCString(); }
 std::string label_name(const TDF_Label& label,const std::string& fallback) {
   Handle(TDataStd_Name) attr;
@@ -139,29 +140,32 @@ void apply_placements(std::vector<LeafShape>& leaves,const std::vector<PartPlace
     if(!finite_shape_broad_phase(leaf.shape,transformed_deflection_m,leaf.bounds))throw std::runtime_error("transformed STEP shape could not be bounded");
   }
 }
-bool populate_geometry(AssemblyNode& node,const TopoDS_Shape& shape,double deflection) {
-  if(shape.IsNull())return false;
+BoundsSource populate_geometry(AssemblyNode& node,const TopoDS_Shape& shape,double deflection) {
+  if(shape.IsNull())return BoundsSource::unavailable;
   try{
   node.mesh=tessellate(shape,deflection*1000.0);
-  if(!closed_brep_bounds(shape,node.bounds)&&!finite_mesh_bounds(node.mesh,node.bounds))return false;
+  const auto bounds_source=closed_brep_bounds(shape,node.bounds)?BoundsSource::closed_brep:
+                           finite_mesh_bounds(node.mesh,node.bounds)?BoundsSource::tessellation:
+                           BoundsSource::unavailable;
+  if(bounds_source==BoundsSource::unavailable)return bounds_source;
   GProp_GProps props;BRepGProp::VolumeProperties(shape,props);node.volume_m3=props.Mass()/1e9;
   GProp_GProps surface;BRepGProp::SurfaceProperties(shape,surface);node.surface_area_m2=surface.Mass()/1e6;
   TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);node.face_count=faces.Extent();node.edge_count=edges.Extent();
-  return true;
-  }catch(const Standard_Failure&){return false;}
+  return bounds_source;
+  }catch(const Standard_Failure&){return BoundsSource::unavailable;}
 }
 AssemblyNode read_node(const TDF_Label& label,const Handle(XCAFDoc_ShapeTool)& tool,double deflection,std::vector<LeafShape>& leaves,int& skipped_geometry) {
   TDF_Label geometry_label=label; if(tool->IsReference(label)) tool->GetReferredShape(label,geometry_label);
   const auto shape=tool->GetShape(label); AssemblyNode node; node.persistent_id=label_id(label); const auto referenced_name=label_name(geometry_label,"Unnamed part");node.name=label_name(label,referenced_name);if(node.name.starts_with("=>"))node.name=referenced_name;node.transform=matrix(shape.Location());
-  const bool node_geometry_ok=populate_geometry(node,shape,deflection);if(!node_geometry_ok&&!shape.IsNull())++skipped_geometry;
+  const auto node_bounds_source=populate_geometry(node,shape,deflection);const bool node_geometry_ok=node_bounds_source!=BoundsSource::unavailable;if(!node_geometry_ok&&!shape.IsNull())++skipped_geometry;
   TDF_LabelSequence children;tool->GetComponents(label,children,false);
   for(Standard_Integer i=1;i<=children.Length();++i)node.children.push_back(read_node(children.Value(i),tool,deflection,leaves,skipped_geometry));
   if(children.IsEmpty()&&!shape.IsNull()){
     std::vector<TopoDS_Shape> solids;for(TopExp_Explorer ex(shape,TopAbs_SOLID);ex.More();ex.Next())solids.push_back(ex.Current());
     if(solids.size()>1){
       node.mesh={};
-      for(std::size_t i=0;i<solids.size();++i){AssemblyNode detail;detail.persistent_id=node.persistent_id+"/solid/"+std::to_string(i+1);detail.name="Solid "+std::to_string(i+1);detail.transform=matrix(solids[i].Location());Bnd_Box bounds;if(populate_geometry(detail,solids[i],deflection)&&broad_phase_bounds(detail.bounds,deflection,bounds))leaves.push_back({detail.persistent_id,solids[i],bounds});else ++skipped_geometry;node.children.push_back(std::move(detail));}
-    }else if(node_geometry_ok){Bnd_Box bounds;if(broad_phase_bounds(node.bounds,deflection,bounds))leaves.push_back({node.persistent_id,shape,bounds});else ++skipped_geometry;}
+      for(std::size_t i=0;i<solids.size();++i){AssemblyNode detail;detail.persistent_id=node.persistent_id+"/solid/"+std::to_string(i+1);detail.name="Solid "+std::to_string(i+1);detail.transform=matrix(solids[i].Location());const auto detail_bounds_source=populate_geometry(detail,solids[i],deflection);Bnd_Box bounds;if(detail_bounds_source!=BoundsSource::unavailable&&broad_phase_bounds(detail.bounds,deflection,bounds))leaves.push_back({detail.persistent_id,solids[i],bounds,detail_bounds_source});else ++skipped_geometry;node.children.push_back(std::move(detail));}
+    }else if(node_geometry_ok){Bnd_Box bounds;if(broad_phase_bounds(node.bounds,deflection,bounds))leaves.push_back({node.persistent_id,shape,bounds,node_bounds_source});else ++skipped_geometry;}
   }
   return node;
 }
@@ -174,7 +178,10 @@ StepImportResult StepImporter::import_file(const std::filesystem::path& path,dou
   Handle(TDocStd_Document) doc; XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc); if(!reader.Transfer(doc)) throw std::runtime_error("STEP transfer failed");
   const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main()); TDF_LabelSequence roots; tool->GetFreeShapes(roots); StepImportResult result; result.source_name=path.filename().string();
   std::vector<LeafShape> leaves;int skipped_geometry=0;for(Standard_Integer i=1;i<=roots.Length();++i) result.roots.push_back(read_node(roots.Value(i),tool,deflection,leaves,skipped_geometry));
-  if(compute_interferences)for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.interferences.push_back({leaves[i].id,leaves[j].id,volume});}
+  const auto fallback_leaf_count=std::ranges::count_if(leaves,[](const auto& leaf){return leaf.bounds_source==BoundsSource::tessellation;});
+  const bool defer_for_fallback=fallback_leaf_count>0;
+  if(compute_interferences&&!defer_for_fallback)for(std::size_t i=0;i<leaves.size();++i)for(std::size_t j=i+1;j<leaves.size();++j){if(leaves[i].bounds.IsOut(leaves[j].bounds))continue;BRepAlgoAPI_Common common(leaves[i].shape,leaves[j].shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume>1e-12)result.interferences.push_back({leaves[i].id,leaves[j].id,volume});}
+  else if(compute_interferences)result.warnings.push_back("Static interference was deferred because "+std::to_string(fallback_leaf_count)+" imported shapes required tessellation-derived bounds");
   else result.warnings.push_back("Static interference was deferred for this large assembly");
   result.warnings.push_back("Automatic STEP shape healing was disabled; imported topology is preserved without repair");
   if(skipped_geometry>0)result.warnings.push_back(std::to_string(skipped_geometry)+" topology nodes could not be bounded or tessellated and remain visible without geometry");
