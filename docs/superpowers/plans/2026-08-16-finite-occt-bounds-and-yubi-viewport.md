@@ -4,7 +4,7 @@
 
 **Goal:** Import the pinned Toyota YUBI gripper with finite, honest scene bounds so the real assembly can be fitted and rendered, while retaining the original B-Rep as the only source for exact interference calculations.
 
-**Architecture:** Centralize the importer’s bounds contract in Qt-free Open Cascade helpers. A closed, finite `Bnd_Box` remains preferred; an open, void, non-finite, or unordered box falls back to finite vertices from the importer’s existing tessellation. Store the resulting bounds in metres on `AssemblyNode`, reconstruct conservative broad-phase boxes in millimetres for `LeafShape`, and reuse the same contract after placements and revolute transforms. Never clamp coordinates, heal topology, or derive a collision finding from tessellation.
+**Architecture:** Centralize the importer’s bounds contract in Qt-free Open Cascade helpers. A closed, finite `Bnd_Box` remains preferred; an open, void, non-finite, or unordered box falls back to finite vertices from the importer’s existing tessellation. Store the resulting bounds in metres on `AssemblyNode`, reconstruct conservative broad-phase boxes in millimetres for `LeafShape`, and reuse the same contract after placements and revolute transforms. Record the bounds source during that same pass so interactive imports with any fallback-bound leaf enter the existing deferred/unknown interference state without reparsing or pre-running a boolean. Never clamp coordinates, heal topology, or derive a collision finding from tessellation.
 
 **Tech Stack:** C++20, Open Cascade (`Bnd_Box`, `BRepBndLib`, `BRepMesh_IncrementalMesh`), CMake/CTest, Qt Quick 3D for the final viewport check, and the pinned Toyota YUBI STEP fixture at commit `e8334ff04945ccf56c0576a56f6fab74b63daaa2`.
 
@@ -15,7 +15,7 @@
 | File | Responsibility in this increment |
 | --- | --- |
 | `desktop/cad/tests/step_import_tests.cpp` | Make external-fixture mode fail when a renderable leaf exposes non-finite, unordered, or implausibly unbounded dimensions. Preserve the existing synthetic exact-interference, sweep, placement, and malformed-STEP checks. |
-| `desktop/cad/step_import/step_importer.cpp` | Validate Open Cascade bounds, derive mesh fallback bounds, produce conservative broad-phase boxes, and use the same contract for imported, placed, and swept shapes. |
+| `desktop/cad/step_import/step_importer.cpp` | Validate Open Cascade bounds, derive mesh fallback bounds, retain each leaf's bounds source, defer the interactive exact batch when fallback was required, produce conservative broad-phase boxes, and use the same contract for imported, placed, and swept shapes. |
 | `docs/superpowers/specs/2026-08-16-finite-occt-bounds-and-yubi-viewport-design.md` | Approved semantic boundary; change only if measured implementation evidence reveals a contradiction. |
 
 ## Task 1: Add a failing pinned-YUBI bounds regression
@@ -212,6 +212,167 @@ Run the pinned YUBI external import once more and confirm the same finite counts
 git add desktop/cad/step_import/step_importer.cpp \
   desktop/cad/tests/step_import_tests.cpp
 git commit -m "Keep transformed STEP broad phases finite"
+```
+
+## Task 3A: Defer pathological exact work without a second import pass
+
+**Files:**
+- Modify: `desktop/cad/step_import/step_importer.cpp:42-190`
+- Modify: `desktop/cad/tests/step_import_tests.cpp:34-35`
+- Test fixture: `out/external-demo/yubi-hw/STEP/gripper/YUBI Gripper Assy_DYNAMIXEL.stp`
+
+- [ ] **Step 1: Make external-fixture mode request normal automatic interference**
+
+Change the external test call from explicitly deferred input:
+
+```cpp
+StepImporter{}.import_file(argv[2], 0.0015, false)
+```
+
+to the normal interactive request:
+
+```cpp
+StepImporter{}.import_file(argv[2], 0.0015, true)
+```
+
+Require the returned warnings to contain both `interference was deferred` and
+`tessellation-derived bounds`. Continue requiring finite bounds, 1 root, 90
+leaves, and 37,367 triangles. This distinguishes risk-based automatic deferral
+from a caller that requested no exact work.
+
+- [ ] **Step 2: Observe the pre-policy timeout**
+
+Build the test, then run the pinned fixture under a ten-second parent-process
+timeout:
+
+```bash
+cmake --build out/build/macos-occt-release \
+  --config Release --target prometheus_step_import_tests -j 6
+python3 -c 'import subprocess,sys
+try:
+    completed=subprocess.run(sys.argv[1:],timeout=10)
+except subprocess.TimeoutExpired:
+    print("YUBI automatic exact import exceeded 10 seconds")
+    raise SystemExit(124)
+raise SystemExit(completed.returncode)' \
+  out/build/macos-occt-release/desktop/cad/prometheus_step_import_tests \
+  --import-only \
+  "out/external-demo/yubi-hw/STEP/gripper/YUBI Gripper Assy_DYNAMIXEL.stp"
+```
+
+Expected before the policy change: exit 124 with `YUBI automatic exact import
+exceeded 10 seconds`. The live desktop sample already located the worker inside
+`BRepAlgoAPI_Common`; do not increase the timeout to make that boolean part of
+interactive loading.
+
+- [ ] **Step 3: Retain the bounds source without repeating bounds work**
+
+Add a private source enum and store it on each collision leaf:
+
+```cpp
+enum class BoundsSource { unavailable, closed_brep, tessellation };
+
+struct LeafShape {
+  std::string id;
+  TopoDS_Shape shape;
+  Bnd_Box bounds;
+  BoundsSource bounds_source{BoundsSource::unavailable};
+};
+```
+
+Change `populate_geometry` to return `BoundsSource`. It must tessellate once,
+try the closed B-Rep box once, and otherwise reuse `node.mesh`:
+
+```cpp
+BoundsSource populate_geometry(AssemblyNode &node, const TopoDS_Shape &shape,
+                               double deflection) {
+  if (shape.IsNull()) return BoundsSource::unavailable;
+  try {
+    node.mesh = tessellate(shape, deflection * 1000.0);
+    const auto bounds_source = closed_brep_bounds(shape, node.bounds)
+                                   ? BoundsSource::closed_brep
+                                   : finite_mesh_bounds(node.mesh, node.bounds)
+                                         ? BoundsSource::tessellation
+                                         : BoundsSource::unavailable;
+    if (bounds_source == BoundsSource::unavailable)
+      return bounds_source;
+    GProp_GProps volume;
+    BRepGProp::VolumeProperties(shape, volume);
+    node.volume_m3 = volume.Mass() / 1e9;
+    GProp_GProps surface;
+    BRepGProp::SurfaceProperties(shape, surface);
+    node.surface_area_m2 = surface.Mass() / 1e6;
+    TopTools_IndexedMapOfShape faces, edges;
+    TopExp::MapShapes(shape, TopAbs_FACE, faces);
+    TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+    node.face_count = faces.Extent();
+    node.edge_count = edges.Extent();
+    return bounds_source;
+  } catch (const Standard_Failure &) {
+    return BoundsSource::unavailable;
+  }
+}
+```
+
+For aggregate nodes, compare the enum with `unavailable` where the old code
+used `bool node_geometry_ok`. For single- and multi-solid leaves, copy the
+already returned source into `LeafShape`; do not call `closed_brep_bounds` or
+`tessellate` again.
+
+- [ ] **Step 4: Route fallback-bound batches into the existing deferred state**
+
+After `read_node` has populated `leaves`, count fallback-bound leaves once:
+
+```cpp
+const auto fallback_leaf_count = std::ranges::count_if(
+    leaves, [](const LeafShape &leaf) {
+      return leaf.bounds_source == BoundsSource::tessellation;
+    });
+const bool defer_for_fallback = fallback_leaf_count > 0;
+```
+
+Run the existing exact pair loop only when
+`compute_interferences && !defer_for_fallback`. When the caller requested exact
+work but fallback was observed, emit:
+
+```cpp
+result.warnings.push_back(
+    "Static interference was deferred because " +
+    std::to_string(fallback_leaf_count) +
+    " imported shapes required tessellation-derived bounds");
+```
+
+When `compute_interferences` is false, retain the existing large-assembly
+warning. Do not emit both messages. Do not change `static_interferences`; that
+method remains the explicit exact attempt and continues to use original B-Reps.
+
+- [ ] **Step 5: Verify automatic deferral and unchanged small-fixture exact work**
+
+Run the timeout command from Step 2 again.
+
+Expected after the policy change: exit 0 in approximately the established
+two-second parse/tessellation time with:
+
+```text
+Imported roots=1 leaves=90 triangles=37367 interferences=deferred
+```
+
+Run:
+
+```bash
+out/build/macos-occt-release/desktop/cad/prometheus_step_import_tests
+```
+
+Expected: exit 0. The three-leaf synthetic motor arm still completes automatic
+exact interference and finds its one known overlap; its placement, sweep,
+non-finite-input, and malformed-STEP checks remain green.
+
+- [ ] **Step 6: Commit the bounded policy change**
+
+```bash
+git add desktop/cad/step_import/step_importer.cpp \
+  desktop/cad/tests/step_import_tests.cpp
+git commit -m "Defer exact checks for fallback STEP geometry"
 ```
 
 ## Task 4: Verify the real macOS viewport and record bounded evidence
