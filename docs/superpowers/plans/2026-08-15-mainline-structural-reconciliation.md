@@ -1427,8 +1427,9 @@ ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R promethe
 ```
 
 Expected: the counting backend reports one mesh preparation, one setup
-compilation per reviewed snapshot, one execution, one result compilation, and
-one finding compilation; view/save/publication cause no increments.
+compilation per reviewed snapshot, and one execution. The execution stage owns
+exactly one result compilation and one finding compilation internally;
+view/save/publication cause no backend-stage increments.
 
 - [ ] **Step 6: Validate repository and contract hygiene**
 
