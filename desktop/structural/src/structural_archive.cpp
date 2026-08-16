@@ -59,7 +59,7 @@ bool safe_file(const std::string &name) {
 
 StructuralArchiveVerification failure(std::string code, std::string detail) {
   return {false, std::move(code), std::move(detail), std::nullopt, 0, 0,
-          {}, {}};
+          {}, {}, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
 }
 
 class ArchiveVerificationError final : public std::runtime_error {
@@ -647,9 +647,9 @@ StructuralArchiveVerification verify_v2_archive(
 
   const auto artifacts = verify_and_load_artifacts(
       manifestPath.parent_path(), root.at("artifacts"));
-  const auto deserializedSetup =
+  auto deserializedSetup =
       deserialize_setup(artifacts.setup, artifacts.deck);
-  const auto compiledSetup = compile_structural_setup(deserializedSetup);
+  auto compiledSetup = compile_structural_setup(deserializedSetup);
   if (compiledSetup.canonical_setup_evidence != artifacts.setup ||
       compiledSetup.calculix_deck != artifacts.deck ||
       compiledSetup.identity != setupIdentity ||
@@ -696,7 +696,7 @@ StructuralArchiveVerification verify_v2_archive(
   const auto refinement = refinement_from_json(root.at("refinement"));
   const std::optional<CompiledCalculixResult> validatedResult{
       std::move(replayedResult)};
-  const auto evaluation = compile_structural_findings(
+  auto evaluation = compile_structural_findings(
       compiledSetup.request, validatedResult, refinement);
   const Json expectedCoverage{
       {"declared_obligations", evaluation.declared_obligations},
@@ -716,7 +716,11 @@ StructuralArchiveVerification verify_v2_archive(
           evaluation.declared_obligations,
           evaluation.evaluated_obligations,
           "2.0.0",
-          validatedResult->identity};
+          validatedResult->identity,
+          validatedResult->normalized,
+          std::move(deserializedSetup),
+          std::move(compiledSetup),
+          std::move(evaluation)};
 }
 
 } // namespace
@@ -840,7 +844,8 @@ StructuralArchiveVerification verify_structural_archive(
     }
     return {true, "verified", "exact artifact identities and DAT replay verified",
             parsedMetrics, coverage.at("declared_obligations").get<int>(),
-            coverage.at("evaluated_obligations").get<int>(), "1.0.0", {}};
+            coverage.at("evaluated_obligations").get<int>(), "1.0.0", {},
+            parsed, std::nullopt, std::nullopt, std::nullopt};
   } catch (const ArchiveVerificationError &error) {
     return failure(error.code(), error.what());
   } catch (const integrity::CanonicalJsonError &error) {

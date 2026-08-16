@@ -1,6 +1,6 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_controller.cpp structural_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_backend.cpp structural_backend.hpp structural_controller.cpp structural_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
   PRIVATE ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include)
 target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store prometheus_structural)
@@ -118,6 +118,7 @@ if(BUILD_TESTING)
     prometheus_desktop_support
   )
   target_compile_definitions(prometheus_structural_controller_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
   )
   add_dependencies(prometheus_structural_controller_tests

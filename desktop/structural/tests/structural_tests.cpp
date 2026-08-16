@@ -979,8 +979,13 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(archiveVerification.valid &&
               archiveVerification.schema_version == "2.0.0" &&
               archiveVerification.validated_result_identity ==
-                  completed.validated_result->identity,
-          "persisted v2 archive replays after crossing the trust boundary");
+                  completed.validated_result->identity &&
+              archiveVerification.normalized.has_value() &&
+              archiveVerification.reviewed_setup.has_value() &&
+              archiveVerification.compiled_setup.has_value() &&
+              archiveVerification.evaluation.has_value() &&
+              archiveVerification.evaluation->evaluated_obligations == 2,
+          "persisted v2 archive returns one verified typed restore snapshot");
   const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
   require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
               nonzero.exit_code == 7 && !nonzero.validated_result,

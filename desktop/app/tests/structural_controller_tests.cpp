@@ -1,4 +1,5 @@
 #include "structural_controller.hpp"
+#include "structural_backend.hpp"
 #include "cad_controller.hpp"
 #include "engineering_controller.hpp"
 #include "project_controller.hpp"
@@ -14,10 +15,64 @@
 #include <QTimer>
 
 #include <cstdlib>
+#include <atomic>
+#include <cmath>
 #include <iostream>
 #include <filesystem>
+#include <memory>
 
 namespace {
+
+namespace ps = prometheus::structural;
+
+struct StageCounts final {
+  int prepare_mesh{};
+  int group_patches{};
+  int compile_setup{};
+  int execute{};
+};
+
+class CountingStructuralBackend final : public StructuralBackend {
+public:
+  CountingStructuralBackend() : delegate_(makeLocalStructuralBackend()) {}
+
+  ps::PreparedMesh prepareMesh(const std::string_view bytes,
+                               const double scale) const override {
+    ++prepare_mesh_;
+    return delegate_->prepareMesh(bytes, scale);
+  }
+
+  std::vector<ps::SurfacePatch> groupPatches(
+      const ps::PreparedMesh &mesh, const double angle) const override {
+    ++group_patches_;
+    return delegate_->groupPatches(mesh, angle);
+  }
+
+  ps::CompiledStructuralSetup compileSetup(
+      const ps::StructuralSetup &setup) const override {
+    ++compile_setup_;
+    return delegate_->compileSetup(setup);
+  }
+
+  DesktopStructuralRun execute(
+      const ps::SolverRunOptions &options,
+      const ps::CompiledStructuralSetup &setup,
+      std::optional<ps::StructuralRefinementEvidence> refinement) const override {
+    ++execute_;
+    return delegate_->execute(options, setup, std::move(refinement));
+  }
+
+  [[nodiscard]] StageCounts counts() const {
+    return {prepare_mesh_, group_patches_, compile_setup_, execute_};
+  }
+
+private:
+  std::shared_ptr<const StructuralBackend> delegate_;
+  mutable std::atomic<int> prepare_mesh_{};
+  mutable std::atomic<int> group_patches_{};
+  mutable std::atomic<int> compile_setup_{};
+  mutable std::atomic<int> execute_{};
+};
 
 [[noreturn]] void fail(const char *message) {
   std::cerr << "FAILED: " << message << '\n';
@@ -34,20 +89,34 @@ QVariantMap reviewedDraft() {
           {"geometry_sha256", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
           {"material_designation", "benchmark material"},
           {"material_source_sha256", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-          {"material_applicability", "benchmark only"},
+          {"material_applicability", "known"},
+          {"material_temper", "not_applicable"},
+          {"material_product_form", "synthetic benchmark"},
           {"youngs_modulus_pa", 7.0e10},
           {"poisson_ratio", 0.33},
           {"material_reviewed", true},
           {"force_x_n", 0.0}, {"force_y_n", 0.0}, {"force_z_n", -100.0},
           {"load_reviewed", true}, {"restraint_reviewed", true},
           {"displacement_limit_m", 0.001}, {"von_mises_limit_pa", 1.0e8},
+          {"displacement_limit_basis", "reviewed benchmark displacement limit"},
+          {"von_mises_limit_basis", "reviewed benchmark stress limit"},
           {"requirement_rationale", "explicit exploratory desktop test"},
           {"requirement_reviewed", true},
           {"mesh_minimum_size_m", 0.001}, {"mesh_maximum_size_m", 0.003},
+          {"mesh_target_size_m", 0.002},
+          {"minimum_mean_ratio_threshold", 0.05},
           {"mesher_identity", "fixture mesher 1.0"},
           {"mesh_controls_reviewed", true},
           {"scenario_description", "bounded desktop structural preview"},
-          {"scenario_confirmed", true}};
+          {"scenario_confirmed", true},
+          {"refinement_complete", true},
+          {"refinement_criteria_satisfied", true},
+          {"refinement_change_fraction", 0.04},
+          {"refinement_maximum_allowed_change_fraction", 0.10},
+          {"refinement_result_sha256",
+           QVariantList{
+               "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+               "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}}};
 }
 
 } // namespace
@@ -90,14 +159,56 @@ int main(int argc, char **argv) {
       QString::fromStdWString(projectPath.wstring())));
   require(project.currentProjectPath().size() > 0,
           "structural project fixture opens");
-  StructuralController controller(&project);
+  auto countingBackend = std::make_shared<CountingStructuralBackend>();
+  StructuralController controller(&project, nullptr, countingBackend);
   controller.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001, 1.0);
+  (void)controller.meshSummary();
+  (void)controller.surfacePatches();
+  (void)controller.meshSummary();
+  require(countingBackend->counts().prepare_mesh == 1 &&
+              countingBackend->counts().group_patches == 1,
+          "mesh preparation and initial grouping run once despite repeated reads");
   require(controller.status() == "setup_blocked" &&
               controller.meshSummary().value("nodes").toInt() == 4 &&
               controller.meshSummary().value("elements").toInt() == 1 &&
               controller.meshSummary().value("surface_patches").toInt() == 4 &&
               controller.surfacePatches().size() == 4 && !controller.canRun(),
           "desktop adapter exposes mesh and conservative surface patch statistics");
+  require(controller.meshGeometry() != nullptr,
+          "prepared mesh has one stored display geometry");
+  controller.setActiveSurfacePatch(1);
+  require(controller.activeSurfacePatch().value("id").toInt() == 1 &&
+              controller.highlightGeometry() != nullptr,
+          "surface inspection exposes the selected patch and highlight geometry");
+  const auto materialEvidence =
+      QStringLiteral(PROMETHEUS_REPOSITORY_ROOT) +
+      "/fixtures/evidence/aluminum-2024-candidates-v1.json";
+  require(controller.loadMaterialEvidence(
+              QUrl::fromLocalFile(materialEvidence)) &&
+              controller.materialCandidates().size() == 3 &&
+              controller.materialCandidates().front().toMap()
+                      .value("applicability") == "unresolved",
+          "bounded checked-in material evidence loads as unresolved candidates");
+  for (const auto &value : controller.materialCandidates()) {
+    const auto candidate = value.toMap();
+    require(!candidate.contains("yield_strength_pa") &&
+                !candidate.contains("allowable_stress_pa") &&
+                !candidate.contains("von_mises_limit_pa"),
+            "material candidates cannot supply an implicit stress requirement");
+  }
+  controller.selectMaterialCandidate(
+      "mil-hdbk-5j-bare-2024-sheet-plate-ge-0p250in", "assumed");
+  const auto candidateDraft = controller.setupDraft();
+  require(candidateDraft.value("material_designation") ==
+                  "2024 aluminum" &&
+              candidateDraft.value("material_temper") == "T351" &&
+              candidateDraft.value("material_product_form") == "bare plate" &&
+              candidateDraft.value("material_applicability") == "assumed" &&
+              std::abs(candidateDraft.value("youngs_modulus_pa").toDouble() -
+                       73773903036.9) < 0.5 &&
+              !candidateDraft.value("material_reviewed").toBool() &&
+              !candidateDraft.value("scenario_confirmed").toBool(),
+          "candidate selection populates fields without silently approving material or scenario");
   controller.setPatchSelected(1, "load", true);
   controller.setPatchSelected(2, "restraint", true);
   controller.reviewSetup(reviewedDraft());
@@ -127,6 +238,21 @@ int main(int argc, char **argv) {
               controller.lastRun().value("archived").toBool() &&
               !controller.lastRun().value("archive_manifest").toString().isEmpty(),
           "desktop executes, archives, and builds a traceable deformed stress view");
+  require(countingBackend->counts().prepare_mesh == 1 &&
+              countingBackend->counts().group_patches == 1 &&
+              countingBackend->counts().compile_setup == 1 &&
+              countingBackend->counts().execute == 1,
+          "reviewed structural stages execute exactly once");
+  const auto activeArchive =
+      controller.lastRun().value("archive_manifest").toString();
+  require(controller.loadMaterialEvidence(
+              QUrl::fromLocalFile(materialEvidence)) &&
+              controller.lastRun().value("archive_manifest") == activeArchive &&
+              countingBackend->counts().prepare_mesh == 1 &&
+              countingBackend->counts().group_patches == 1 &&
+              countingBackend->counts().compile_setup == 1 &&
+              countingBackend->counts().execute == 1,
+          "browsing material candidates is read-only and retains the active run");
   const auto archivePath = controller.lastRun().value("archive_manifest").toString();
   const auto verified = prometheus::structural::verify_structural_archive(
       std::filesystem::path(archivePath.toStdWString()));
@@ -157,6 +283,9 @@ int main(int argc, char **argv) {
               controller.lastRun().value("project_artifacts_embedded").toBool() &&
               project.committedRunCount() == 1,
           "desktop asynchronously embeds the complete structural archive graph");
+  require(countingBackend->counts().compile_setup == 1 &&
+              countingBackend->counts().execute == 1,
+          "archive publication does not recompile or re-execute the active run");
   CadController reopenedCad;
   EngineeringController reopenedEngineering;
   ProjectController reopened(&reopenedCad, &reopenedEngineering);
@@ -164,7 +293,9 @@ int main(int argc, char **argv) {
       QString::fromStdWString(projectPath.wstring())));
   require(reopened.committedRunCount() == 1,
           "embedded structural run survives project close and reopen");
-  StructuralController restoredController(&reopened);
+  auto restoreCountingBackend = std::make_shared<CountingStructuralBackend>();
+  StructuralController restoredController(&reopened, nullptr,
+                                          restoreCountingBackend);
   require(restoredController.storedRuns().size() == 1 &&
               restoredController.storedRuns().front().toMap()
                   .value("restorable").toBool(),
@@ -195,6 +326,13 @@ int main(int argc, char **argv) {
               restoredController.lastRun().value("status") ==
                   "restored_verified",
           "reopened desktop restores editable reviewed setup and result visualization");
+  (void)restoredController.meshSummary();
+  (void)restoredController.findings();
+  require(restoreCountingBackend->counts().prepare_mesh == 0 &&
+              restoreCountingBackend->counts().group_patches == 1 &&
+              restoreCountingBackend->counts().compile_setup == 0 &&
+              restoreCountingBackend->counts().execute == 0,
+          "restore verifies once, regroups once, and does not recompile or execute");
   auto changedSnapshot = *reopened.project();
   changedSnapshot.assembly_artifact_hash =
       "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
@@ -244,6 +382,18 @@ int main(int argc, char **argv) {
   require(!prometheus::structural::verify_structural_archive(
                std::filesystem::path(archivePath.toStdWString())).valid,
           "changed raw solver output invalidates offline archive verification");
+  auto changedForce = reviewedDraft();
+  changedForce["force_z_n"] = -101.0;
+  controller.reviewSetup(changedForce);
+  require(countingBackend->counts().prepare_mesh == 1 &&
+              countingBackend->counts().compile_setup == 2,
+          "reviewed force edit recompiles setup without preparing the mesh again");
+  controller.setPatchAngle(5.0);
+  (void)controller.meshSummary();
+  (void)controller.surfacePatches();
+  require(countingBackend->counts().prepare_mesh == 1 &&
+              countingBackend->counts().group_patches == 2,
+          "patch-angle edit regroups the prepared boundary without reparsing mesh bytes");
   auto blocked = reviewedDraft();
   blocked["material_reviewed"] = false;
   controller.reviewSetup(blocked);
@@ -259,5 +409,28 @@ int main(int argc, char **argv) {
   require(controller.status() == "mesh_required" &&
               controller.surfacePatches().isEmpty() && !controller.canRun(),
           "reset removes transient structural setup authority");
+
+  StructuralController reviewInvalidation;
+  reviewInvalidation.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001,
+                              1.0);
+  reviewInvalidation.setPatchSelected(1, "load", true);
+  reviewInvalidation.setPatchSelected(2, "restraint", true);
+  reviewInvalidation.reviewSetup(reviewedDraft());
+  require(reviewInvalidation.canRun(),
+          "review-invalidation fixture begins with a compiled setup");
+  reviewInvalidation.setPatchSelected(3, "load", true);
+  bool loadReviewInvalidated = false;
+  bool scenarioInvalidated = false;
+  for (const auto &value : reviewInvalidation.blockers()) {
+    const auto code = value.toMap().value("code").toString();
+    loadReviewInvalidated = loadReviewInvalidated || code == "load_unreviewed";
+    scenarioInvalidated = scenarioInvalidated || code == "scenario_unconfirmed";
+  }
+  require(!reviewInvalidation.canRun() && loadReviewInvalidated &&
+              scenarioInvalidated &&
+              !reviewInvalidation.setupDraft()
+                   .value("refinement_complete")
+                   .toBool(),
+          "changing a reviewed boundary condition requires review and invalidates refinement");
   return 0;
 }

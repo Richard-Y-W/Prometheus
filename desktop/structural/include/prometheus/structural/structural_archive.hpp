@@ -27,6 +27,10 @@ struct StructuralArchiveVerification final {
   int evaluated_obligations{};
   std::string schema_version;
   std::string validated_result_identity;
+  std::optional<CalculixDat> normalized;
+  std::optional<StructuralSetup> reviewed_setup;
+  std::optional<CompiledStructuralSetup> compiled_setup;
+  std::optional<StructuralEvaluation> evaluation;
 };
 
 [[nodiscard]] StructuralArchive write_structural_archive(

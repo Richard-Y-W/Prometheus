@@ -610,6 +610,12 @@ void test_embedded_structural_archive_round_trip() {
                       sourceManifest, "sha256:invalid"),
                   "assembly_artifact_hash_invalid",
                   "structural archive without exact assembly identity");
+  require_failure(
+      run_store::build_structural_archive_objects(
+          sourceManifest, initial_project().assembly_artifact_hash,
+          "sha256:" + std::string(64U, 'f')),
+      "structural_manifest_identity_mismatch",
+      "structural publication whose manifest changed after active execution");
   const auto projectPath = root.path() / "embedded.prometheus";
   require_success(run_store::create_project_v2(projectPath, initial_project()),
                   "create embedded structural project");

@@ -134,13 +134,21 @@ std::string base64Decode(const std::string_view text) {
 
 Result<StructuralArchiveObjects> build_structural_archive_objects(
     const std::filesystem::path &manifestPath,
-    std::string assemblyArtifactHash) noexcept {
+    std::string assemblyArtifactHash,
+    std::string expectedManifestHash) noexcept {
   try {
     if (!is_valid_object_hash(assemblyArtifactHash))
       return failure<StructuralArchiveObjects>(
           "assembly_artifact_hash_invalid",
           "structural publication requires the exact project assembly identity");
     auto manifestBytes = integrity::verify_canonical_bytes(readFile(manifestPath));
+    if (!expectedManifestHash.empty() &&
+        (!is_valid_object_hash(expectedManifestHash) ||
+         integrity::sha256_bytes(manifestBytes) != expectedManifestHash))
+      return failure<StructuralArchiveObjects>(
+          "structural_manifest_identity_mismatch",
+          "archive manifest bytes differ from the completed active run",
+          manifestPath);
     const auto archive = Json::parse(manifestBytes);
     const auto schemaId = archive.value("$schema", "");
     const auto schemaVersion = archive.value("schema_version", "");
