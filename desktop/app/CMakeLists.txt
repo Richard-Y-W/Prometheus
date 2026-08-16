@@ -61,6 +61,27 @@ if(BUILD_TESTING)
   set_tests_properties(prometheus_project_intake_summary_bad PROPERTIES
     WILL_FAIL TRUE
   )
+  add_test(
+    NAME prometheus_jpl_rover_prepare_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=correct
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-correct
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  add_test(
+    NAME prometheus_jpl_rover_failed_promotion_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=wrong_license
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-wrong-license
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  set_tests_properties(
+    prometheus_jpl_rover_prepare_fixture
+    prometheus_jpl_rover_failed_promotion_fixture
+    PROPERTIES TIMEOUT 60
+  )
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp

@@ -42,6 +42,14 @@ foreach(document IN ITEMS expected actual)
   if(NOT error_value STREQUAL "")
     message(FATAL_ERROR "${document}.error must be empty; got '${error_value}'")
   endif()
+  require_json_value(root_value "${${document}_json}" "${document}"
+    root_path STRING)
+  require_json_value(elapsed_value "${${document}_json}" "${document}"
+    elapsed_ms NUMBER)
+  if(NOT elapsed_value MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+      "${document}.elapsed_ms must be a nonnegative integer; got '${elapsed_value}'")
+  endif()
 
   require_json_value(inventory_value "${${document}_json}" "${document}"
     inventory_sha256 STRING)
