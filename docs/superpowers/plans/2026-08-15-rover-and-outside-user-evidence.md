@@ -348,7 +348,7 @@ mistaken-pass statements, exact confusion quotes, attempted workarounds,
 crashes, and facilitator interventions. Use `not observed` rather than inferred
 answers. Include participant consent for notes or screen recording.
 
-- [ ] **Step 3: Add a failing bundle verification fixture**
+- [x] **Step 3: Add a failing bundle verification fixture**
 
 Make `scripts/tests/outside-user-bundle-fixture.ps1` create a small bundle and
 prove `verify-outside-user-bundle.ps1` rejects it when one file
@@ -381,7 +381,7 @@ extract it, verify the manifest, double-click the launcher, and confirm that
 the app opens the fixed folder without installing build tools. This is package
 verification by the developer, not the outside-user evidence session.
 
-- [ ] **Step 6: Commit the protocol and packaging code**
+- [x] **Step 6: Commit the protocol and packaging code**
 
 ```bash
 git add docs/trials/outside-user-screening-task-sheet.md \
