@@ -53,10 +53,15 @@ acquire_project_lock(const std::filesystem::path &project_path,
 [[nodiscard]] Result<std::string>
 read_project_index_file(const std::filesystem::path &project_path) noexcept;
 
+[[nodiscard]] Result<std::string>
+read_previous_project_index_file(
+    const std::filesystem::path &project_path) noexcept;
+
 [[nodiscard]] Result<Unit>
 replace_project_index_file(const std::filesystem::path &project_path,
                            std::string_view bytes, bool replace_existing,
-                           const TransactionOptions &options) noexcept;
+                           const TransactionOptions &options,
+                           bool retain_previous = true) noexcept;
 
 [[nodiscard]] Result<InstalledObject>
 install_object_file(const std::filesystem::path &project_path,

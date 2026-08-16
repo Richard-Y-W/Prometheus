@@ -717,6 +717,24 @@ void ProjectController::openProject(const QUrl &path) {
   restoreProject(legacy.value().project, target);
 }
 
+void ProjectController::recoverProject(const QUrl &path) {
+  const auto target = localPath(path);
+  if (target.isEmpty()) {
+    setError("Choose a local project file to recover.",
+             "invalid_project_url");
+    return;
+  }
+  const auto recovered =
+      run_store::recover_previous_project_index(nativePath(target));
+  if (!recovered.has_value()) {
+    setError(diagnosticMessage(recovered.diagnostic()),
+             diagnosticCode(recovered.diagnostic()));
+    emit changed();
+    return;
+  }
+  openProject(QUrl::fromLocalFile(target));
+}
+
 void ProjectController::saveAsVersion2(const QUrl &destination) {
   const auto target = localPath(destination);
   if (target.isEmpty()) {

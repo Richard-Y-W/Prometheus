@@ -70,6 +70,7 @@ public:
   QVariantMap legacyEngineeringState() const;
 
   Q_INVOKABLE void openProject(const QUrl &path);
+  Q_INVOKABLE void recoverProject(const QUrl &path);
   Q_INVOKABLE void saveAsVersion2(const QUrl &destination);
   Q_INVOKABLE void saveCurrentProject();
   Q_INVOKABLE bool ensureExecutionWritable();

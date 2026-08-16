@@ -967,6 +967,49 @@ publish_completed_run(const std::filesystem::path &project_path,
   }
 }
 
+Result<ProjectV2> recover_previous_project_index(
+    const std::filesystem::path &project_path,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) return failure_from<ProjectV2>(lock.diagnostic());
+    if (const auto cancelled = detail::check_cancelled(options);
+        cancelled.has_value())
+      return Result<ProjectV2>::failure(*cancelled);
+    const auto current = detail::read_project_index_file(project_path);
+    if (current.has_value() &&
+        parse_stored_project(current.value(), project_path).has_value())
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "project_recovery_not_required",
+          "current project index is valid and cannot be rolled back",
+          std::nullopt, project_path));
+    const auto previous =
+        detail::read_previous_project_index_file(project_path);
+    if (!previous.has_value())
+      return failure_from<ProjectV2>(previous.diagnostic());
+    auto recovered = parse_stored_project(previous.value(), project_path);
+    if (!recovered.has_value())
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "previous_project_index_invalid",
+          "retained previous project index is invalid", std::nullopt,
+          project_path));
+    const auto written = detail::replace_project_index_file(
+        project_path, previous.value(), true, options, false);
+    if (!written.has_value())
+      return failure_from<ProjectV2>(written.diagnostic());
+    return recovered;
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "project_recovery_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "project_recovery_failed", "unknown project recovery failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<Publication> commit_structural_archive_manifest(
     const std::filesystem::path &project_path, const ObjectToStore &manifest,
     TransactionOptions options) noexcept {

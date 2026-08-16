@@ -229,6 +229,8 @@ Result<ProjectBundle> export_project_bundle(
       throw std::runtime_error(serialized.diagnostic().code + ": " +
                                serialized.diagnostic().message);
     writeFile(bundledProject, serialized.value());
+    writeFile(bundledSidecar / ".project-index.previous",
+              serialized.value());
 
     std::vector<StoredObjectReference> orderedObjects;
     orderedObjects.reserve(objects.value().size());
@@ -255,6 +257,8 @@ Result<ProjectBundle> export_project_bundle(
         {"bundle_kind", "portable_prometheus_project"},
         {"project_file", bundleProjectName},
         {"project_sha256", integrity::sha256_bytes(serialized.value())},
+        {"previous_project_sha256",
+         integrity::sha256_bytes(serialized.value())},
         {"cad_source", "sources/" + sourceName},
         {"cad_source_sha256", snapshot.assembly_artifact_hash},
         {"objects", std::move(references)}};
@@ -299,6 +303,15 @@ Result<ProjectBundle> verify_project_bundle(
                                     projectPath);
     const auto parsed = parse_project_v2(projectBytes);
     if (!parsed.has_value()) return Result<ProjectBundle>::failure(parsed.diagnostic());
+    const auto previousPath = sidecar_path_for_project(projectPath) /
+                              ".project-index.previous";
+    const auto previousBytes = readFile(previousPath);
+    if (integrity::sha256_bytes(previousBytes) !=
+            manifest.at("previous_project_sha256").get<std::string>() ||
+        !parse_project_v2(previousBytes).has_value())
+      return failure<ProjectBundle>(
+          "bundle_previous_project_invalid",
+          "bundled recovery index identity or schema differs", previousPath);
     const auto cadRelative = manifest.at("cad_source").get<std::string>();
     if (cadRelative != parsed.value().cad_source ||
         !safeRelativePath(std::filesystem::path(cadRelative)))
@@ -331,6 +344,8 @@ Result<ProjectBundle> verify_project_bundle(
         std::filesystem::path(bundleProjectName),
         std::filesystem::path(bundleProjectName + std::string(".data")) /
             ".writer.lock",
+        std::filesystem::path(bundleProjectName + std::string(".data")) /
+            ".project-index.previous",
         std::filesystem::path(cadRelative)};
     const auto sidecar = sidecar_path_for_project(projectPath);
     for (const auto &[hash, reference] : reachable.value()) {

@@ -505,6 +505,40 @@ void inventory_rescan_invalidates_only_changed_dependencies()
         "CAD identity change revokes current source without anchoring it as valid");
 }
 
+void explicit_project_recovery_opens_validated_predecessor()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "project recovery root exists");
+    const auto cadPath = temporary.filePath("recovery.step");
+    const QByteArray cadBytes("recoverable CAD bytes");
+    writeBytes(cadPath, cadBytes);
+    const auto projectPath = temporary.filePath("recovery.prometheus");
+    auto original = projectForCad(cadPath, objectHash(cadBytes));
+    require(run_store::create_project_v2(nativePath(projectPath), original)
+                .has_value(),
+        "desktop recovery project creates");
+    auto changed = original;
+    changed.name = "Changed before damage";
+    require(run_store::save_project_snapshot(nativePath(projectPath), changed)
+                .has_value(),
+        "desktop recovery predecessor is retained");
+
+    CadController cad;
+    EngineeringController engineering;
+    ProjectController controller(&cad, &engineering);
+    controller.recoverProject(QUrl::fromLocalFile(projectPath));
+    require(controller.errorCode() == "project_recovery_not_required",
+        "desktop refuses explicit rollback of a valid project");
+
+    writeBytes(projectPath, "damaged project index\n");
+    controller.recoverProject(QUrl::fromLocalFile(projectPath));
+    require(controller.errorCode().isEmpty()
+            && controller.currentProjectPath() == projectPath
+            && controller.project().has_value()
+            && controller.project()->name == original.name,
+        "desktop recovers and opens the retained validated predecessor");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -515,5 +549,6 @@ int main(int argc, char** argv)
     changed_cad_blocks_execution_and_history_remains_visible();
     current_save_preserves_newer_execution_references();
     inventory_rescan_invalidates_only_changed_dependencies();
+    explicit_project_recovery_opens_validated_predecessor();
     return 0;
 }

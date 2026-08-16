@@ -259,6 +259,27 @@ user-facing backup/restore primitive and automated clean-location evidence; it
 does not replace the still-required trial on a physically separate supported
 machine.
 
+## Checkpoint 13: recoverable previous project index
+
+Every successful v2 project replacement now retains the immediately preceding
+validated canonical project index as `.project-index.previous` inside the
+protected project sidecar. Windows uses `ReplaceFileW` to rotate the prior
+index while publishing the replacement; POSIX creates and flushes an anchored
+hard-link snapshot before its atomic rename. A current index that cannot be
+parsed can be replaced from that snapshot only after the retained bytes pass
+the complete v2 parser. Recovery refuses to roll back a valid current index.
+
+The desktop File Actions menu exposes **Recover damaged Prometheus project** as
+an explicit user action. A failed recovery leaves the current bytes untouched.
+Portable bundles include the validated recovery index, bind its SHA-256 in the
+bundle manifest, and reject its removal or modification.
+
+Automated tests prove retention, refusal to roll back valid state, recovery of
+a deliberately damaged current index, rejection of a damaged predecessor, and
+portable-bundle tamper detection. This closes the accepted schema ADR's
+previous-manifest implementation requirement; representative real-project
+migration/recovery trials remain an external evidence gate.
+
 ## Still required
 
 - complete migration/recovery trials across representative legacy and current

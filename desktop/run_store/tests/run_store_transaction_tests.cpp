@@ -691,6 +691,17 @@ void test_embedded_structural_archive_round_trip() {
               run_store::open_read_only(restoredBundle.value().project_path)
                   .has_value(),
           "verified portable backup restores atomically into a new usable project");
+  const auto bundledPrevious =
+      run_store::sidecar_path_for_project(restoredBundle.value().project_path) /
+      ".project-index.previous";
+  const auto bundledPreviousBytes = read_file(bundledPrevious);
+  write_file(bundledPrevious, "changed recovery index\n");
+  require_failure(run_store::verify_project_bundle(restoredBundlePath),
+                  "bundle_previous_project_invalid",
+                  "portable bundle with changed recovery index");
+  write_file(bundledPrevious, bundledPreviousBytes);
+  require(run_store::verify_project_bundle(restoredBundlePath).has_value(),
+          "portable bundle verifies after exact recovery index restoration");
   write_file(restoredBundlePath / "undeclared-tool.exe", "unexpected bytes");
   require_failure(run_store::verify_project_bundle(restoredBundlePath),
                   "bundle_file_set_invalid",
@@ -995,6 +1006,46 @@ void test_event_log_trims_only_display_metadata() {
           "event append trims only the oldest display event, not run history");
 }
 
+void test_previous_project_index_recovery() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "recoverable.prometheus";
+  const auto original = initial_project();
+  require_success(run_store::create_project_v2(project_path, original),
+                  "create recoverable project");
+  auto changed = original;
+  changed.name = "Changed project";
+  const auto saved = run_store::save_project_snapshot(project_path, changed);
+  require(saved.has_value() && saved.value().name == changed.name,
+          "successful replacement publishes changed index");
+  const auto previous_path = run_store::sidecar_path_for_project(project_path) /
+                             ".project-index.previous";
+  require(fs::is_regular_file(previous_path) &&
+              run_store::parse_project_v2(read_file(previous_path)).value().name ==
+                  original.name,
+          "replacement retains exact prior validated index");
+  require_failure(run_store::recover_previous_project_index(project_path),
+                  "project_recovery_not_required",
+                  "valid current index rollback");
+  require(run_store::open_read_only(project_path).value().name == changed.name,
+          "rejected rollback leaves valid current index unchanged");
+
+  write_file(project_path, "damaged current index\n");
+  const auto recovered =
+      run_store::recover_previous_project_index(project_path);
+  require(recovered.has_value() && recovered.value().name == original.name &&
+              run_store::open_read_only(project_path).value().name ==
+                  original.name,
+          "damaged current index recovers from retained validated predecessor");
+
+  write_file(previous_path, "damaged previous index\n");
+  write_file(project_path, "damaged current index again\n");
+  require_failure(run_store::recover_previous_project_index(project_path),
+                  "previous_project_index_invalid",
+                  "damaged retained previous index");
+  require(read_file(project_path) == "damaged current index again\n",
+          "failed recovery does not replace damaged current bytes");
+}
+
 class ChildProcess final {
 public:
   ChildProcess(const std::vector<std::string> &arguments) {
@@ -1213,6 +1264,7 @@ int main() {
     test_publication_object_order_is_explicit();
     test_cancelled_and_invalid_publications_do_not_commit();
     test_event_log_trims_only_display_metadata();
+    test_previous_project_index_recovery();
     test_kernel_lock_contention_and_recovery();
     return 0;
   } catch (const std::exception &failure) {

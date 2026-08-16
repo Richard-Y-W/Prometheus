@@ -76,6 +76,12 @@ create_project_v2(const std::filesystem::path &project_path,
 [[nodiscard]] Result<ProjectV2> open_project_index_read_only(
     const std::filesystem::path &project_path) noexcept;
 
+// Replaces a damaged current index with the last validated index retained by a
+// successful prior write. A valid current index is never rolled back.
+[[nodiscard]] Result<ProjectV2> recover_previous_project_index(
+    const std::filesystem::path &project_path,
+    TransactionOptions options = {}) noexcept;
+
 // Updates only mutable CAD and geometry snapshot fields. The execution index
 // and legacy preservation are reloaded and retained while holding the writer
 // lock so a stale desktop snapshot cannot erase newer committed runs.

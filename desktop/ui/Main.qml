@@ -217,6 +217,11 @@ ApplicationWindow {
                             onTriggered: openDialog.open()
                         }
                         MenuItem {
+                            text: "Recover damaged Prometheus project…"
+                            enabled: !cadController.busy
+                            onTriggered: recoveryDialog.open()
+                        }
+                        MenuItem {
                             text: projectController.bundleBusy ? "Exporting portable bundle…" : "Export portable project bundle…"
                             enabled: projectController.currentProjectPath !== "" && !projectController.bundleBusy
                             onTriggered: bundleFolderDialog.open()
@@ -1310,6 +1315,13 @@ ApplicationWindow {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Prometheus project (*.prometheus)"]
         onAccepted: projectController.openProject(selectedFile)
+    }
+    FileDialog {
+        id: recoveryDialog
+        title: "Recover from the previous validated project index"
+        nameFilters: ["Prometheus projects (*.prometheus)", "All files (*)"]
+        fileMode: FileDialog.OpenFile
+        onAccepted: projectController.recoverProject(selectedFile)
     }
     FolderDialog {
         id: bundleFolderDialog

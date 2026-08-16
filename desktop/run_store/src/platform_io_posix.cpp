@@ -26,6 +26,8 @@ namespace prometheus::run_store::detail {
 namespace {
 
 using namespace std::chrono_literals;
+constexpr std::string_view previous_project_index_name =
+    ".project-index.previous";
 
 class FileDescriptor final {
 public:
@@ -581,11 +583,37 @@ read_project_index_file(const std::filesystem::path &project_path) noexcept {
   }
 }
 
+Result<std::string> read_previous_project_index_file(
+    const std::filesystem::path &project_path) noexcept {
+  try {
+    auto anchor = anchor_project(project_path);
+    if (!anchor.has_value())
+      return Result<std::string>::failure(anchor.diagnostic());
+    auto sidecar = open_sidecar(anchor.value(), false);
+    if (!sidecar.has_value())
+      return Result<std::string>::failure(sidecar.diagnostic());
+    return read_named_file(
+        sidecar.value(), std::string(previous_project_index_name),
+        maximum_project_bytes,
+        sidecar_path_for_project(project_path) /
+            std::string(previous_project_index_name),
+        "unsafe_previous_project_index", "previous_project_index_missing");
+  } catch (const std::exception &failure) {
+    return fail<std::string>("previous_project_index_read_failed",
+                             failure.what(), project_path);
+  } catch (...) {
+    return fail<std::string>("previous_project_index_read_failed",
+                             "unknown previous-index read failure",
+                             project_path);
+  }
+}
+
 Result<Unit>
 replace_project_index_file(const std::filesystem::path &project_path,
                            const std::string_view bytes,
                            const bool replace_existing,
-                           const TransactionOptions &options) noexcept {
+                           const TransactionOptions &options,
+                           const bool retain_previous) noexcept {
   try {
     const auto validated = parse_project_v2(bytes);
     if (!validated.has_value()) {
@@ -683,6 +711,44 @@ replace_project_index_file(const std::filesystem::path &project_path,
       return replacement_state;
     }
     if (replace_existing) {
+      if (retain_previous) {
+        const auto current_bytes = read_named_file(
+            anchor.parent.get(), anchor.project_name, maximum_project_bytes,
+            project_path, "unsafe_project_path", "project_read_failed");
+        if (!current_bytes.has_value() ||
+            !parse_project_v2(current_bytes.has_value()
+                                  ? current_bytes.value()
+                                  : std::string{})
+                 .has_value())
+          return fail<Unit>("previous_project_index_invalid",
+                            "current index is not valid enough to retain",
+                            project_path);
+        auto sidecar = open_sidecar(anchor, true);
+        if (!sidecar.has_value())
+          return Result<Unit>::failure(sidecar.diagnostic());
+        const auto previous_temporary = unique_temporary_name(
+            std::string(previous_project_index_name));
+        if (::linkat(anchor.parent.get(), anchor.project_name.c_str(),
+                     sidecar.value().get(), previous_temporary.c_str(), 0) != 0)
+          return fail<Unit>("previous_project_index_create_failed",
+                            errno_message(),
+                            sidecar_path_for_project(project_path) /
+                                previous_temporary);
+        TemporaryEntry previous_cleanup(sidecar.value().get(),
+                                        previous_temporary);
+        if (::renameat(sidecar.value().get(), previous_temporary.c_str(),
+                       sidecar.value().get(),
+                       std::string(previous_project_index_name).c_str()) != 0)
+          return fail<Unit>("previous_project_index_replace_failed",
+                            errno_message(),
+                            sidecar_path_for_project(project_path) /
+                                std::string(previous_project_index_name));
+        previous_cleanup.release();
+        if (::fsync(sidecar.value().get()) != 0)
+          return fail<Unit>("previous_project_index_flush_failed",
+                            errno_message(),
+                            sidecar_path_for_project(project_path));
+      }
       if (::renameat(anchor.parent.get(), temporary_name.c_str(),
                      anchor.parent.get(), anchor.project_name.c_str()) != 0) {
         return fail<Unit>("project_replacement_failed", errno_message(),
