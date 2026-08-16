@@ -977,8 +977,10 @@ does not verify the same archive again.
 
 Project publication accepts the trusted `StructuralArchive` handle created in
 the same active run. `build_structural_archive_objects()` still validates file
-lengths and hashes while installing immutable chunks, but neither it nor the
-controller invokes structural parsing or finding compilation.
+lengths and hashes while installing immutable chunks in one streaming pass,
+but neither it nor the controller invokes structural parsing or finding
+compilation. This integrity pass is deliberate because mutable files cross into
+the project object store; it is not a repeated engineering calculation.
 
 - [x] **Step 7: Run structural and run-store compatibility tests**
 
@@ -1046,10 +1048,9 @@ public:
   }
   DesktopStructuralRun execute(
       const ps::SolverRunOptions &options,
-      const ps::CompiledStructuralSetup &setup,
-      std::optional<ps::StructuralRefinementEvidence> refinement) const override {
+      const ps::CompiledStructuralSetup &setup) const override {
     ++execute_;
-    return delegate_->execute(options, setup, std::move(refinement));
+    return delegate_->execute(options, setup);
   }
   StageCounts counts() const {
     return {prepare_mesh_, group_patches_, compile_setup_, execute_};
@@ -1142,9 +1143,7 @@ public:
       const prometheus::structural::StructuralSetup &setup) const = 0;
   virtual DesktopStructuralRun execute(
       const prometheus::structural::SolverRunOptions &options,
-      const prometheus::structural::CompiledStructuralSetup &setup,
-      std::optional<prometheus::structural::StructuralRefinementEvidence>
-          refinement) const = 0;
+      const prometheus::structural::CompiledStructuralSetup &setup) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<const StructuralBackend>
@@ -1152,7 +1151,11 @@ makeLocalStructuralBackend();
 ```
 
 `LocalStructuralBackend` delegates directly to the authoritative Qt-free
-functions. The interface contains no alternate formulas or validators.
+functions. The interface contains no alternate formulas or validators. A final
+review correction removed refinement from this presentation-facing execution
+signature: QML cannot supply refinement flags, deltas, or result hashes. Until
+a typed two-result refinement producer is connected, a desktop solve remains
+inspectable but produces zero findings and no publishable archive.
 
 - [x] **Step 4: Store immutable stage outputs in `StructuralController`**
 
@@ -1183,7 +1186,8 @@ change rebuilds only `patches_`. Mesh-byte or scale change clears all stages.
 
 - [x] **Step 5: Port the useful feature-panel behavior into the one mainline panel**
 
-Retain mainline's run, commit, stored-run, restore, and result visualization.
+Retain mainline's run, guarded commit, stored-run, restore, and result
+visualization. Commit remains unavailable for a single unrefined desktop solve.
 Add prepared-mesh display/highlighting and these stored properties:
 
 ```cpp
@@ -1454,3 +1458,18 @@ trials open unless their external evidence was actually collected.
 - [ ] **Step 8: Present the exact commit range, tests, remaining limits, and ask for explicit push authorization**
 
 No `git push` occurs in this plan without a new user instruction.
+
+### Task 11: Remediate the independent final review
+
+- [x] Bind reviewed geometry to the loaded project assembly during desktop
+  review, archive packaging, final graph validation, and historical
+  reconstruction.
+- [x] Remove refinement evidence from the QML/backend execution boundary and
+  require the active validated-result identity in typed refinement evidence.
+- [x] Hash and chunk each structural artifact in one packaging read pass, while
+  retaining deliberate rehash verification at mutable-file trust boundaries.
+- [x] Rerun the backend, headless, desktop, loopback, and focused remediation
+  gates and record only measured outcomes.
+- [ ] Request a second independent review of the remediation diff.
+- [ ] Commit any final review corrections, present the exact branch state, and
+  wait for explicit push authorization.

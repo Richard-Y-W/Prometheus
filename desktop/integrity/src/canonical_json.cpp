@@ -1333,7 +1333,12 @@ std::string sha256_bytes(const std::string_view bytes) {
   return raw_sha256_identity(bytes);
 }
 
-std::string sha256_file(const std::filesystem::path &path) {
+StreamedFileSha256 sha256_file_chunks(
+    const std::filesystem::path &path, const std::size_t chunkBytes,
+    const std::function<void(std::string_view)> &consume) {
+  if (chunkBytes == 0U) {
+    fail("invalid_chunk_size", "SHA-256 file chunk size must be positive");
+  }
   std::error_code status_error;
   const auto status = std::filesystem::symlink_status(path, status_error);
   if (status_error || status.type() == std::filesystem::file_type::not_found) {
@@ -1350,19 +1355,27 @@ std::string sha256_file(const std::filesystem::path &path) {
   }
 
   picosha2::hash256_one_by_one hasher;
-  std::array<char, 64U * 1024U> buffer{};
+  std::vector<char> buffer(chunkBytes);
+  std::uintmax_t byteLength = 0U;
   while (stream) {
     stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     const auto count = stream.gcount();
     if (count > 0) {
       hasher.process(buffer.begin(), buffer.begin() + count);
+      const auto size = static_cast<std::size_t>(count);
+      byteLength += size;
+      if (consume) consume(std::string_view(buffer.data(), size));
     }
   }
   if (!stream.eof()) {
     fail("file_read_failed", "unable to read file for SHA-256 hashing");
   }
   hasher.finish();
-  return "sha256:" + picosha2::get_hash_hex_string(hasher);
+  return {"sha256:" + picosha2::get_hash_hex_string(hasher), byteLength};
+}
+
+std::string sha256_file(const std::filesystem::path &path) {
+  return sha256_file_chunks(path, 64U * 1024U, {}).sha256;
 }
 
 std::string object_hash(const std::string_view canonical_bytes) {

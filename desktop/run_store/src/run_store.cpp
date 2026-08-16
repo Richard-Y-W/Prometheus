@@ -570,6 +570,13 @@ Result<detail::Unit> validate_embedded_structural_graph(
           "structural_archive_reference_mismatch",
           "project manifest does not bind the supplied archive manifest"));
     const auto archive = Json::parse(objects.archive_manifest.bytes);
+    if (!archive.contains("geometry_sha256") ||
+        !archive.at("geometry_sha256").is_string() ||
+        archive.at("geometry_sha256") !=
+            projectManifest.at("assembly_artifact_hash"))
+      return Result<detail::Unit>::failure(detail::store_diagnostic(
+          "structural_geometry_binding_mismatch",
+          "structural archive geometry does not match its project assembly"));
     std::unordered_map<std::string, const ObjectToStore *> suppliedChunks;
     for (const auto &chunk : objects.chunks) {
       const auto verified = detail::verify_stored_object(chunk.reference, chunk.bytes);

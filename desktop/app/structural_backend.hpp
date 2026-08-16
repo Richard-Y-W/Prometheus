@@ -36,9 +36,7 @@ public:
 
   [[nodiscard]] virtual DesktopStructuralRun execute(
       const prometheus::structural::SolverRunOptions &options,
-      const prometheus::structural::CompiledStructuralSetup &setup,
-      std::optional<prometheus::structural::StructuralRefinementEvidence>
-          refinement) const = 0;
+      const prometheus::structural::CompiledStructuralSetup &setup) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<const StructuralBackend>

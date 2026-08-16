@@ -46,12 +46,19 @@ stage once:
 - raw solver fields, convergence, coverage, extrema, and findings compile once.
 
 Repeated property reads, QML repaints, result viewing, and material-candidate
-browsing do not invoke those stages. Publishing the active run uses its existing
-compiled setup, validated result, findings, and manifest; it does not rerun the
-solver or recompile the setup. Editing an input invalidates only the affected
-stage and its downstream state. For example, changing force data invalidates
-setup and execution but does not reparse the mesh; changing the patch angle
-regroups the retained prepared boundary but does not remeasure tetrahedra.
+browsing do not invoke those stages. When trusted refinement has produced a
+publishable archive, publication uses the existing compiled results and
+manifest; it does not rerun the solver or recompile the setup. Editing an input
+invalidates only the affected stage and its downstream state. For example,
+changing force data invalidates setup and execution but does not reparse the
+mesh; changing the patch angle regroups the retained prepared boundary but does
+not remeasure tetrahedra.
+
+Integrity hashing is intentionally separate from this engineering-stage
+invariant. Mutable solver files are rehash-verified when they cross into an
+archive or project object store. Structural publication now hashes and chunks
+each artifact in one streaming read rather than reading the whole artifact once
+to hash it and again to chunk it.
 
 Reopening or importing persisted bytes is a new trust-boundary operation. It
 deliberately verifies those bytes once and returns one typed restore snapshot.
@@ -168,8 +175,11 @@ fixture's canonical setup, deck, and compiled identity for inspection.
 
 A completed result alone is insufficient for a finding. The finding compiler
 also requires complete refinement evidence satisfying its predeclared maximum
-change. It evaluates only the displacement and/or von Mises obligations present
-in the reviewed request. A value strictly below its limit is
+change, and that evidence must include the active validated-result identity.
+The desktop strips any refinement-shaped fields supplied through its generic
+presentation map; only a typed comparison of completed results can unlock
+findings. The compiler evaluates only the displacement and/or von Mises
+obligations present in the reviewed request. A value strictly below its limit is
 `no_violation_detected_within_scope`; equality or exceedance is `violated`.
 
 Every finding retains the measured value, limit, margin, unit, evidence
@@ -225,19 +235,21 @@ material candidates, collect all reviewed inputs, and display exact blocker
 codes. Changing a boundary role invalidates the corresponding review, scenario
 confirmation, and refinement state.
 
-Execution is asynchronous. A completed run displays field coverage, exact
-displacement and stress extrema, scoped findings, limitations, and a deformed
-exterior stress view with an explicit deformation scale and color range. The
-view is not physical-scale motion, continuous collision proof, or a safety
-claim.
+Execution is asynchronous. A completed single run displays field coverage,
+exact displacement and stress extrema, limitations, and a deformed exterior
+stress view with an explicit deformation scale and color range. It remains
+indeterminate, with zero scoped findings and no publishable archive, until a
+trusted refinement comparison is available. The view is not physical-scale
+motion, continuous collision proof, or a safety claim.
 
 ## Archives, replay, and project publication
 
-New runs write structural archive schema v2 only. V2 binds the complete reviewed
-setup, compiled setup identity, solver/backend identity, convergence, exact raw
-artifact identities, normalized metrics and fields, accepted refinement,
-coverage, findings, and limitations. The writer consumes the already validated
-active objects; it does not run the solver-evidence or finding compilers again.
+Only runs with accepted typed refinement write structural archive schema v2.
+V2 binds the complete reviewed setup, compiled setup identity, solver/backend
+identity, convergence, exact raw artifact identities, normalized metrics and
+fields, accepted refinement, coverage, findings, and limitations. The writer
+consumes already validated objects; it does not run the solver-evidence or
+finding compilers again.
 
 Legacy v1 archives remain readable under their original narrower claims. They
 are not upgraded or granted v2 convergence, setup, or finding evidence. Offline
@@ -250,7 +262,8 @@ a closed content-addressed artifact graph. Reopen reconstructs and verifies it,
 restores the editable reviewed setup and visualization, and compares its bound
 assembly identity with the current project. Evidence bound to a changed source
 remains viewable but is marked stale and cannot be rerun without renewed
-geometry and surface review.
+geometry and surface review. Review, packaging, and final graph validation each
+reject a structural geometry identity that differs from the project assembly.
 
 ## Phase 5 boundary
 
@@ -263,16 +276,18 @@ here.
 
 ## Remaining Phase 3 evidence
 
-1. Rerun and record the strengthened external smoke, analytic, refinement, and
+1. Add a typed desktop refinement workflow that derives evidence from two
+   completed, identity-bound mesh results; generic UI fields remain forbidden.
+2. Rerun and record the strengthened external smoke, analytic, refinement, and
    offline-replay gates on the supported Windows CalculiX environment.
-2. Have the user review the YUBI bracket's actual temper, product form,
+3. Have the user review the YUBI bracket's actual temper, product form,
    applicability, elastic properties, load faces and vector, restraint faces,
    requirements, mesh controls, and scenario.
-3. Produce acceptable YUBI mesh-refinement evidence for that exact reviewed
+4. Produce acceptable YUBI mesh-refinement evidence for that exact reviewed
    setup.
-4. Execute the reviewed bracket and retain a physically independent
+5. Execute the reviewed bracket and retain a physically independent
    real-component comparison.
-5. Complete the outstanding outside-user folder-screening session.
+6. Complete the outstanding outside-user folder-screening session.
 
 Until those items are complete, Prometheus has a bounded, fail-closed
 structural workflow—not a validated YUBI result and not proof that an arbitrary
@@ -280,19 +295,25 @@ engineering project works.
 
 ## Reconciliation release gate — 2026-08-16
 
-The local post-reconciliation gate measured:
+After the initial gate and independent-review remediation, the local
+post-reconciliation evidence is:
 
-- 45 focused SQLite Phase 5 intake/migration tests passed and one
-  PostgreSQL-only case skipped as declared;
-- 70 PostgreSQL 17 migration tests passed against an isolated temporary local
-  database;
+- all 405 backend tests passed and one PostgreSQL-only case skipped under the
+  default SQLite environment;
+- 70 PostgreSQL 17 migration tests had already passed against an isolated
+  temporary local database before the native-only remediation; no backend file
+  changed afterward;
 - all 16 headless CTests passed;
 - 28 of 29 desktop CTests passed inside the managed sandbox, whose socket
   policy prevented the remaining HTTP fixture from opening a loopback listener;
-- that exact loopback test passed 1 of 1 outside the socket sandbox; and
-- the structural controller's single-computation test passed again in
-  isolation.
+- that exact loopback test passed 1 of 1 outside the socket sandbox;
+- focused post-remediation integrity, structural-controller, QML-authority, and
+  run-store tests passed, including rejection of geometry-detached historical
+  reconstruction; and
+- project publication streams each source artifact once while hashing and
+  chunking it.
 
 These results cover the consolidated native and persistence paths. They do not
-replace the still-open post-reconciliation Windows CalculiX run, reviewed YUBI
-scenario, independent component comparison, or outside-user session.
+replace the still-open second independent code review, post-reconciliation
+Windows CalculiX run, typed desktop refinement producer, reviewed YUBI scenario,
+independent component comparison, or outside-user session.

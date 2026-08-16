@@ -23,6 +23,7 @@ using prometheus::integrity::canonicalize_json_bytes;
 using prometheus::integrity::object_hash;
 using prometheus::integrity::sha256_bytes;
 using prometheus::integrity::sha256_file;
+using prometheus::integrity::sha256_file_chunks;
 using prometheus::integrity::verify_canonical_bytes;
 using prometheus::integrity::verify_execution_component;
 
@@ -342,6 +343,23 @@ void test_raw_sha256_and_file_hashing() {
   }
   require(sha256_file(temporary) == sha256_bytes(all_bytes),
           "file and raw byte hashing agree");
+  std::string visited;
+  std::size_t visits = 0U;
+  const auto streamed = sha256_file_chunks(
+      temporary, 31U, [&](const std::string_view chunk) {
+        ++visits;
+        visited.append(chunk);
+      });
+  require(streamed.sha256 == sha256_bytes(all_bytes) &&
+              streamed.byte_length == all_bytes.size() &&
+              visited == all_bytes && visits == 9U,
+          "one streaming pass exposes exact chunks, byte length, and SHA-256");
+  expect_error(
+      [&] {
+        static_cast<void>(sha256_file_chunks(
+            temporary, 0U, [](const std::string_view) {}));
+      },
+      "invalid_chunk_size", "zero-byte streaming hash chunk");
 
   auto symlink = temporary;
   symlink += ".symlink";

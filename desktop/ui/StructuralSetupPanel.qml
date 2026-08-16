@@ -15,47 +15,29 @@ Item {
     property url calculixExecutable
     property url outputRoot
     property string appliedRestoredManifest
-    property bool refinementComplete: false
-    property bool refinementCriteriaSatisfied: false
-    property real refinementChangeFraction: 0
-    property real refinementMaximumAllowedChangeFraction: 0
-    property var refinementResultSha256: []
-
-    function clearRefinementEvidence() {
-        refinementComplete = false
-        refinementCriteriaSatisfied = false
-        refinementChangeFraction = 0
-        refinementMaximumAllowedChangeFraction = 0
-        refinementResultSha256 = []
-    }
 
     function invalidateLoadReview() {
         loadReviewed.checked = false
         scenarioConfirmed.checked = false
-        clearRefinementEvidence()
     }
 
     function invalidateRestraintReview() {
         restraintReviewed.checked = false
         scenarioConfirmed.checked = false
-        clearRefinementEvidence()
     }
 
     function invalidateMaterialReview() {
         materialReviewed.checked = false
         scenarioConfirmed.checked = false
-        clearRefinementEvidence()
     }
 
     function invalidateRequirementReview() {
         requirementReviewed.checked = false
-        clearRefinementEvidence()
     }
 
     function invalidateMeshReview() {
         meshReviewed.checked = false
         scenarioConfirmed.checked = false
-        clearRefinementEvidence()
     }
 
     function setApplicability(value) {
@@ -75,7 +57,6 @@ Item {
         poissonRatio.text = String(draft.poisson_ratio || 0)
         materialReviewed.checked = false
         scenarioConfirmed.checked = false
-        clearRefinementEvidence()
     }
 
     function applyRestoredDraft() {
@@ -114,11 +95,6 @@ Item {
         meshReviewed.checked = draft.mesh_controls_reviewed
         scenarioDescription.text = draft.scenario_description
         scenarioConfirmed.checked = draft.scenario_confirmed
-        refinementComplete = draft.refinement_complete === true
-        refinementCriteriaSatisfied = draft.refinement_criteria_satisfied === true
-        refinementChangeFraction = Number(draft.refinement_change_fraction || 0)
-        refinementMaximumAllowedChangeFraction = Number(draft.refinement_maximum_allowed_change_fraction || 0)
-        refinementResultSha256 = draft.refinement_result_sha256 || []
         coordinateScale.text = String(structuralController.meshSummary.coordinate_scale_to_m || 1)
         patchAngle.text = String(structuralController.meshSummary.patch_angle_degrees || 15)
     }
@@ -157,12 +133,7 @@ Item {
             mesher_identity: mesherIdentity.text,
             mesh_controls_reviewed: meshReviewed.checked,
             scenario_description: scenarioDescription.text,
-            scenario_confirmed: scenarioConfirmed.checked,
-            refinement_complete: refinementComplete,
-            refinement_criteria_satisfied: refinementCriteriaSatisfied,
-            refinement_change_fraction: refinementChangeFraction,
-            refinement_maximum_allowed_change_fraction: refinementMaximumAllowedChangeFraction,
-            refinement_result_sha256: refinementResultSha256
+            scenario_confirmed: scenarioConfirmed.checked
         });
     }
 
@@ -456,9 +427,9 @@ Item {
                             columnSpacing: 8
                             rowSpacing: 5
                             Label { text: "Analysis ID"; color: mutedColor }
-                            TextField { id: analysisId; Layout.fillWidth: true; placeholderText: "stable analysis identity"; onTextEdited: root.clearRefinementEvidence() }
+                            TextField { id: analysisId; Layout.fillWidth: true; placeholderText: "stable analysis identity" }
                             Label { text: "Component"; color: mutedColor }
-                            TextField { id: componentName; Layout.fillWidth: true; placeholderText: "selected component"; onTextEdited: root.clearRefinementEvidence() }
+                            TextField { id: componentName; Layout.fillWidth: true; placeholderText: "selected component" }
                             Label { text: "Geometry SHA-256"; color: mutedColor }
                             TextField { id: geometryHash; Layout.fillWidth: true; placeholderText: "sha256:…"; onTextEdited: root.invalidateMeshReview() }
                             Label { text: "Material designation"; color: mutedColor }
@@ -584,14 +555,12 @@ Item {
                         }
                         CheckBox { id: meshReviewed; text: "Mesh controls and mesher reviewed"; palette.text: textColor; palette.windowText: textColor }
                         Label { text: "Scenario description"; color: mutedColor }
-                        TextArea { id: scenarioDescription; Layout.fillWidth: true; Layout.preferredHeight: 62; wrapMode: TextEdit.Wrap; placeholderText: "What is loaded, fixed, assumed, and intentionally excluded?"; onTextChanged: { scenarioConfirmed.checked = false; root.clearRefinementEvidence() } }
+                        TextArea { id: scenarioDescription; Layout.fillWidth: true; Layout.preferredHeight: 62; wrapMode: TextEdit.Wrap; placeholderText: "What is loaded, fixed, assumed, and intentionally excluded?"; onTextChanged: scenarioConfirmed.checked = false }
                         CheckBox { id: scenarioConfirmed; text: "I confirm this complete bounded scenario"; palette.text: textColor; palette.windowText: textColor }
                         Label {
                             Layout.fillWidth: true
-                            text: root.refinementComplete ?
-                                "Accepted refinement evidence retained: " + root.refinementResultSha256.length + " result identities" :
-                                "No accepted refinement evidence is attached. Execution may be inspected, but no scoped finding will be issued or archived."
-                            color: root.refinementComplete ? "#70c99a" : "#e0ac62"
+                            text: "This panel cannot supply refinement evidence. Execution may be inspected, but no scoped finding will be issued or archived until a typed refinement workflow validates two completed results."
+                            color: "#e0ac62"
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
                         }

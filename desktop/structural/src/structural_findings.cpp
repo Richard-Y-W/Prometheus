@@ -101,8 +101,10 @@ StructuralEvaluation compile_structural_findings(
     result.execution_status = SolverRunStatus::completed;
   else if (validatedResult)
     result.execution_status = SolverRunStatus::result_invalid;
-  if (!resultValid || !refinement ||
-      !valid_refinement(*refinement))
+  if (!resultValid || !refinement || !valid_refinement(*refinement) ||
+      std::ranges::find(refinement->result_sha256,
+                        validatedResult->identity) ==
+          refinement->result_sha256.end())
     return result;
   result.refinement = *refinement;
 

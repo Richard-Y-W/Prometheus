@@ -898,7 +898,7 @@ Synthetic two-group tetrahedron; coordinates are millimetres
       .coarse_to_fine_change_fraction = 0.04,
       .maximum_allowed_change_fraction = 0.10,
       .result_sha256 = {std::string(coarseResultHash),
-                        std::string(fineResultHash)}};
+                        completed.validated_result->identity}};
   const auto &findingRequest = compiled.request;
   const auto withinLimits = ps::compile_structural_findings(
       findingRequest, completed.validated_result, acceptedRefinement);
@@ -944,6 +944,14 @@ Synthetic two-group tetrahedron; coordinates are millimetres
       findingRequest, completed.validated_result, std::nullopt);
   require(unrefined.evaluated_obligations == 0 && unrefined.findings.empty(),
           "missing refinement evidence cannot generate findings");
+  auto detachedRefinement = acceptedRefinement;
+  detachedRefinement.result_sha256 = {
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"};
+  const auto detached = ps::compile_structural_findings(
+      findingRequest, completed.validated_result, detachedRefinement);
+  require(detached.evaluated_obligations == 0 && detached.findings.empty(),
+          "refinement evidence detached from the active solver result cannot generate findings");
   auto inconsistentRefinement = acceptedRefinement;
   inconsistentRefinement.coarse_to_fine_change_fraction = 0.20;
   const auto inconsistent = ps::compile_structural_findings(

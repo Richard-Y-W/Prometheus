@@ -699,6 +699,7 @@ void StructuralController::selectMaterialCandidate(
 void StructuralController::reviewSetup(const QVariantMap &draft) {
   if (busy_) return;
   draft_ = draft;
+  invalidateRefinementEvidence();
   compiled_setup_.reset();
   clearCompletedRun();
   error_.clear();
@@ -825,6 +826,12 @@ void StructuralController::rebuildPreview() {
       .scenario_confirmed = draft_.value("scenario_confirmed").toBool(),
       .selection_patch_angle_degrees =
           mesh_summary_.value("patch_angle_degrees", 15.0).toDouble()};
+  if (project_ && project_->project() &&
+      setup.geometry_sha256 != project_->project()->assembly_artifact_hash)
+    blockers_.append(QVariantMap{
+        {"code", "structural_geometry_binding_mismatch"},
+        {"message",
+         "Reviewed structural geometry must match the loaded project assembly identity."}});
   for (const auto &issue : ps::validate_setup(setup))
     blockers_.append(QVariantMap{
         {"code", QString::fromStdString(issue.code)},
@@ -851,22 +858,6 @@ void StructuralController::rebuildPreview() {
                                  {"message", QString::fromUtf8(error.what())}});
     status_ = "setup_blocked";
   }
-}
-
-std::optional<ps::StructuralRefinementEvidence>
-StructuralController::refinementFromDraft() const {
-  if (!draft_.value("refinement_complete").toBool()) return std::nullopt;
-  ps::StructuralRefinementEvidence result{
-      .complete = true,
-      .criteria_satisfied =
-          draft_.value("refinement_criteria_satisfied").toBool(),
-      .coarse_to_fine_change_fraction =
-          draft_.value("refinement_change_fraction").toDouble(),
-      .maximum_allowed_change_fraction =
-          draft_.value("refinement_maximum_allowed_change_fraction").toDouble()};
-  for (const auto &value : draft_.value("refinement_result_sha256").toList())
-    result.result_sha256.push_back(value.toString().toStdString());
-  return result;
 }
 
 void StructuralController::runAnalysis(const QUrl &calculixExecutable,
@@ -911,7 +902,6 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
       native_path(executablePath), native_path(runDirectory),
       "prometheus_structural_run", std::chrono::minutes(5)};
   const auto setup = *compiled_setup_;
-  const auto refinement = refinementFromDraft();
   const auto backend = backend_;
   clearCompletedRun();
   error_.clear();
@@ -1009,10 +999,9 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     emit runFinished();
   });
   watcher->setFuture(QtConcurrent::run(
-      [backend, options, setup, refinement,
+      [backend, options, setup,
        runDirectory]() mutable -> DesktopRunCompletion {
-        return {backend->execute(options, setup, std::move(refinement)),
-                runDirectory};
+        return {backend->execute(options, setup), runDirectory};
       }));
 }
 
@@ -1321,18 +1310,6 @@ void StructuralController::restoreStoredRun(const int index,
          QString::fromStdString(reviewed.scenario_description)},
         {"scenario_confirmed", reviewed.scenario_confirmed}};
     const auto &evaluation = *restored.verification.evaluation;
-    if (evaluation.refinement) {
-      const auto &refinement = *evaluation.refinement;
-      draft_["refinement_complete"] = refinement.complete;
-      draft_["refinement_criteria_satisfied"] =
-          refinement.criteria_satisfied;
-      draft_["refinement_change_fraction"] =
-          refinement.coarse_to_fine_change_fraction;
-      draft_["refinement_maximum_allowed_change_fraction"] =
-          refinement.maximum_allowed_change_fraction;
-      draft_["refinement_result_sha256"] =
-          string_list(refinement.result_sha256);
-    }
     compiled_setup_ = *restored.verification.compiled_setup;
     blockers_.clear();
     request_preview_.clear();

@@ -60,7 +60,6 @@ input identity:
 - checking tetrahedral orientation, connectivity, and quality;
 - extracting the exterior boundary and measuring surface geometry;
 - grouping boundary faces for a particular patch angle;
-- hashing large source, deck, solver, and result artifacts;
 - parsing displacement and stress fields;
 - parsing convergence evidence and checking exact mesh-result coverage;
 - compiling extrema, coverage, and findings.
@@ -85,10 +84,12 @@ faces but does not recompute tetrahedral quality.
 
 Saving a run installs or references the already validated artifacts and writes
 the manifest from the existing validated result. It does not reparse the mesh,
-reparse solver output, recompile findings, or rerun CalculiX. Large solver
-outputs are streamed into immutable content-addressed storage while their
-identities are computed, so later publication can reference those identities
-without hashing the same bytes again in the active operation.
+reparse solver output, recompile findings, or rerun CalculiX. Hashing is an
+integrity operation, not an engineering calculation: mutable solver files are
+rehash-verified when they cross into an archive or the content-addressed project
+store. Packaging combines artifact hashing and chunk construction in one
+streaming read pass. It never performs a separate full-file hash pass followed
+by a second chunking pass.
 
 Reverification is required after a real trust-boundary transition: reopening a
 project, importing an external archive, restoring a portable bundle, or
@@ -100,6 +101,11 @@ remainder of that immutable session.
 Cheap form checks may run when edited fields change, but property reads,
 repaints, preview rendering, archive writing, and project saving cannot invoke
 an expensive engineering stage.
+
+Refinement evidence is not presentation input. The desktop execution boundary
+does not accept refinement booleans, convergence deltas, or result hashes from
+QML. A typed refinement producer must derive evidence from two completed,
+identity-bound solver results before findings or a v2 archive can be issued.
 
 ## Structural contract reconciliation
 

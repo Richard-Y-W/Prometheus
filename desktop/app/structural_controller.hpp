@@ -115,9 +115,6 @@ private:
       const prometheus::structural::StructuralSetup &setup);
   void clearCompletedRun();
   void invalidateRefinementEvidence();
-  [[nodiscard]] std::optional<
-      prometheus::structural::StructuralRefinementEvidence>
-  refinementFromDraft() const;
 
   std::shared_ptr<const StructuralBackend> backend_;
   QString status_{"mesh_required"};

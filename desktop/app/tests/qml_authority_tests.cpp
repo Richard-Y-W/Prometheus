@@ -374,6 +374,14 @@ void verifyAuthorityScan() {
     require(!source.contains(retired),
             std::string("production QML excludes retired structural path: ") +
                 retired);
+  for (const auto &untrustedRefinementField : {
+           "refinement_complete", "refinement_criteria_satisfied",
+           "refinement_change_fraction",
+           "refinement_maximum_allowed_change_fraction",
+           "refinement_result_sha256"})
+    require(!structuralSource.contains(untrustedRefinementField),
+            std::string("structural presentation cannot submit refinement evidence: ") +
+                untrustedRefinementField);
 
   const std::vector<QRegularExpression> forbidden{
       QRegularExpression(

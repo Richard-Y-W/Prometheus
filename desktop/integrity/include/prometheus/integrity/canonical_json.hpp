@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -27,12 +29,23 @@ private:
   std::string code_;
 };
 
+struct StreamedFileSha256 final {
+  std::string sha256;
+  std::uintmax_t byte_length{};
+};
+
 [[nodiscard]] std::string canonicalize_json_bytes(
     std::string_view source, Limits limits = {});
 [[nodiscard]] std::string verify_canonical_bytes(
     std::string_view source, Limits limits = {});
 [[nodiscard]] std::string sha256_bytes(std::string_view bytes);
 [[nodiscard]] std::string sha256_file(const std::filesystem::path &path);
+// Hashes a regular file and delivers each exact byte chunk during that same
+// read pass. The consumer may retain, encode, or store chunks; it must not
+// mutate the source file.
+[[nodiscard]] StreamedFileSha256 sha256_file_chunks(
+    const std::filesystem::path &path, std::size_t chunk_bytes,
+    const std::function<void(std::string_view)> &consume);
 [[nodiscard]] std::string object_hash(std::string_view canonical_bytes);
 [[nodiscard]] std::string verify_execution_component(
     std::string_view stored_bytes, std::string_view expected_object_hash,

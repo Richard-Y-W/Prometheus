@@ -162,6 +162,13 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
       return failure<StructuralArchiveObjects>(
           "structural_manifest_contract_invalid",
           "source is not a completed structural archive manifest", manifestPath);
+    const auto geometryIdentity = archive.value("geometry_sha256", "");
+    if (!is_valid_object_hash(geometryIdentity) ||
+        geometryIdentity != assemblyArtifactHash)
+      return failure<StructuralArchiveObjects>(
+          "structural_geometry_binding_mismatch",
+          "reviewed structural geometry does not match the project assembly",
+          manifestPath);
 
     StructuralArchiveObjects result;
     result.archive_manifest = object(
@@ -179,39 +186,44 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
       const auto artifactPath = manifestPath.parent_path() / filename;
       std::error_code sizeError;
       const auto actualLength = std::filesystem::file_size(artifactPath, sizeError);
-      if (sizeError || actualLength != byteLength ||
-          integrity::sha256_file(artifactPath) != sha256)
+      if (sizeError || actualLength != byteLength)
         return failure<StructuralArchiveObjects>(
             "artifact_identity_mismatch", filename + " bytes changed", artifactPath);
 
-      std::ifstream input(artifactPath, std::ios::binary);
-      if (!input) throw std::runtime_error("unable to open structural artifact");
       const auto chunkCount = static_cast<std::size_t>(
           (byteLength + structural_artifact_chunk_bytes - 1U) /
           structural_artifact_chunk_bytes);
       Json chunkReferences = Json::array();
-      std::vector<char> buffer(structural_artifact_chunk_bytes);
-      for (std::size_t index = 0; index < chunkCount; ++index) {
-        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const auto count = input.gcount();
-        if (count <= 0) throw std::runtime_error("structural artifact ended early");
-        const std::string_view chunk(buffer.data(), static_cast<std::size_t>(count));
-        const Json chunkDocument{
-            {"$schema", structural_artifact_chunk_schema_id},
-            {"schema_version", "1.0.0"}, {"encoding", "base64"},
-            {"artifact_sha256", sha256}, {"chunk_index", index},
-            {"chunk_count", chunkCount},
-            {"byte_offset", index * structural_artifact_chunk_bytes},
-            {"decoded_length", static_cast<std::uint64_t>(count)},
-            {"data", base64Encode(chunk)}};
-        result.chunks.push_back(object(
-            chunkDocument.dump(),
-            std::string(structural_artifact_chunk_media_type),
-            std::string(structural_artifact_chunk_schema_id)));
-        chunkReferences.push_back(referenceJson(result.chunks.back().reference));
-      }
-      if (input.peek() != std::char_traits<char>::eof())
-        throw std::runtime_error("structural artifact exceeds declared length");
+      std::size_t index = 0U;
+      const auto streamed = integrity::sha256_file_chunks(
+          artifactPath, structural_artifact_chunk_bytes,
+          [&](const std::string_view chunk) {
+            if (index >= chunkCount)
+              throw std::runtime_error(
+                  "structural artifact exceeds declared length");
+            const Json chunkDocument{
+                {"$schema", structural_artifact_chunk_schema_id},
+                {"schema_version", "1.0.0"},
+                {"encoding", "base64"},
+                {"artifact_sha256", sha256},
+                {"chunk_index", index},
+                {"chunk_count", chunkCount},
+                {"byte_offset", index * structural_artifact_chunk_bytes},
+                {"decoded_length", static_cast<std::uint64_t>(chunk.size())},
+                {"data", base64Encode(chunk)}};
+            result.chunks.push_back(object(
+                chunkDocument.dump(),
+                std::string(structural_artifact_chunk_media_type),
+                std::string(structural_artifact_chunk_schema_id)));
+            chunkReferences.push_back(
+                referenceJson(result.chunks.back().reference));
+            ++index;
+          });
+      if (streamed.byte_length != byteLength || streamed.sha256 != sha256 ||
+          index != chunkCount)
+        return failure<StructuralArchiveObjects>(
+            "artifact_identity_mismatch", filename + " bytes changed",
+            artifactPath);
       storedArtifacts.push_back(
           {{"role", key}, {"file", filename}, {"byte_length", byteLength},
            {"sha256", sha256}, {"chunks", std::move(chunkReferences)}});
@@ -256,15 +268,24 @@ Result<std::filesystem::path> reconstruct_structural_archive(
       return failure<std::filesystem::path>(
           "structural_project_manifest_invalid",
           "committed object is not an embedded structural run");
-    std::mt19937_64 random{std::random_device{}()};
-    temporary = destinationDirectory;
-    temporary += ".partial-" + std::to_string(random());
-    std::filesystem::create_directory(temporary);
-
     const auto archiveReference = parseReference(manifest.at("archive_manifest"));
     const auto archiveBytes = read_object(projectPath, archiveReference);
     if (!archiveBytes.has_value())
       return Result<std::filesystem::path>::failure(archiveBytes.diagnostic());
+    const auto archive = Json::parse(archiveBytes.value());
+    const auto archivedAssembly = manifest.value("assembly_artifact_hash", "");
+    if (!is_valid_object_hash(archivedAssembly) ||
+        !archive.contains("geometry_sha256") ||
+        !archive.at("geometry_sha256").is_string() ||
+        archive.at("geometry_sha256") != archivedAssembly)
+      return failure<std::filesystem::path>(
+          "structural_geometry_binding_mismatch",
+          "stored structural geometry does not match its project assembly",
+          destinationDirectory);
+    std::mt19937_64 random{std::random_device{}()};
+    temporary = destinationDirectory;
+    temporary += ".partial-" + std::to_string(random());
+    std::filesystem::create_directory(temporary);
     writeFile(temporary / "prometheus-structural-run.json", archiveBytes.value());
     for (const auto &artifact : manifest.at("artifacts")) {
       const auto filename = artifact.at("file").get<std::string>();
