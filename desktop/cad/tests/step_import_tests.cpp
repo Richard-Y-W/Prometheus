@@ -15,10 +15,25 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <array>
+#include <cmath>
+
+namespace {
+bool valid_external_bounds(const prometheus::cad::AssemblyNode& node) {
+  const auto& bounds=node.bounds;
+  const std::array<double,6> values{bounds.min_x,bounds.min_y,bounds.min_z,bounds.max_x,bounds.max_y,bounds.max_z};
+  if(!std::ranges::all_of(values,[](const double value){return std::isfinite(value);})||
+     bounds.min_x>bounds.max_x||bounds.min_y>bounds.max_y||bounds.min_z>bounds.max_z)return false;
+  constexpr double pinned_yubi_maximum_span_m=10.0;
+  return bounds.max_x-bounds.min_x<pinned_yubi_maximum_span_m&&
+         bounds.max_y-bounds.min_y<pinned_yubi_maximum_span_m&&
+         bounds.max_z-bounds.min_z<pinned_yubi_maximum_span_m;
+}
+}
 
 int main(int argc,char** argv){
   if(argc==3&&std::string(argv[1])=="--import-only"){
-    try{const auto result=prometheus::cad::StepImporter{}.import_file(argv[2],0.0015,false);std::size_t leaves=0,triangles=0;const auto visit=[&](const auto& self,const auto& node)->void{if(node.children.empty()){++leaves;triangles+=node.mesh.indices.size()/3;}for(const auto& child:node.children)self(self,child);};for(const auto& root:result.roots)visit(visit,root);if(leaves<2||triangles==0){std::cerr<<"external assembly import insufficient: leaves="<<leaves<<" triangles="<<triangles<<"\n";return 10;}std::cout<<"Imported roots="<<result.roots.size()<<" leaves="<<leaves<<" triangles="<<triangles<<" interferences=deferred\n";return 0;}catch(const std::exception& e){std::cerr<<"external import failed: "<<e.what()<<"\n";return 11;}
+    try{const auto result=prometheus::cad::StepImporter{}.import_file(argv[2],0.0015,false);std::size_t leaves=0,triangles=0;bool invalid_bounds=false;const auto visit=[&](const auto& self,const auto& node)->void{if(!node.mesh.positions.empty()&&!valid_external_bounds(node)){const auto& bounds=node.bounds;std::cerr<<"external assembly bounds invalid: id="<<node.persistent_id<<" bounds_m=["<<bounds.min_x<<','<<bounds.min_y<<','<<bounds.min_z<<"]-["<<bounds.max_x<<','<<bounds.max_y<<','<<bounds.max_z<<"]\n";invalid_bounds=true;}if(node.children.empty()){++leaves;triangles+=node.mesh.indices.size()/3;}for(const auto& child:node.children)self(self,child);};for(const auto& root:result.roots)visit(visit,root);if(invalid_bounds)return 12;if(leaves<2||triangles==0){std::cerr<<"external assembly import insufficient: leaves="<<leaves<<" triangles="<<triangles<<"\n";return 10;}std::cout<<"Imported roots="<<result.roots.size()<<" leaves="<<leaves<<" triangles="<<triangles<<" interferences=deferred\n";return 0;}catch(const std::exception& e){std::cerr<<"external import failed: "<<e.what()<<"\n";return 11;}
   }
   const bool keep_fixture=argc>1; const auto path=keep_fixture?std::filesystem::path(argv[1]):std::filesystem::temp_directory_path()/"prometheus-motor-arm.step";
   Handle(TDocStd_Document) doc; XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc); const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());

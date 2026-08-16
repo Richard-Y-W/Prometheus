@@ -26,7 +26,9 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <stdexcept>
 
@@ -65,18 +67,56 @@ DisplayMesh tessellate(const TopoDS_Shape& shape,double deflection) {
     for(Standard_Integer i=1;i<=tri->NbTriangles();++i){Standard_Integer a,b,c;tri->Triangle(i).Get(a,b,c);if(face.Orientation()==TopAbs_REVERSED)std::swap(b,c);out.indices.insert(out.indices.end(),{offset+static_cast<std::uint32_t>(a-1),offset+static_cast<std::uint32_t>(b-1),offset+static_cast<std::uint32_t>(c-1)});}
   } return out;
 }
+bool ordered_finite(const BoundingBox& bounds) {
+  const std::array<double,6> values{bounds.min_x,bounds.min_y,bounds.min_z,bounds.max_x,bounds.max_y,bounds.max_z};
+  return std::ranges::all_of(values,[](const double value){return std::isfinite(value);})&&
+         bounds.min_x<=bounds.max_x&&bounds.min_y<=bounds.max_y&&bounds.min_z<=bounds.max_z;
+}
+bool closed_brep_bounds(const TopoDS_Shape& shape,BoundingBox& metres) {
+  Bnd_Box box;
+  try{
+    BRepBndLib::Add(shape,box);
+    if(box.IsVoid()||box.IsOpen())return false;
+    Standard_Real min_x,min_y,min_z,max_x,max_y,max_z;
+    box.Get(min_x,min_y,min_z,max_x,max_y,max_z);
+    metres={min_x/1000.0,min_y/1000.0,min_z/1000.0,max_x/1000.0,max_y/1000.0,max_z/1000.0};
+    return ordered_finite(metres);
+  }catch(const Standard_Failure&){return false;}
+}
+bool finite_mesh_bounds(const DisplayMesh& mesh,BoundingBox& bounds) {
+  if(mesh.positions.size()<3||mesh.positions.size()%3!=0)return false;
+  const double infinity=std::numeric_limits<double>::infinity();
+  BoundingBox candidate{infinity,infinity,infinity,-infinity,-infinity,-infinity};
+  for(std::size_t i=0;i<mesh.positions.size();i+=3){
+    const double x=mesh.positions[i],y=mesh.positions[i+1],z=mesh.positions[i+2];
+    if(!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z))return false;
+    candidate.min_x=std::min(candidate.min_x,x);candidate.min_y=std::min(candidate.min_y,y);candidate.min_z=std::min(candidate.min_z,z);
+    candidate.max_x=std::max(candidate.max_x,x);candidate.max_y=std::max(candidate.max_y,y);candidate.max_z=std::max(candidate.max_z,z);
+  }
+  if(!ordered_finite(candidate))return false;
+  bounds=candidate;
+  return true;
+}
+bool broad_phase_bounds(const BoundingBox& metres,double deflection_m,Bnd_Box& box) {
+  if(!ordered_finite(metres)||!std::isfinite(deflection_m))return false;
+  box.SetVoid();
+  box.Update(metres.min_x*1000.0,metres.min_y*1000.0,metres.min_z*1000.0,
+             metres.max_x*1000.0,metres.max_y*1000.0,metres.max_z*1000.0);
+  box.Enlarge(std::max(0.0,deflection_m)*1000.0);
+  return !box.IsVoid()&&!box.IsOpen();
+}
 bool add_bounds(const TopoDS_Shape& shape,Bnd_Box& box) {
-  try{BRepBndLib::Add(shape,box);return !box.IsVoid();}catch(const Standard_Failure&){return false;}
+  BoundingBox metres;
+  return closed_brep_bounds(shape,metres)&&broad_phase_bounds(metres,0.0,box);
 }
 bool populate_geometry(AssemblyNode& node,const TopoDS_Shape& shape,double deflection) {
   if(shape.IsNull())return false;
-  Bnd_Box box;if(!add_bounds(shape,box))return false;
   try{
-  if(!box.IsVoid()){box.Get(node.bounds.min_x,node.bounds.min_y,node.bounds.min_z,node.bounds.max_x,node.bounds.max_y,node.bounds.max_z);node.bounds={node.bounds.min_x/1000,node.bounds.min_y/1000,node.bounds.min_z/1000,node.bounds.max_x/1000,node.bounds.max_y/1000,node.bounds.max_z/1000};}
+  node.mesh=tessellate(shape,deflection*1000.0);
+  if(!closed_brep_bounds(shape,node.bounds)&&!finite_mesh_bounds(node.mesh,node.bounds))return false;
   GProp_GProps props;BRepGProp::VolumeProperties(shape,props);node.volume_m3=props.Mass()/1e9;
   GProp_GProps surface;BRepGProp::SurfaceProperties(shape,surface);node.surface_area_m2=surface.Mass()/1e6;
   TopTools_IndexedMapOfShape faces,edges;TopExp::MapShapes(shape,TopAbs_FACE,faces);TopExp::MapShapes(shape,TopAbs_EDGE,edges);node.face_count=faces.Extent();node.edge_count=edges.Extent();
-  node.mesh=tessellate(shape,deflection*1000.0);
   return true;
   }catch(const Standard_Failure&){return false;}
 }
