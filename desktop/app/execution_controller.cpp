@@ -938,6 +938,10 @@ void ExecutionController::loadRecordedRuns() {
     return;
   }
   for (const auto &manifest : project_->project()->execution.committed_runs) {
+    // Structural project-run manifests are owned by StructuralController and
+    // must not be misclassified as failed motor-backend replays.
+    if (manifest.schema_id != "urn:prometheus:schema:run-manifest:1.0.0")
+      continue;
     auto display = loadRecordedDisplay(project_->projectPath(), manifest);
     run_history_.append(display.history);
     recorded_runs_.push_back(RecordedRun{manifest, std::move(display.result)});

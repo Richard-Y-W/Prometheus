@@ -12,12 +12,24 @@
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <prometheus/integrity/canonical_json.hpp>
+
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
 
 namespace {
+
+std::filesystem::path nativePath(const QString &path) {
+#ifdef _WIN32
+  return std::filesystem::path(path.toStdWString());
+#else
+  return std::filesystem::path(path.toStdString());
+#endif
+}
 
 struct Classification final {
   QString category;
@@ -226,6 +238,31 @@ ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
   }
   if (readySteps.size() == 1)
     result.primary_step_path = readySteps.front();
+  result.inventory_snapshot = buildProjectInventorySnapshot(result);
+  std::vector<prometheus::run_store::ProjectEvidenceInput> evidenceInputs;
+  evidenceInputs.reserve(static_cast<std::size_t>(result.artifacts.size()));
+  for (const auto &value : result.artifacts) {
+    const auto artifact = value.toMap();
+    const auto hashText = artifact.value("sha256").toString();
+    evidenceInputs.push_back({
+        artifact.value("relative_path").toString().toStdString(),
+        nativePath(artifact.value("absolute_path").toString()),
+        artifact.value("byte_size").toULongLong(),
+        hashText.isEmpty()
+            ? std::nullopt
+            : std::optional<std::string>(hashText.toStdString()),
+        artifact.value("category").toString().toStdString(),
+        artifact.value("analysis_state").toString().toStdString()});
+  }
+  auto archive = prometheus::run_store::build_project_evidence_archive(
+      result.inventory_snapshot->reference, evidenceInputs);
+  if (!archive.has_value()) {
+    result.ok = false;
+    result.error = QString::fromStdString(archive.diagnostic().message);
+    result.inventory_snapshot.reset();
+  } else {
+    result.evidence_archive = std::move(archive.value());
+  }
   return result;
 }
 
@@ -249,6 +286,36 @@ int ProjectIntakeController::unsupportedCount() const {
 
 int ProjectIntakeController::unreadableCount() const {
   return countState(result_.artifacts, "unreadable");
+}
+
+prometheus::run_store::ObjectToStore
+buildProjectInventorySnapshot(const ProjectIntakeResult &result) {
+  using Json = nlohmann::json;
+  Json artifacts = Json::array();
+  for (const auto &value : result.artifacts) {
+    const auto artifact = value.toMap();
+    const auto hash = artifact.value("sha256").toString().toStdString();
+    artifacts.push_back(
+        {{"relative_path", artifact.value("relative_path").toString().toStdString()},
+         {"byte_length", artifact.value("byte_size").toULongLong()},
+         {"sha256", hash.empty() ? Json(nullptr) : Json(hash)},
+         {"category", artifact.value("category").toString().toStdString()},
+         {"analysis_state",
+          artifact.value("analysis_state").toString().toStdString()},
+         {"detail", artifact.value("detail").toString().toStdString()}});
+  }
+  const auto bytes = prometheus::integrity::canonicalize_json_bytes(
+      Json{{"$schema", prometheus::run_store::project_inventory_schema_id},
+           {"schema_version", "1.0.0"},
+           {"snapshot_kind", "accounted_project_folder"},
+           {"root_label", QFileInfo(result.root_path).fileName().toStdString()},
+           {"artifacts", std::move(artifacts)}}
+          .dump());
+  const prometheus::run_store::StoredObjectReference reference{
+      prometheus::integrity::sha256_bytes(bytes), bytes.size(),
+      std::string(prometheus::run_store::project_inventory_media_type),
+      std::string(prometheus::run_store::project_inventory_schema_id), "1.0.0"};
+  return {reference, bytes};
 }
 
 QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,

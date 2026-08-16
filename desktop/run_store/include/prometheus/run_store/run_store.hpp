@@ -10,6 +10,9 @@
 
 namespace prometheus::run_store {
 
+struct StructuralArchiveObjects;
+struct ProjectEvidenceArchiveObjects;
+
 inline constexpr std::chrono::milliseconds maximum_lock_wait{5000};
 
 enum class TransactionBoundary {
@@ -73,6 +76,12 @@ create_project_v2(const std::filesystem::path &project_path,
 [[nodiscard]] Result<ProjectV2> open_project_index_read_only(
     const std::filesystem::path &project_path) noexcept;
 
+// Replaces a damaged current index with the last validated index retained by a
+// successful prior write. A valid current index is never rolled back.
+[[nodiscard]] Result<ProjectV2> recover_previous_project_index(
+    const std::filesystem::path &project_path,
+    TransactionOptions options = {}) noexcept;
+
 // Updates only mutable CAD and geometry snapshot fields. The execution index
 // and legacy preservation are reloaded and retained while holding the writer
 // lock so a stale desktop snapshot cannot erase newer committed runs.
@@ -96,6 +105,33 @@ set_current_scenario(const std::filesystem::path &project_path,
 publish_completed_run(const std::filesystem::path &project_path,
                       const CompletedRunObjects &objects,
                       TransactionOptions options = {}) noexcept;
+
+// Anchors a canonical, immutable accounting snapshot of a scanned project
+// folder. The snapshot records file identities and classification only; it
+// does not claim semantic understanding of any artifact.
+[[nodiscard]] Result<Publication> commit_project_inventory_snapshot(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &snapshot,
+    TransactionOptions options = {}) noexcept;
+
+[[nodiscard]] Result<Publication> publish_project_inventory_archive(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &inventory_snapshot,
+    const ProjectEvidenceArchiveObjects &archive,
+    TransactionOptions options = {}) noexcept;
+
+// Anchors a verified structural archive manifest in the project history. Raw
+// solver artifacts remain external until the portable-bundle checkpoint; their
+// exact hashes and lengths are closed over by this immutable manifest.
+[[nodiscard]] Result<Publication> commit_structural_archive_manifest(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &manifest,
+    TransactionOptions options = {}) noexcept;
+
+[[nodiscard]] Result<Publication> publish_structural_archive(
+    const std::filesystem::path &project_path,
+    const StructuralArchiveObjects &objects,
+    TransactionOptions options = {}) noexcept;
 
 [[nodiscard]] Result<ProjectV2>
 open_read_only(const std::filesystem::path &project_path,

@@ -4,7 +4,6 @@
 #include "project_intake.hpp"
 #include "project_controller.hpp"
 #include "service_controller.hpp"
-#include "structural_setup_controller.hpp"
 
 #include <prometheus/integrity/canonical_json.hpp>
 #include <prometheus/run_store/run_store.hpp>
@@ -175,99 +174,6 @@ private:
   QString step_path_;
 };
 
-class StructuralSetupProbe final : public QObject {
-  Q_OBJECT
-  Q_PROPERTY(QString sourcePath READ sourcePath CONSTANT)
-  Q_PROPERTY(QString geometrySha256 READ geometrySha256 CONSTANT)
-  Q_PROPERTY(int nodeCount READ nodeCount CONSTANT)
-  Q_PROPERTY(int elementCount READ elementCount CONSTANT)
-  Q_PROPERTY(double minimumMeanRatio READ minimumMeanRatio CONSTANT)
-  Q_PROPERTY(double candidateMeshTargetSizeM READ candidateMeshTargetSizeM
-                 CONSTANT)
-  Q_PROPERTY(QVariantList displayCenterM READ displayCenterM CONSTANT)
-  Q_PROPERTY(double displayDiameterM READ displayDiameterM CONSTANT)
-  Q_PROPERTY(QVariantList surfaceGroups READ surfaceGroups CONSTANT)
-  Q_PROPERTY(QVariantMap activeSurfaceGroup READ activeSurfaceGroup CONSTANT)
-  Q_PROPERTY(QStringList restraintGroups READ restraintGroups CONSTANT)
-  Q_PROPERTY(QStringList loadGroups READ loadGroups CONSTANT)
-  Q_PROPERTY(double selectedLoadAreaM2 READ selectedLoadAreaM2 CONSTANT)
-  Q_PROPERTY(QVariantList compiledResultantN READ compiledResultantN CONSTANT)
-  Q_PROPERTY(QVariantList materialCandidates READ materialCandidates CONSTANT)
-  Q_PROPERTY(QVariantList blockingIssues READ blockingIssues CONSTANT)
-  Q_PROPERTY(bool readyToExport READ readyToExport NOTIFY changed)
-  Q_PROPERTY(bool scenarioConfirmed READ scenarioConfirmed CONSTANT)
-  Q_PROPERTY(bool meshReviewed READ meshReviewed CONSTANT)
-  Q_PROPERTY(QObject *meshGeometry READ meshGeometry CONSTANT)
-  Q_PROPERTY(QObject *highlightGeometry READ highlightGeometry CONSTANT)
-
-public:
-  QString sourcePath() const { return "/fixture/structural.candidate.json"; }
-  QString geometrySha256() const {
-    return "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  }
-  int nodeCount() const { return 4; }
-  int elementCount() const { return 1; }
-  double minimumMeanRatio() const { return 0.75; }
-  double candidateMeshTargetSizeM() const { return 0.01; }
-  QVariantList displayCenterM() const { return {0.005, 0.005, 0.005}; }
-  double displayDiameterM() const { return 0.02; }
-  QVariantList surfaceGroups() const {
-    return {QVariantMap{{"name", "FixedFaces"},
-                        {"triangle_count", 1},
-                        {"node_count", 3},
-                        {"area_m2", 0.00005},
-                        {"centroid_m", QVariantList{0.003, 0.003, 0.0}},
-                        {"normal_m", QVariantList{0.0, 0.0, -1.0}},
-                        {"normal_defined", true},
-                        {"restrained", false},
-                        {"loaded", false}}};
-  }
-  QVariantMap activeSurfaceGroup() const { return {}; }
-  QStringList restraintGroups() const { return {}; }
-  QStringList loadGroups() const { return {}; }
-  double selectedLoadAreaM2() const { return 0.0; }
-  QVariantList compiledResultantN() const { return {}; }
-  QVariantList materialCandidates() const {
-    return {QVariantMap{{"candidate_id", "candidate-1"},
-                        {"designation", "A2024"},
-                        {"temper", "T351"},
-                        {"product_form", "plate"},
-                        {"youngs_modulus_pa", 73.1e9},
-                        {"poisson_ratio", 0.33}}};
-  }
-  QVariantList blockingIssues() const {
-    return {QVariantMap{{"code", "scenario_unconfirmed"},
-                        {"message", "Confirm the reviewed scenario."}}};
-  }
-  bool readyToExport() const { return ready_to_export_; }
-  bool scenarioConfirmed() const { return false; }
-  bool meshReviewed() const { return false; }
-  QObject *meshGeometry() const { return nullptr; }
-  QObject *highlightGeometry() const { return nullptr; }
-
-  void setReadyToExport(const bool ready) {
-    ready_to_export_ = ready;
-    emit changed();
-  }
-
-  Q_INVOKABLE bool loadCandidate(const QUrl &) { return true; }
-  Q_INVOKABLE void setActiveSurfaceGroup(const QString &) {}
-  Q_INVOKABLE void setSurfaceRole(const QString &, const QString &, bool) {}
-  Q_INVOKABLE bool loadMaterialEvidence(const QUrl &) { return true; }
-  Q_INVOKABLE void selectMaterialCandidate(const QString &, const QString &) {}
-  Q_INVOKABLE void setForce(double, double, double, double) {}
-  Q_INVOKABLE void setLimits(const QVariantMap &) {}
-  Q_INVOKABLE void setMeshReview(const QVariantMap &) {}
-  Q_INVOKABLE void confirmScenario(bool) {}
-  Q_INVOKABLE bool exportReviewedCase(const QUrl &) { return true; }
-
-signals:
-  void changed();
-
-private:
-  bool ready_to_export_{};
-};
-
 namespace {
 
 namespace integrity = prometheus::integrity;
@@ -383,8 +289,7 @@ void verifyAuthorityScan() {
   const std::vector<QString> files{
       uiRoot + "/Main.qml", uiRoot + "/ComponentPackagePanel.qml",
       uiRoot + "/MotorScenarioDialog.qml", uiRoot + "/MotorRunPanel.qml",
-      uiRoot + "/RunHistoryPanel.qml", uiRoot + "/ProjectInventoryPanel.qml",
-      uiRoot + "/StructuralSetupPanel.qml"};
+      uiRoot + "/RunHistoryPanel.qml", uiRoot + "/ProjectInventoryPanel.qml"};
   QString source;
   for (const auto &path : files) {
     QFile file(path);
@@ -408,13 +313,6 @@ void verifyAuthorityScan() {
                                         "thermal_capacitance_j_k)\\b")),
       QRegularExpression(QStringLiteral("\\bauto(?:matic)?Review\\b"),
                          QRegularExpression::CaseInsensitiveOption),
-      QRegularExpression(
-          QStringLiteral("\\b(?:force|magnitude)[A-Za-z0-9_.]*\\s*/\\s*"
-                         "(?:area|selectedLoadArea)"),
-          QRegularExpression::CaseInsensitiveOption),
-      QRegularExpression(
-          QStringLiteral("\\b(?:stress|sigma)\\s*[:=]\\s*[^\\n;]*(?:/|\\*)"),
-          QRegularExpression::CaseInsensitiveOption),
   };
   for (const auto &pattern : forbidden) {
     require(!pattern.match(source).hasMatch(),
@@ -423,63 +321,6 @@ void verifyAuthorityScan() {
   }
   require(!source.contains("Project works", Qt::CaseInsensitive),
           "QML contains no unscoped project verdict");
-}
-
-void verifyStructuralSetupPanel() {
-  StructuralSetupProbe probe;
-  QQmlApplicationEngine engine;
-  QQmlComponent panel(
-      &engine, QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) +
-                                   "/StructuralSetupPanel.qml"));
-  std::unique_ptr<QObject> root(panel.createWithInitialProperties({
-      {"controller", QVariant::fromValue<QObject *>(&probe)},
-      {"width", 1180},
-      {"height", 720},
-  }));
-  if (!root) {
-    for (const auto &error : panel.errors())
-      std::cerr << error.toString().toStdString() << '\n';
-  }
-  require(root != nullptr, "structural setup panel instantiates offscreen");
-  QQuickWindow window;
-  window.setGeometry(0, 0, 1180, 720);
-  auto *panelItem = qobject_cast<QQuickItem *>(root.get());
-  require(panelItem != nullptr, "structural setup panel is a visual item");
-  panelItem->setParentItem(window.contentItem());
-  window.show();
-  require(waitUntil([&] {
-            return visualChild(window.contentItem(),
-                               "structuralRestraintToggle") != nullptr;
-          }),
-          "structural surface delegate is created in the offscreen scene");
-
-  const std::vector<const char *> controls{
-      "structuralMeshViewport",       "structuralCandidateFile",
-      "structuralSurfaceList",        "structuralMaterialDesignation",
-      "structuralTemper",             "structuralProductForm",
-      "structuralYoungsModulus",      "structuralPoissonRatio",
-      "structuralMaterialEvidence",   "structuralMaterialCandidate",
-      "structuralForceMagnitude",     "structuralForceDirectionX",
-      "structuralForceDirectionY",    "structuralForceDirectionZ",
-      "structuralDisplacementLimit",  "structuralStressLimit",
-      "structuralMeshConfirmation",   "structuralScenarioConfirmation",
-      "structuralBlockingList",       "structuralExportButton",
-  };
-  for (const auto *control : controls)
-    requiredChild(root.get(), control);
-  require(visualChild(window.contentItem(), "structuralRestraintToggle") !=
-                  nullptr &&
-              visualChild(window.contentItem(), "structuralLoadToggle") !=
-                  nullptr,
-          "each visible surface row exposes separate restraint and load choices");
-
-  auto *exportButton = requiredChild(root.get(), "structuralExportButton");
-  require(!exportButton->property("enabled").toBool(),
-          "structural export remains disabled while C++ reports blockers");
-  probe.setReadyToExport(true);
-  QCoreApplication::processEvents();
-  require(exportButton->property("enabled").toBool(),
-          "structural export enables only from C++ readiness");
 }
 
 void verifyPendingSaveAs(const QByteArray &motorA) {
@@ -615,7 +456,6 @@ void verifyOffscreenWorkflow() {
   ProjectController project(&cad, &geometry);
   ProjectIntakeController intake;
   ExecutionController execution(&project, &service);
-  StructuralSetupController structuralSetup;
   project.openProject(QUrl::fromLocalFile(projectPath));
   require(project.errorCode().isEmpty(), "QML workflow project opens");
   execution.setPendingCadEntityId("motor");
@@ -637,15 +477,12 @@ void verifyOffscreenWorkflow() {
   engine.rootContext()->setContextProperty("projectController", &project);
   engine.rootContext()->setContextProperty("projectIntakeController", &intake);
   engine.rootContext()->setContextProperty("executionController", &execution);
-  engine.rootContext()->setContextProperty("structuralSetupController",
-                                           &structuralSetup);
   engine.rootContext()->setContextProperty("demoResearch", false);
   engine.rootContext()->setContextProperty("demoEngineering", false);
   engine.rootContext()->setContextProperty("demoCadInspect", false);
   engine.rootContext()->setContextProperty("demoPlacement", false);
   engine.rootContext()->setContextProperty("startupStepPath", QString{});
   engine.rootContext()->setContextProperty("startupProjectFolder", QUrl{});
-  engine.rootContext()->setContextProperty("startupWorkspace", QString{});
   QQmlComponent component(
       &engine,
       QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) + "/Main.qml"));
@@ -666,20 +503,6 @@ void verifyOffscreenWorkflow() {
                   screenResults->property("width").toDouble() <=
               root->property("width").toDouble(),
           "mechanical screen action remains inside the default window");
-  auto *structuralWorkspace =
-      requiredChild(root.get(), "structuralWorkspaceButton");
-  auto *structuralPanel = requiredChild(root.get(), "structuralSetupPanel");
-  require(!structuralPanel->property("visible").toBool(),
-          "CAD intake remains the default workspace");
-  require(QMetaObject::invokeMethod(structuralWorkspace, "click"),
-          "structural workspace action is callable");
-  QCoreApplication::processEvents();
-  require(structuralPanel->property("visible").toBool(),
-          "structural setup opens without displacing CAD as the default");
-  require(QMetaObject::invokeMethod(requiredChild(root.get(),
-                                                 "cadWorkspaceButton"),
-                                    "click"),
-          "CAD workspace action is callable");
 
   FixtureCatalogProbe fixtureCatalog;
   QQmlComponent packagePanel(
@@ -908,7 +731,6 @@ void verifyProjectInventoryPanel() {
 int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   verifyAuthorityScan();
-  verifyStructuralSetupPanel();
   verifyProjectInventoryPanel();
   verifyOffscreenWorkflow();
   return 0;

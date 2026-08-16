@@ -2,10 +2,16 @@
 
 #include <prometheus/run_store/project_v2.hpp>
 
+namespace prometheus::run_store {
+struct ObjectToStore;
+struct ProjectEvidenceArchiveObjects;
+}
+
 #include <QObject>
 #include <QString>
 #include <QUrl>
 #include <QVariantMap>
+#include <QVariantList>
 
 #include <filesystem>
 #include <optional>
@@ -26,6 +32,15 @@ class ProjectController final : public QObject {
   Q_PROPERTY(QString error READ error NOTIFY changed)
   Q_PROPERTY(QString errorCode READ errorCode NOTIFY changed)
   Q_PROPERTY(int committedRunCount READ committedRunCount NOTIFY changed)
+  Q_PROPERTY(int inventorySnapshotCount READ inventorySnapshotCount NOTIFY changed)
+  Q_PROPERTY(QString latestInventoryHash READ latestInventoryHash NOTIFY changed)
+  Q_PROPERTY(QString latestEvidenceInventoryHash READ latestEvidenceInventoryHash
+                 NOTIFY changed)
+  Q_PROPERTY(QVariantList inventoryChanges READ inventoryChanges NOTIFY changed)
+  Q_PROPERTY(QString inventoryComparisonStatus READ inventoryComparisonStatus
+                 NOTIFY changed)
+  Q_PROPERTY(bool bundleBusy READ bundleBusy NOTIFY changed)
+  Q_PROPERTY(QString lastBundlePath READ lastBundlePath NOTIFY changed)
   Q_PROPERTY(QVariantMap legacyEngineeringState READ legacyEngineeringState
                  NOTIFY changed)
 
@@ -43,13 +58,33 @@ public:
   QString error() const { return error_; }
   QString errorCode() const { return error_code_; }
   int committedRunCount() const;
+  int inventorySnapshotCount() const;
+  QString latestInventoryHash() const;
+  QString latestEvidenceInventoryHash() const;
+  QVariantList inventoryChanges() const { return inventory_changes_; }
+  QString inventoryComparisonStatus() const {
+    return inventory_comparison_status_;
+  }
+  bool bundleBusy() const { return bundle_busy_; }
+  QString lastBundlePath() const { return last_bundle_path_; }
   QVariantMap legacyEngineeringState() const;
 
   Q_INVOKABLE void openProject(const QUrl &path);
+  Q_INVOKABLE void recoverProject(const QUrl &path);
   Q_INVOKABLE void saveAsVersion2(const QUrl &destination);
   Q_INVOKABLE void saveCurrentProject();
   Q_INVOKABLE bool ensureExecutionWritable();
   Q_INVOKABLE bool verifyAssemblyArtifactCurrent();
+  Q_INVOKABLE void exportPortableBundle(const QUrl &parentFolder);
+  Q_INVOKABLE void restorePortableBundle(const QUrl &bundleFolder,
+                                          const QUrl &parentFolder);
+  bool commitInventorySnapshot(
+      const prometheus::run_store::ObjectToStore &snapshot);
+  bool assessInventorySnapshot(
+      const prometheus::run_store::ObjectToStore &snapshot,
+      const QString &cadRelativePath, bool cadCurrent,
+      const prometheus::run_store::ProjectEvidenceArchiveObjects *archive =
+          nullptr);
 
   const std::optional<prometheus::run_store::ProjectV2> &project() const {
     return project_;
@@ -62,6 +97,7 @@ signals:
   void changed();
   void projectOpened();
   void projectSaved();
+  void assemblyArtifactInvalidated();
 
 private:
   CadController *cad_;
@@ -76,6 +112,10 @@ private:
   bool assembly_artifact_current_{false};
   QString error_;
   QString error_code_;
+  bool bundle_busy_{};
+  QString last_bundle_path_;
+  QVariantList inventory_changes_;
+  QString inventory_comparison_status_;
 
   void clearError();
   void setError(QString message, QString code);

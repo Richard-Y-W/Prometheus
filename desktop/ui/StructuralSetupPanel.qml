@@ -1,698 +1,480 @@
-pragma ComponentBehavior: Bound
-
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import QtQuick3D
 
 Item {
     id: root
-    objectName: "structuralSetupPanel"
-
-    property var controller
+    required property var structuralController
     property color panelColor: "#20262c"
     property color lineColor: "#35404a"
     property color textColor: "#dfe7ed"
     property color mutedColor: "#91a0ab"
-    property real orbitX: -24
-    property real orbitY: -38
-    readonly property real sceneDiameter: controller && controller.displayDiameterM > 0
-                                                 ? controller.displayDiameterM : 1
-    readonly property var sceneCenter: controller && controller.displayCenterM.length === 3
-                                           ? controller.displayCenterM : [0, 0, 0]
+    signal closeRequested()
+    property url calculixExecutable
+    property url outputRoot
+    property string appliedRestoredManifest
 
-    function conciseHash(value) {
-        const text = String(value || "")
-        return text.length > 28
-                ? text.substring(0, 17) + "…" + text.substring(text.length - 8)
-                : text
+    function applyRestoredDraft() {
+        const draft = structuralController.setupDraft
+        const marker = structuralController.lastRun.archive_manifest || ""
+        if (!draft.restored || !draft.analysis_id || !marker || appliedRestoredManifest === marker)
+            return
+        appliedRestoredManifest = marker
+        analysisId.text = draft.analysis_id
+        componentName.text = draft.component_name
+        geometryHash.text = draft.geometry_sha256
+        materialName.text = draft.material_designation
+        materialHash.text = draft.material_source_sha256
+        materialApplicability.text = draft.material_applicability
+        youngsModulus.text = String(draft.youngs_modulus_pa)
+        poissonRatio.text = String(draft.poisson_ratio)
+        materialReviewed.checked = draft.material_reviewed
+        forceX.text = String(draft.force_x_n)
+        forceY.text = String(draft.force_y_n)
+        forceZ.text = String(draft.force_z_n)
+        loadReviewed.checked = draft.load_reviewed
+        restraintReviewed.checked = draft.restraint_reviewed
+        displacementLimit.text = String(draft.displacement_limit_m || 0)
+        stressLimit.text = String(draft.von_mises_limit_pa || 0)
+        requirementRationale.text = draft.requirement_rationale
+        requirementReviewed.checked = draft.requirement_reviewed
+        meshMinimum.text = String(draft.mesh_minimum_size_m)
+        meshMaximum.text = String(draft.mesh_maximum_size_m)
+        mesherIdentity.text = draft.mesher_identity
+        meshReviewed.checked = draft.mesh_controls_reviewed
+        scenarioDescription.text = draft.scenario_description
+        scenarioConfirmed.checked = draft.scenario_confirmed
+        coordinateScale.text = "1"
+        patchAngle.text = String(structuralController.meshSummary.patch_angle_degrees || 15)
     }
 
-    function engineeringValue(value) {
-        const number = Number(value)
-        return Number.isFinite(number) ? number.toExponential(4) : "—"
+    Connections {
+        target: structuralController
+        function onChanged() { root.applyRestoredDraft() }
     }
 
-    function vectorValue(value) {
-        if (!value || value.length !== 3)
-            return "—"
-        return "[" + engineeringValue(value[0]) + ", "
-                + engineeringValue(value[1]) + ", "
-                + engineeringValue(value[2]) + "]"
-    }
-
-    function selectedMaterialValue(key) {
-        if (!controller || structuralMaterialCandidate.currentIndex < 0
-                || structuralMaterialCandidate.currentIndex
-                   >= controller.materialCandidates.length)
-            return ""
-        const candidate = controller.materialCandidates[
-                    structuralMaterialCandidate.currentIndex]
-        const value = candidate ? candidate[key] : undefined
-        return value === undefined || value === null ? "" : String(value)
-    }
-
-    RowLayout {
-        anchors.fill: parent
-        anchors.margins: 12
-        spacing: 12
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.minimumWidth: 480
-            color: "#111820"
-            border.color: root.lineColor
-            radius: 4
-
-            View3D {
-                id: structuralMeshViewport
-                objectName: "structuralMeshViewport"
-                anchors.fill: parent
-                anchors.margins: 1
-                camera: structuralCamera
-                environment: SceneEnvironment {
-                    clearColor: "#111820"
-                    backgroundMode: SceneEnvironment.Color
-                    antialiasingMode: SceneEnvironment.MSAA
-                    antialiasingQuality: SceneEnvironment.High
-                    tonemapMode: SceneEnvironment.TonemapModeFilmic
-                }
-
-                Node {
-                    eulerRotation.x: root.orbitX
-                    eulerRotation.y: root.orbitY
-                    PerspectiveCamera {
-                        id: structuralCamera
-                        z: root.sceneDiameter * 1.7
-                        clipNear: root.sceneDiameter * 0.001
-                        clipFar: root.sceneDiameter * 20
-                    }
-                }
-
-                DirectionalLight {
-                    eulerRotation.x: -35
-                    eulerRotation.y: -30
-                    brightness: 1.25
-                    castsShadow: true
-                }
-                DirectionalLight {
-                    eulerRotation.x: 35
-                    eulerRotation.y: 145
-                    brightness: 0.55
-                    color: "#9fc8e7"
-                }
-
-                Node {
-                    position: Qt.vector3d(-root.sceneCenter[0],
-                                          -root.sceneCenter[1],
-                                          -root.sceneCenter[2])
-                    Model {
-                        geometry: root.controller ? root.controller.meshGeometry : null
-                        materials: PrincipledMaterial {
-                            baseColor: "#7894a8"
-                            metalness: 0.05
-                            roughness: 0.55
-                        }
-                    }
-                    Model {
-                        geometry: root.controller ? root.controller.highlightGeometry : null
-                        scale: Qt.vector3d(1.006, 1.006, 1.006)
-                        opacity: 0.86
-                        castsShadows: false
-                        materials: PrincipledMaterial {
-                            baseColor: "#e69a45"
-                            lighting: PrincipledMaterial.NoLighting
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.margins: 12
-                width: viewportStatus.implicitWidth + 20
-                height: viewportStatus.implicitHeight + 12
-                color: "#151c22dd"
-                border.color: root.lineColor
-                radius: 3
-                Label {
-                    id: viewportStatus
-                    anchors.centerIn: parent
-                    text: root.controller && root.controller.nodeCount > 0
-                          ? root.controller.nodeCount + " nodes  •  "
-                            + root.controller.elementCount + " tetrahedra"
-                          : "No structural mesh loaded"
-                    color: root.textColor
-                    font.pixelSize: 11
-                }
-            }
-
-            Row {
-                anchors.left: parent.left
-                anchors.bottom: parent.bottom
-                anchors.margins: 12
-                spacing: 6
-                Button {
-                    text: "Isometric"
-                    onClicked: {
-                        root.orbitX = -24
-                        root.orbitY = -38
-                    }
-                }
-                Button {
-                    text: "Front"
-                    onClicked: {
-                        root.orbitX = 0
-                        root.orbitY = 0
-                    }
-                }
-                Button {
-                    text: "Top"
-                    onClicked: {
-                        root.orbitX = -89
-                        root.orbitY = 0
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            Layout.preferredWidth: 610
-            Layout.fillHeight: true
-            color: root.panelColor
-            border.color: root.lineColor
-            radius: 4
-
-            ScrollView {
-                id: setupScroll
-                anchors.fill: parent
-                anchors.margins: 12
-                contentWidth: availableWidth
-                clip: true
-
-                ColumnLayout {
-                    width: setupScroll.availableWidth
-                    spacing: 12
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Label {
-                                text: "REVIEWED LINEAR-STATIC SETUP"
-                                color: root.mutedColor
-                                font.bold: true
-                                font.pixelSize: 11
-                            }
-                            Label {
-                                text: "Mesh, boundaries, material, load, limits"
-                                color: root.textColor
-                                font.pixelSize: 21
-                            }
-                        }
-                        Button {
-                            id: structuralCandidateFile
-                            objectName: "structuralCandidateFile"
-                            text: "Load candidate…"
-                            onClicked: candidateDialog.open()
-                        }
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.controller && root.controller.sourcePath !== ""
-                              ? root.controller.sourcePath : "No candidate selected"
-                        color: root.mutedColor
-                        elide: Text.ElideMiddle
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.controller
-                              ? "Geometry " + root.conciseHash(root.controller.geometrySha256)
-                                + "  •  minimum mean ratio "
-                                + root.engineeringValue(root.controller.minimumMeanRatio)
-                              : ""
-                        color: "#83b6d5"
-                        font.pixelSize: 10
-                    }
-
-                    GroupBox {
-                        title: "1 · Named boundary faces"
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            Label {
-                                Layout.fillWidth: true
-                                text: "Select explicit mesh surface groups. The orange overlay is the active group."
-                                color: root.mutedColor
-                                wrapMode: Text.WordWrap
-                            }
-                            ListView {
-                                id: structuralSurfaceList
-                                objectName: "structuralSurfaceList"
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 264
-                                clip: true
-                                spacing: 6
-                                model: root.controller ? root.controller.surfaceGroups : []
-                                delegate: Rectangle {
-                                    id: surfaceRow
-                                    required property var modelData
-                                    width: structuralSurfaceList.width
-                                    height: 126
-                                    color: root.controller
-                                           && root.controller.activeSurfaceGroup.name === surfaceRow.modelData.name
-                                           ? "#2d3c46" : "#1b2228"
-                                    border.color: root.controller
-                                                  && root.controller.activeSurfaceGroup.name === surfaceRow.modelData.name
-                                                  ? "#d98a3f" : root.lineColor
-                                    radius: 3
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 8
-                                        spacing: 3
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Label {
-                                                Layout.fillWidth: true
-                                                text: surfaceRow.modelData.name
-                                                color: root.textColor
-                                                font.bold: true
-                                            }
-                                            Label {
-                                                text: surfaceRow.modelData.triangle_count + " triangles"
-                                                color: root.mutedColor
-                                            }
-                                        }
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: "Area " + root.engineeringValue(surfaceRow.modelData.area_m2)
-                                                  + " m²  •  centroid "
-                                                  + root.vectorValue(surfaceRow.modelData.centroid_m) + " m"
-                                            color: root.mutedColor
-                                            font.pixelSize: 10
-                                            elide: Text.ElideRight
-                                        }
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: "Normal " + root.vectorValue(surfaceRow.modelData.normal_m)
-                                                  + (surfaceRow.modelData.normal_defined ? "" : " (not uniquely defined)")
-                                            color: root.mutedColor
-                                            font.pixelSize: 10
-                                            elide: Text.ElideRight
-                                        }
-                                        RowLayout {
-                                            CheckBox {
-                                                objectName: "structuralRestraintToggle"
-                                                text: "Fully fixed restraint"
-                                                checked: Boolean(surfaceRow.modelData.restrained)
-                                                onClicked: if (root.controller)
-                                                    root.controller.setSurfaceRole(
-                                                                surfaceRow.modelData.name,
-                                                                "restraint", checked)
-                                            }
-                                            CheckBox {
-                                                objectName: "structuralLoadToggle"
-                                                text: "Load surface"
-                                                checked: Boolean(surfaceRow.modelData.loaded)
-                                                onClicked: if (root.controller)
-                                                    root.controller.setSurfaceRole(
-                                                                surfaceRow.modelData.name,
-                                                                "load", checked)
-                                            }
-                                            Item { Layout.fillWidth: true }
-                                            Button {
-                                                text: "Inspect"
-                                                flat: true
-                                                onClicked: if (root.controller)
-                                                    root.controller.setActiveSurfaceGroup(
-                                                                surfaceRow.modelData.name)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    GroupBox {
-                        title: "2 · Material evidence"
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Button {
-                                    id: structuralMaterialEvidence
-                                    objectName: "structuralMaterialEvidence"
-                                    text: "Load evidence…"
-                                    onClicked: materialDialog.open()
-                                }
-                                ComboBox {
-                                    id: structuralMaterialCandidate
-                                    objectName: "structuralMaterialCandidate"
-                                    Layout.fillWidth: true
-                                    model: root.controller
-                                           ? root.controller.materialCandidates : []
-                                    textRole: "designation"
-                                    valueRole: "candidate_id"
-                                    displayText: currentIndex >= 0
-                                                 ? currentText : "No evidence candidate"
-                                }
-                                ComboBox {
-                                    id: materialApplicability
-                                    model: [
-                                        {"label": "Applicability unresolved", "value": ""},
-                                        {"label": "Known for this part", "value": "known"},
-                                        {"label": "Assumed for this part", "value": "assumed"}
-                                    ]
-                                    textRole: "label"
-                                    valueRole: "value"
-                                }
-                            }
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 2
-                                Label { text: "Designation"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralMaterialDesignation
-                                    objectName: "structuralMaterialDesignation"
-                                    Layout.fillWidth: true
-                                    readOnly: true
-                                    text: root.selectedMaterialValue("designation")
-                                }
-                                Label { text: "Temper"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralTemper
-                                    objectName: "structuralTemper"
-                                    Layout.fillWidth: true
-                                    readOnly: true
-                                    text: root.selectedMaterialValue("temper")
-                                }
-                                Label { text: "Product form"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralProductForm
-                                    objectName: "structuralProductForm"
-                                    Layout.fillWidth: true
-                                    readOnly: true
-                                    text: root.selectedMaterialValue("product_form")
-                                }
-                                Label { text: "Young's modulus (Pa)"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralYoungsModulus
-                                    objectName: "structuralYoungsModulus"
-                                    Layout.fillWidth: true
-                                    readOnly: true
-                                    text: root.selectedMaterialValue("youngs_modulus_pa")
-                                }
-                                Label { text: "Poisson ratio"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralPoissonRatio
-                                    objectName: "structuralPoissonRatio"
-                                    Layout.fillWidth: true
-                                    readOnly: true
-                                    text: root.selectedMaterialValue("poisson_ratio")
-                                }
-                            }
-                            Button {
-                                text: "Review selected material"
-                                enabled: structuralMaterialCandidate.currentIndex >= 0
-                                         && materialApplicability.currentIndex > 0
-                                onClicked: if (root.controller)
-                                    root.controller.selectMaterialCandidate(
-                                                String(structuralMaterialCandidate.currentValue),
-                                                String(materialApplicability.currentValue))
-                            }
-                        }
-                    }
-
-                    GroupBox {
-                        title: "3 · Load and requirements"
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            Label {
-                                Layout.fillWidth: true
-                                text: "The total force is applied as uniform traction over the selected load groups and deterministically distributed to their mesh nodes."
-                                color: root.mutedColor
-                                wrapMode: Text.WordWrap
-                            }
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 4
-                                Label { text: "Total force (N)"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralForceMagnitude
-                                    objectName: "structuralForceMagnitude"
-                                    placeholderText: "100"
-                                    validator: DoubleValidator {
-                                        bottom: 0
-                                        notation: DoubleValidator.ScientificNotation
-                                    }
-                                }
-                                Label { text: "Direction X / Y / Z"; color: root.mutedColor }
-                                RowLayout {
-                                    TextField {
-                                        id: structuralForceDirectionX
-                                        objectName: "structuralForceDirectionX"
-                                        Layout.preferredWidth: 70
-                                        text: "0"
-                                        validator: DoubleValidator {
-                                            notation: DoubleValidator.ScientificNotation
-                                        }
-                                    }
-                                    TextField {
-                                        id: structuralForceDirectionY
-                                        objectName: "structuralForceDirectionY"
-                                        Layout.preferredWidth: 70
-                                        text: "0"
-                                        validator: DoubleValidator {
-                                            notation: DoubleValidator.ScientificNotation
-                                        }
-                                    }
-                                    TextField {
-                                        id: structuralForceDirectionZ
-                                        objectName: "structuralForceDirectionZ"
-                                        Layout.preferredWidth: 70
-                                        text: "-1"
-                                        validator: DoubleValidator {
-                                            notation: DoubleValidator.ScientificNotation
-                                        }
-                                    }
-                                }
-                            }
-                            Button {
-                                text: "Review force"
-                                onClicked: if (root.controller)
-                                    root.controller.setForce(
-                                                Number(structuralForceMagnitude.text),
-                                                Number(structuralForceDirectionX.text),
-                                                Number(structuralForceDirectionY.text),
-                                                Number(structuralForceDirectionZ.text))
-                            }
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 2
-                                Label { text: "Displacement limit (m)"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralDisplacementLimit
-                                    objectName: "structuralDisplacementLimit"
-                                    Layout.fillWidth: true
-                                    placeholderText: "Optional"
-                                    validator: DoubleValidator {
-                                        bottom: 0
-                                        notation: DoubleValidator.ScientificNotation
-                                    }
-                                }
-                                Label { text: "Displacement-limit basis"; color: root.mutedColor }
-                                TextField {
-                                    id: displacementLimitBasis
-                                    Layout.fillWidth: true
-                                    placeholderText: "Requirement, drawing, or reviewed assumption"
-                                }
-                                Label { text: "Von Mises stress limit (Pa)"; color: root.mutedColor }
-                                TextField {
-                                    id: structuralStressLimit
-                                    objectName: "structuralStressLimit"
-                                    Layout.fillWidth: true
-                                    placeholderText: "Optional"
-                                    validator: DoubleValidator {
-                                        bottom: 0
-                                        notation: DoubleValidator.ScientificNotation
-                                    }
-                                }
-                                Label { text: "Stress-limit basis"; color: root.mutedColor }
-                                TextField {
-                                    id: stressLimitBasis
-                                    Layout.fillWidth: true
-                                    placeholderText: "Requirement, allowable, or reviewed assumption"
-                                }
-                            }
-                            Button {
-                                text: "Review limits"
-                                onClicked: if (root.controller)
-                                    root.controller.setLimits({
-                                        "displacement_limit_m": structuralDisplacementLimit.text === ""
-                                                                ? null : Number(structuralDisplacementLimit.text),
-                                        "displacement_limit_basis": displacementLimitBasis.text,
-                                        "von_mises_limit_pa": structuralStressLimit.text === ""
-                                                              ? null : Number(structuralStressLimit.text),
-                                        "von_mises_limit_basis": stressLimitBasis.text
-                                    })
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                text: root.controller
-                                      ? "Selected area: "
-                                        + root.engineeringValue(root.controller.selectedLoadAreaM2)
-                                        + " m²  •  compiled resultant: "
-                                        + root.vectorValue(root.controller.compiledResultantN) + " N"
-                                      : ""
-                                color: "#83b6d5"
-                                wrapMode: Text.WordWrap
-                            }
-                        }
-                    }
-
-                    GroupBox {
-                        title: "4 · Mesh and complete scenario review"
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            Label {
-                                Layout.fillWidth: true
-                                text: root.controller
-                                      ? "Verified candidate target size: "
-                                        + root.engineeringValue(root.controller.candidateMeshTargetSizeM)
-                                        + " m  •  observed minimum mean ratio: "
-                                        + root.engineeringValue(root.controller.minimumMeanRatio)
-                                      : ""
-                                color: root.mutedColor
-                                wrapMode: Text.WordWrap
-                            }
-                            RowLayout {
-                                Label { text: "Required minimum mean ratio"; color: root.mutedColor }
-                                TextField {
-                                    id: minimumMeanRatioThreshold
-                                    Layout.preferredWidth: 120
-                                    text: "0.05"
-                                    validator: DoubleValidator {
-                                        bottom: 0
-                                        top: 1
-                                        notation: DoubleValidator.ScientificNotation
-                                    }
-                                    onEditingFinished: if (structuralMeshConfirmation.checked
-                                                             && root.controller)
-                                        root.controller.setMeshReview({
-                                            "target_size_m": root.controller.candidateMeshTargetSizeM,
-                                            "minimum_mean_ratio_threshold": Number(text),
-                                            "confirmed": true
-                                        })
-                                }
-                                Item { Layout.fillWidth: true }
-                                CheckBox {
-                                    id: structuralMeshConfirmation
-                                    objectName: "structuralMeshConfirmation"
-                                    text: "I reviewed this mesh and quality floor"
-                                    checked: root.controller
-                                             ? root.controller.meshReviewed : false
-                                    onClicked: if (root.controller)
-                                        root.controller.setMeshReview({
-                                            "target_size_m": root.controller.candidateMeshTargetSizeM,
-                                            "minimum_mean_ratio_threshold": Number(minimumMeanRatioThreshold.text),
-                                            "confirmed": checked
-                                        })
-                                }
-                            }
-                            CheckBox {
-                                id: structuralScenarioConfirmation
-                                objectName: "structuralScenarioConfirmation"
-                                text: "I confirm the complete material, boundaries, force, limits, and mesh scenario"
-                                checked: root.controller
-                                         ? root.controller.scenarioConfirmed : false
-                                onClicked: if (root.controller)
-                                    root.controller.confirmScenario(checked)
-                            }
-                        }
-                    }
-
-                    GroupBox {
-                        title: "Blocking issues"
-                        Layout.fillWidth: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            ListView {
-                                id: structuralBlockingList
-                                objectName: "structuralBlockingList"
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 150
-                                clip: true
-                                spacing: 5
-                                model: root.controller
-                                       ? root.controller.blockingIssues : []
-                                delegate: Rectangle {
-                                    id: blockingRow
-                                    required property var modelData
-                                    width: structuralBlockingList.width
-                                    height: issueMessage.implicitHeight + 18
-                                    color: "#2b2220"
-                                    border.color: "#765044"
-                                    radius: 3
-                                    Label {
-                                        id: issueMessage
-                                        anchors.fill: parent
-                                        anchors.margins: 9
-                                        text: blockingRow.modelData.code + " — "
-                                              + blockingRow.modelData.message
-                                        color: "#e7b48a"
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Button {
-                        id: structuralExportButton
-                        objectName: "structuralExportButton"
-                        Layout.fillWidth: true
-                        text: root.controller && root.controller.readyToExport
-                              ? "Export reviewed structural case…"
-                              : "Resolve every blocking issue before export"
-                        enabled: root.controller
-                                 ? root.controller.readyToExport : false
-                        highlighted: enabled
-                        onClicked: exportDialog.open()
-                    }
-                }
-            }
-        }
+    function submitReview() {
+        structuralController.reviewSetup({
+            analysis_id: analysisId.text,
+            component_name: componentName.text,
+            geometry_sha256: geometryHash.text,
+            material_designation: materialName.text,
+            material_source_sha256: materialHash.text,
+            material_applicability: materialApplicability.text,
+            youngs_modulus_pa: Number(youngsModulus.text),
+            poisson_ratio: Number(poissonRatio.text),
+            material_reviewed: materialReviewed.checked,
+            force_x_n: Number(forceX.text), force_y_n: Number(forceY.text), force_z_n: Number(forceZ.text),
+            load_reviewed: loadReviewed.checked,
+            restraint_reviewed: restraintReviewed.checked,
+            displacement_limit_m: Number(displacementLimit.text),
+            von_mises_limit_pa: Number(stressLimit.text),
+            requirement_rationale: requirementRationale.text,
+            requirement_reviewed: requirementReviewed.checked,
+            mesh_minimum_size_m: Number(meshMinimum.text),
+            mesh_maximum_size_m: Number(meshMaximum.text),
+            mesher_identity: mesherIdentity.text,
+            mesh_controls_reviewed: meshReviewed.checked,
+            scenario_description: scenarioDescription.text,
+            scenario_confirmed: scenarioConfirmed.checked
+        });
     }
 
     FileDialog {
-        id: candidateDialog
-        title: "Load structural candidate manifest"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Structural candidate (*.json)"]
-        onAccepted: if (root.controller)
-            root.controller.loadCandidate(selectedFile)
+        id: meshDialog
+        title: "Open Gmsh Abaqus tetrahedral mesh"
+        nameFilters: ["Abaqus input mesh (*.inp)", "All files (*)"]
+        onAccepted: structuralController.loadMesh(selectedFile, Number(coordinateScale.text), Number(patchAngle.text))
     }
     FileDialog {
-        id: materialDialog
-        title: "Load material evidence"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Material evidence (*.json)"]
-        onAccepted: if (root.controller)
-            root.controller.loadMaterialEvidence(selectedFile)
+        id: calculixDialog
+        title: "Select CalculiX executable"
+        nameFilters: ["CalculiX executable (ccx*.exe)", "Executables (*.exe)", "All files (*)"]
+        onAccepted: root.calculixExecutable = selectedFile
     }
     FolderDialog {
-        id: exportDialog
-        title: "Export reviewed structural case"
-        onAccepted: if (root.controller)
-            root.controller.exportReviewedCase(selectedFolder)
+        id: outputDialog
+        title: "Select structural run output folder"
+        onAccepted: root.outputRoot = selectedFolder
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 10
+        RowLayout {
+            Layout.fillWidth: true
+            ColumnLayout {
+                spacing: 2
+                Label { text: "BOUNDED LINEAR-STATIC WORKFLOW"; color: mutedColor; font.bold: true; font.pixelSize: 11 }
+                Label { text: "Structural setup review"; color: textColor; font.pixelSize: 23 }
+                Label { text: "Status: " + structuralController.status; color: structuralController.canRun ? "#70c99a" : "#e0ac62" }
+            }
+            Item { Layout.fillWidth: true }
+            Button { text: "×"; flat: true; onClicked: root.closeRequested() }
+        }
+        Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 10
+
+            Frame {
+                Layout.preferredWidth: 300
+                Layout.fillHeight: true
+                background: Rectangle { color: "#1b2228"; border.color: lineColor }
+                ColumnLayout {
+                    anchors.fill: parent
+                    Label { text: "1  MESH AND SURFACES"; color: textColor; font.bold: true }
+                    RowLayout {
+                        Label { text: "Scale to m"; color: mutedColor }
+                        TextField { id: coordinateScale; text: "0.001"; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0 } }
+                        Label { text: "Angle°"; color: mutedColor }
+                        TextField { id: patchAngle; text: "15"; Layout.preferredWidth: 55; validator: DoubleValidator { bottom: 0; top: 180 } }
+                    }
+                    Button { text: "Load generated tetra mesh…"; Layout.fillWidth: true; onClicked: meshDialog.open() }
+                    Label {
+                        Layout.fillWidth: true
+                        color: mutedColor
+                        wrapMode: Text.WordWrap
+                        text: structuralController.meshSummary.nodes ?
+                            structuralController.meshSummary.nodes + " nodes  •  " + structuralController.meshSummary.elements + " tetrahedra\n" +
+                            structuralController.meshSummary.exterior_faces + " exterior faces  •  " + structuralController.meshSummary.surface_patches + " visual patches\n" +
+                            Number(structuralController.meshSummary.exterior_area_m2).toExponential(5) + " m² exterior area" :
+                            "Load an isolated Gmsh/Abaqus C3D4 mesh. Visual patches are geometric selection aids, not inferred contacts or fixtures."
+                    }
+                    Label { text: "Select exact surface roles"; color: textColor; font.bold: true }
+                    ListView {
+                        id: patchList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 3
+                        model: structuralController.surfacePatches
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: patchList.width
+                            height: 67
+                            color: "#151b20"
+                            border.color: lineColor
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                spacing: 1
+                                Label { text: "Patch " + modelData.id + "  •  " + modelData.face_count + " faces  •  " + Number(modelData.area_m2).toExponential(3) + " m²"; color: textColor; font.pixelSize: 11 }
+                                Label { text: "n = [" + Number(modelData.normal_x).toFixed(2) + ", " + Number(modelData.normal_y).toFixed(2) + ", " + Number(modelData.normal_z).toFixed(2) + "]"; color: mutedColor; font.pixelSize: 10 }
+                                RowLayout {
+                                    CheckBox {
+                                        text: "Load"
+                                        palette.text: textColor
+                                        palette.windowText: textColor
+                                        checked: structuralController.selectedLoadPatchIds.indexOf(modelData.id) >= 0
+                                        onToggled: structuralController.setPatchSelected(modelData.id, "load", checked)
+                                    }
+                                    CheckBox {
+                                        text: "Fully fixed"
+                                        palette.text: textColor
+                                        palette.windowText: textColor
+                                        checked: structuralController.selectedRestraintPatchIds.indexOf(modelData.id) >= 0
+                                        onToggled: structuralController.setPatchSelected(modelData.id, "restraint", checked)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Frame {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                background: Rectangle { color: "#1b2228"; border.color: lineColor }
+                ScrollView {
+                    anchors.fill: parent
+                    contentWidth: availableWidth
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 7
+                        Label { text: "2  REVIEW INPUTS"; color: textColor; font.bold: true }
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 5
+                            Label { text: "Analysis ID"; color: mutedColor }
+                            TextField { id: analysisId; Layout.fillWidth: true; placeholderText: "stable analysis identity" }
+                            Label { text: "Component"; color: mutedColor }
+                            TextField { id: componentName; Layout.fillWidth: true; placeholderText: "selected component" }
+                            Label { text: "Geometry SHA-256"; color: mutedColor }
+                            TextField { id: geometryHash; Layout.fillWidth: true; placeholderText: "sha256:…" }
+                            Label { text: "Material designation"; color: mutedColor }
+                            TextField { id: materialName; Layout.fillWidth: true; placeholderText: "exact alloy and temper" }
+                            Label { text: "Material source SHA-256"; color: mutedColor }
+                            TextField { id: materialHash; Layout.fillWidth: true; placeholderText: "sha256:…" }
+                            Label { text: "Applicability"; color: mutedColor }
+                            TextField { id: materialApplicability; Layout.fillWidth: true; placeholderText: "condition/temper applicability" }
+                            Label { text: "Young's modulus (Pa)"; color: mutedColor }
+                            TextField { id: youngsModulus; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Poisson ratio"; color: mutedColor }
+                            TextField { id: poissonRatio; Layout.fillWidth: true; validator: DoubleValidator { bottom: -0.999; top: 0.499 } }
+                        }
+                        CheckBox { id: materialReviewed; text: "I reviewed material identity, source, applicability, and elastic properties"; palette.text: textColor; palette.windowText: textColor }
+                        Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
+                        Label { text: "Total surface force (N)"; color: textColor; font.bold: true }
+                        RowLayout {
+                            Label { text: "X"; color: mutedColor }
+                            TextField { id: forceX; text: "0"; Layout.fillWidth: true; validator: DoubleValidator {} }
+                            Label { text: "Y"; color: mutedColor }
+                            TextField { id: forceY; text: "0"; Layout.fillWidth: true; validator: DoubleValidator {} }
+                            Label { text: "Z"; color: mutedColor }
+                            TextField { id: forceZ; text: "0"; Layout.fillWidth: true; validator: DoubleValidator {} }
+                        }
+                        RowLayout {
+                            CheckBox { id: loadReviewed; text: "Load selection and vector reviewed"; palette.text: textColor; palette.windowText: textColor }
+                            CheckBox { id: restraintReviewed; text: "Fixed surface reviewed"; palette.text: textColor; palette.windowText: textColor }
+                        }
+                        Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
+                        GridLayout {
+                            Layout.fillWidth: true; columns: 2
+                            Label { text: "Displacement limit (m)"; color: mutedColor }
+                            TextField { id: displacementLimit; Layout.fillWidth: true; text: "0"; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Von Mises limit (Pa)"; color: mutedColor }
+                            TextField { id: stressLimit; Layout.fillWidth: true; text: "0"; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Source or exploratory rationale"; color: mutedColor }
+                            TextField { id: requirementRationale; Layout.fillWidth: true }
+                        }
+                        CheckBox { id: requirementReviewed; text: "Requirement limits and rationale reviewed"; palette.text: textColor; palette.windowText: textColor }
+                        Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
+                        GridLayout {
+                            Layout.fillWidth: true; columns: 2
+                            Label { text: "Minimum mesh size (m)"; color: mutedColor }
+                            TextField { id: meshMinimum; Layout.fillWidth: true; text: "0.001"; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Maximum mesh size (m)"; color: mutedColor }
+                            TextField { id: meshMaximum; Layout.fillWidth: true; text: "0.003"; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Mesher identity"; color: mutedColor }
+                            TextField { id: mesherIdentity; Layout.fillWidth: true; text: "Gmsh 4.15.2" }
+                        }
+                        CheckBox { id: meshReviewed; text: "Mesh controls and mesher reviewed"; palette.text: textColor; palette.windowText: textColor }
+                        Label { text: "Scenario description"; color: mutedColor }
+                        TextArea { id: scenarioDescription; Layout.fillWidth: true; Layout.preferredHeight: 62; wrapMode: TextEdit.Wrap; placeholderText: "What is loaded, fixed, assumed, and intentionally excluded?" }
+                        CheckBox { id: scenarioConfirmed; text: "I confirm this complete bounded scenario"; palette.text: textColor; palette.windowText: textColor }
+                        Button { text: "Validate and preview request"; highlighted: true; Layout.fillWidth: true; onClicked: root.submitReview() }
+                    }
+                }
+            }
+
+            Frame {
+                Layout.preferredWidth: 285
+                Layout.fillHeight: true
+                background: Rectangle { color: "#1b2228"; border.color: lineColor }
+                ColumnLayout {
+                    anchors.fill: parent
+                    Label { text: "3  AUTHORITY CHECK"; color: textColor; font.bold: true }
+                    Label {
+                        Layout.fillWidth: true
+                        text: structuralController.canRun ? "READY FOR ISOLATED EXECUTION" : structuralController.blockers.length + " BLOCKER(S)"
+                        color: structuralController.canRun ? "#70c99a" : "#e0ac62"
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: structuralController.resultGeometry ? 220 : 0
+                        visible: structuralController.resultGeometry !== null
+                        color: "#10161b"
+                        border.color: lineColor
+                        View3D {
+                            anchors.fill: parent
+                            environment: SceneEnvironment {
+                                backgroundMode: SceneEnvironment.Color
+                                clearColor: "#10161b"
+                                antialiasingMode: SceneEnvironment.MSAA
+                            }
+                            Node {
+                                id: resultOrbit
+                                position: Qt.vector3d(
+                                    structuralController.resultView.center_x_mm || 0,
+                                    structuralController.resultView.center_y_mm || 0,
+                                    structuralController.resultView.center_z_mm || 0)
+                                eulerRotation: Qt.vector3d(-20, -30, 0)
+                                PerspectiveCamera {
+                                    id: resultCamera
+                                    z: 3.2 * (structuralController.resultView.radius_mm || 1)
+                                    clipNear: Math.max(0.01, (structuralController.resultView.radius_mm || 1) * 0.01)
+                                    clipFar: Math.max(1000, (structuralController.resultView.radius_mm || 1) * 20)
+                                }
+                            }
+                            DirectionalLight { eulerRotation: Qt.vector3d(-35, -35, 0); brightness: 1.2 }
+                            Model {
+                                geometry: structuralController.resultGeometry
+                                materials: PrincipledMaterial {
+                                    vertexColorsEnabled: true
+                                    roughness: 0.72
+                                    metalness: 0.0
+                                    cullMode: Material.NoCulling
+                                }
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            property real previousX
+                            property real previousY
+                            onPressed: mouse => { previousX = mouse.x; previousY = mouse.y }
+                            onPositionChanged: mouse => {
+                                if (!pressed) return
+                                resultOrbit.eulerRotation.y += mouse.x - previousX
+                                resultOrbit.eulerRotation.x += mouse.y - previousY
+                                previousX = mouse.x; previousY = mouse.y
+                            }
+                            onWheel: wheel => {
+                                resultCamera.z = Math.max(
+                                    1.2 * (structuralController.resultView.radius_mm || 1),
+                                    resultCamera.z * (wheel.angleDelta.y > 0 ? 0.88 : 1.14))
+                            }
+                        }
+                        Label {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 7
+                            color: "white"
+                            font.pixelSize: 9
+                            text: "VON MISES  blue 0 → red " +
+                                  Number(structuralController.resultView.color_max_pa || 0).toExponential(3) +
+                                  " Pa  •  deformation ×" + Number(structuralController.resultView.deformation_scale || 1).toFixed(1)
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button { text: root.calculixExecutable.toString() === "" ? "Select ccx…" : "ccx selected ✓"; onClicked: calculixDialog.open() }
+                        Button { text: root.outputRoot.toString() === "" ? "Output folder…" : "Output selected ✓"; onClicked: outputDialog.open() }
+                    }
+                    Button {
+                        Layout.fillWidth: true
+                        text: structuralController.busy ? "Running isolated solver…" : "Run reviewed analysis"
+                        highlighted: true
+                        enabled: structuralController.canRun && !structuralController.busy && root.calculixExecutable.toString() !== "" && root.outputRoot.toString() !== ""
+                        onClicked: structuralController.runAnalysis(root.calculixExecutable, root.outputRoot)
+                    }
+                    Button {
+                        Layout.fillWidth: true
+                        text: structuralController.busy && structuralController.status === "publishing_structural_archive" ? "Embedding run artifacts…" :
+                              (structuralController.lastRun.project_anchored ? "Run embedded in project ✓" : "Embed verified run in project")
+                        enabled: structuralController.lastRun.archived === true && !structuralController.lastRun.project_anchored && !structuralController.busy
+                        onClicked: structuralController.commitLastRun()
+                    }
+                    Label {
+                        visible: structuralController.storedRuns.length > 0
+                        text: "PROJECT STRUCTURAL HISTORY"
+                        color: mutedColor
+                        font.bold: true
+                        font.pixelSize: 10
+                    }
+                    ListView {
+                        id: structuralHistory
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 112)
+                        visible: structuralController.storedRuns.length > 0
+                        model: structuralController.storedRuns
+                        spacing: 3
+                        clip: true
+                        delegate: Button {
+                            required property var modelData
+                            required property int index
+                            width: structuralHistory.width
+                            text: modelData.analysis_id ?
+                                  "Restore " + modelData.analysis_id + " • " + modelData.component_name +
+                                  (modelData.source_current === false ? " • STALE SOURCE" : "") :
+                                  "Structural run " + modelData.status
+                            enabled: modelData.restorable && !structuralController.busy && root.outputRoot.toString() !== ""
+                            onClicked: structuralController.restoreStoredRun(index, root.outputRoot)
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: structuralController.lastRun.status !== undefined
+                        text: "Last local run: " + structuralController.lastRun.status +
+                              "\n" + (structuralController.lastRun.maximum_displacement_m !== undefined ?
+                              "max displacement  " + Number(structuralController.lastRun.maximum_displacement_m).toExponential(5) + " m at node " + structuralController.lastRun.maximum_displacement_node_id +
+                              "\n  vector [" + Number(structuralController.lastRun.maximum_displacement_x_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_y_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_z_m).toExponential(3) + "] m" +
+                              "\nmax von Mises  " + Number(structuralController.lastRun.maximum_von_mises_pa).toExponential(5) + " Pa at element " + structuralController.lastRun.maximum_stress_element_id + ", integration point " + structuralController.lastRun.maximum_stress_integration_point +
+                              "\nfield coverage  " + structuralController.lastRun.displacement_rows + " nodal rows • " + structuralController.lastRun.stress_rows + " integration-point rows\n" : "") +
+                              structuralController.lastRun.evaluated_obligations + " / " + structuralController.lastRun.declared_obligations + " obligations evaluated"
+                        color: structuralController.lastRun.status === "completed" ? "#70c99a" : "#e87972"
+                        wrapMode: Text.WordWrap
+                    }
+                    ListView {
+                        id: blockerList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: structuralController.blockers.length > 0
+                        Layout.preferredHeight: structuralController.blockers.length > 0 ? -1 : 0
+                        visible: structuralController.blockers.length > 0
+                        clip: true
+                        spacing: 4
+                        model: structuralController.blockers
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: blockerList.width
+                            height: blockerText.implicitHeight + 18
+                            color: "#2a211b"
+                            border.color: "#8f6933"
+                            Label {
+                                id: blockerText
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                text: modelData.code + "\n" + modelData.message
+                                color: "#e0b861"
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+                    ListView {
+                        id: findingList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: structuralController.findings.length > 0
+                        Layout.preferredHeight: structuralController.findings.length > 0 ? -1 : 0
+                        visible: structuralController.findings.length > 0
+                        clip: true
+                        spacing: 4
+                        model: structuralController.findings
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: findingList.width
+                            height: findingText.implicitHeight + 20
+                            color: modelData.disposition === "violated" ? "#301d1d" : "#1b2a22"
+                            border.color: modelData.disposition === "violated" ? "#b85450" : "#365f4b"
+                            Label {
+                                id: findingText
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                text: modelData.disposition + "\n" + modelData.obligation +
+                                      "\nmeasured " + Number(modelData.measured).toExponential(5) + " " + modelData.unit +
+                                      "  •  limit " + Number(modelData.limit).toExponential(5) + " " + modelData.unit
+                                color: modelData.disposition === "violated" ? "#e87972" : "#70c99a"
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: structuralController.canRun
+                        text: "Compiled request\n" + structuralController.requestPreview.nodes + " nodes  •  " + structuralController.requestPreview.elements + " elements\n" + structuralController.requestPreview.fixed_nodes + " fixed nodes  •  " + structuralController.requestPreview.loaded_nodes + " loaded nodes"
+                        color: textColor
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: structuralController.lastRun.project_anchored ?
+                              "The immutable manifest, reviewed setup, exact deck, raw solver outputs, and captured streams are embedded in project history. This is not a safety or validation claim." :
+                              "Local run artifacts are retained in the selected output folder but are not yet committed to the Prometheus project. Readiness or scoped non-violation does not mean the component is safe or validated for this real scenario."
+                        color: mutedColor
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 10
+                    }
+                }
+            }
+        }
     }
 }

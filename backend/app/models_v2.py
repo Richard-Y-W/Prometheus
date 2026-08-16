@@ -410,6 +410,44 @@ class FixtureIngestionJobV2(V2MutableRecord):
     )
 
 
+class ManualComponentDraftJobV2(V2MutableRecord):
+    __tablename__ = "manual_component_draft_jobs_v2"
+
+    idempotency_key: Mapped[str] = mapped_column(String, unique=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(71))
+    status: Mapped[str] = mapped_column(String)
+    revision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("component_revisions.id"), nullable=True
+    )
+    artifact_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("artifact_objects_v2.object_hash"), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    __table_args__ = (
+        CheckConstraint(
+            HASH_CHECK.format(column="request_fingerprint"),
+            name="ck_manual_draft_fingerprint",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled','timed_out')",
+            name="ck_manual_draft_status",
+        ),
+        CheckConstraint(
+            "(status IN ('queued','running') AND revision_id IS NULL AND "
+            "artifact_hash IS NULL "
+            "AND error_code IS NULL AND error_message IS NULL) OR "
+            "(status = 'succeeded' AND revision_id IS NOT NULL AND "
+            "artifact_hash IS NOT NULL AND error_code IS NULL AND "
+            "error_message IS NULL) OR (status IN "
+            "('failed','cancelled','timed_out') AND revision_id IS NULL AND "
+            "artifact_hash IS NULL AND error_code IS NOT NULL AND "
+            "error_message IS NOT NULL)",
+            name="ck_manual_draft_state_shape",
+        ),
+    )
+
+
 class PublicationRequestV2(V2MutableRecord):
     __tablename__ = "publication_requests"
 
@@ -467,6 +505,7 @@ __all__ = [
     "EvidenceParentEvidenceV2",
     "EvidenceRecordV2",
     "FixtureIngestionJobV2",
+    "ManualComponentDraftJobV2",
     "ParameterSlotV2",
     "PublicationRequestV2",
     "PublishedObject",

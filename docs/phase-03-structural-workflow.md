@@ -29,18 +29,14 @@ Implemented:
 - Qt-free typed nodes, first-order tetrahedra, nodal forces, full-node
   restraints, material values, reviewed requirements, and review gates;
 - validation for exact geometry identity, unsupported schema, non-finite or
-  invalid material values, missing mesh references, inverted or zero-volume
-  tetrahedra, zero-resultant or duplicate loads, unsafe heading text, weak
-  reviewed mesh quality, fewer than three non-collinear fixed nodes, missing
-  limit bases, and unconfirmed review state;
+  invalid material values, missing mesh references, zero-volume tetrahedra,
+  missing loads, fewer than three non-collinear fixed nodes, missing limits,
+  and unconfirmed review state;
 - deterministic SI CalculiX input generation using `C3D4` and an explicitly
   pinned `SPOOLES` equation solver;
-- typed parsing of raw `.dat` displacement and stress identities;
-- fail-closed result compilation that binds the exact regenerated deck,
-  executable hash and version, process status, completion and error streams,
-  final `.sta` convergence state, and complete final-step node and element row
-  coverage before calculating displacement or von Mises metrics;
-- cryptographic hashes for every raw artifact consumed by that compiler.
+- deterministic parsing of raw `.dat` displacement and stress rows into
+  maximum displacement and von Mises stress;
+- missing output sections fail instead of becoming zero-valued results.
 
 Installed development backends:
 
@@ -51,7 +47,7 @@ The initial PaStiX default crashed with Windows access violation `0xC0000005`.
 Prometheus therefore pins SPOOLES; the same smoke deck completed successfully.
 This is backend compatibility evidence, not validation of the YUBI bracket.
 
-Artifacts from the prior successful real Windows smoke:
+Successful smoke artifacts:
 
 | Artifact | SHA-256 |
 | --- | --- |
@@ -64,48 +60,11 @@ integration-point stress state compiled to `3428.571 Pa` von Mises. These
 values prove parser/execution wiring only; no independent benchmark tolerance
 has been claimed yet.
 
-The checked-in `fixtures/structural/calculix-smoke/complete` case is explicitly
-synthetic and only tests parser and coverage wiring. It is not solver-execution
-evidence. Run the real reproducible gate on Windows with:
+Run the reproducible smoke with:
 
 ```powershell
 .\scripts\run-calculix-smoke.ps1
 ```
-
-The command deletes stale outputs for this one generated job, captures the
-actual solver executable hash, version, exit status, stdout, and stderr, and
-passes the generated deck plus `.sta` and `.dat` bytes through the same Qt-free
-result compiler. A missing file, solver error marker, incomplete step, stale or
-modified deck, non-finite value, or missing/duplicate/unexpected result identity
-causes a nonzero gate result; file existence alone cannot pass.
-
-## Structural trust-seam verification — 2026-08-15
-
-Local release-checkpoint environment: macOS 26.5.2 build 25F84 on arm64,
-Apple Clang 21.0.0, CMake 4.4.2, and Qt 6.11.1.
-
-- `cmake --fresh --preset headless-debug`, build, and CTest: 15/15 passed.
-- `cmake --fresh --preset desktop-no-occt-debug` and build: passed.
-- Desktop CTest inside the managed sandbox: 22/23 passed. The remaining
-  `prometheus_exact_package_download` test could not create its loopback test
-  listener there; an isolated rerun with loopback access passed 1/1.
-- `git diff --check`: passed.
-
-The synthetic smoke fixture consumed by both headless and desktop CTest has
-these exact SHA-256 values:
-
-| Synthetic artifact | SHA-256 |
-| --- | --- |
-| Input deck | `e8d0d9a76022c5df81ef4b986162fd6ac89214d3523afcc2c15911f1bbc40495` |
-| Status | `3a8a499e47d474d5c4fa30bde12ead2550ef84b8c5ca5b3ba14fcc79f24bcd5d` |
-| Data | `57d38a55374169fb2b707d2ba804e6a78fa03c6f381955338c242191c374d49b` |
-| Standard output | `713f43615dc704c1dce8bfc34d71f31ca6fb512df922e8543da3e7edabfcd5cb` |
-| Standard error | `01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b` |
-
-The prior real Windows smoke used CalculiX 2.23. The hardened Windows command
-has not yet been rerun after adding full result-evidence verification, so that
-external gate remains pending. No YUBI solver run has been executed, and no
-YUBI pass, fail, or structural finding exists.
 
 ## Checkpoint 2: real bracket meshing
 
@@ -132,102 +91,222 @@ reproducible mesh identity. Run this checkpoint with:
 Meshing success does not authorize solver execution or demonstrate mesh
 convergence.
 
-## Checkpoint 3: reviewed setup and bounded material evidence
+## Checkpoint 3: reviewable exterior boundary
 
-The desktop now has an explicit Structural workspace. It renders the retained
-boundary mesh and lets the reviewer assign named groups as restraints or loads,
-choose a material candidate and mark its applicability `known` or `assumed`,
-enter force and requirement values, review the exact mesh controls, and confirm
-the complete scenario. All readiness decisions remain in the C++ controller;
-QML cannot enable export by inventing a local readiness condition.
+The structural mesh adapter now derives the exterior triangular boundary from
+the volume tetrahedra without trusting Gmsh's auxiliary surface elements. It:
 
-The initial 2024 aluminum candidate ledger is
-[`fixtures/evidence/aluminum-2024-candidates-v1.json`](../fixtures/evidence/aluminum-2024-candidates-v1.json),
-with its source analysis in
-[`docs/evidence/2024-aluminum-material-candidates.md`](evidence/2024-aluminum-material-candidates.md).
-The Toyota BOM supports only `A2024`. Generic producer and canceled-handbook
-values remain candidates and do not identify the supplied YUBI bracket. The
-prepared structural slice therefore records material applicability as
-`unresolved` and keeps every review flag false.
+- removes faces shared by exactly two tetrahedra;
+- rejects faces shared by more than two tetrahedra as non-manifold;
+- orients every retained face normal away from its owning tetrahedron;
+- reports deterministic node IDs, centroid, unit normal, and area in SI units;
+- rejects missing nodes, duplicate IDs, repeated tetrahedron nodes, zero-area
+  faces, and zero-volume orientation cases.
 
-## Checkpoint 4: predeclared analytic validation gate
+For the exact local YUBI bracket mesh recorded above, the enhanced probe reports
+4,616 exterior triangular faces with total exterior area `0.0090477 m^2`. This
+is mesh topology evidence only. Prometheus has not inferred bolt faces, load
+faces, restraint faces, material, or a structural scenario from those faces.
 
-The benchmark contract was recorded before solver execution in
-[`fixtures/structural/tension-bar/expectations.json`](../fixtures/structural/tension-bar/expectations.json).
-It defines a 1.0 m by 0.1 m by 0.1 m tension bar, `F = 1000 N`, `E = 70 GPa`,
-`nu = 0.30`, and these analytic values:
+## Checkpoint 4: selectable patches and durable boundary selections
 
-```text
-loaded-face axial displacement = F L / (A E) = 1.4285714286e-6 m
-central axial stress           = F / A       = 100000 Pa
-```
+Exterior triangles can now be grouped into deterministic connected visual
+patches using an explicit maximum neighboring-normal angle. The exact bracket
+produces 437 patches at 5 degrees, 291 at 10 degrees, 263 at 15 degrees, 247 at
+20 degrees, and 127 at 30 degrees. This sensitivity is intentional evidence
+that patch IDs are transient selection aids rather than durable engineering
+identities.
 
-The contract also fixes coarse, medium, and fine target sizes of 0.100 m,
-0.050 m, and 0.025 m. Fine loaded-face displacement and volume-weighted
-central axial stress must each be within 5 percent of the analytic values.
-Medium-to-fine loaded-face displacement change, divided by the absolute fine
-value, must not exceed 2 percent. Those tolerances are not adjusted after a
-run.
+When the user reviews a selection, Prometheus resolves patch IDs into sorted
+exact face-node triples, sorted node IDs, and total SI area. Duplicate,
+overlapping, missing, or invalid patches fail closed. A reviewed total surface
+force can be converted into consistent first-order triangular nodal forces;
+the exact selected topology and total force remain the authoritative inputs.
+The conversion is deterministic and tests require the resulting nodal vectors
+to sum to the reviewed total vector.
 
-`prometheus_export_structural_case` re-parses a canonical reviewed case,
-recompiles its selected faces from the exact mesh, and emits an immutable
-case/mesh/deck package. `prometheus_verify_structural_case` independently
-rechecks the package, compiles complete CalculiX evidence, derives the scoped
-benchmark metrics, and emits deterministic `pass`, `fail`, or `indeterminate`
-findings. A result equal to its limit fails. Missing convergence, coverage,
-refinement, or a requested limit basis is indeterminate.
+No patch is automatically classified as a fastener, contact, load, or
+restraint surface. Those meanings still require explicit review.
 
-The execution manifest declares whether the result profile is generic
-structural findings or the analytic tension-bar check. Benchmark-only central-
-band math is never applied silently to a YUBI or other arbitrary component.
-The verifier hash-binds the retained `.frd` bytes alongside the deck, `.sta`,
-`.dat`, streams, refinement evidence, case, mesh, and execution manifest.
+## Checkpoint 5: reviewed setup compiler
 
-A macOS preflight with the official Gmsh 4.15.2 ARM SDK exercised the real INP
-export for all three declared sizes. The strict parser retained the named
-physical ELSETs and the exporter accepted 87 nodes/203 tetrahedra (coarse),
-190 nodes/435 tetrahedra (medium), and 1,072 nodes/3,558 tetrahedra (fine).
-Their minimum mean ratios were 0.4195,
-0.06560, and 0.4038, respectively, all above the predeclared 0.05 floor. This
-is mesh/export wiring evidence only; it contains no CalculiX result.
+A separate Qt-free setup contract now retains the meaning and provenance that
+must not be reduced to solver numbers prematurely:
 
-Run the real gate on the reviewed Windows environment:
+- material designation, exact source SHA-256, applicability statement,
+  Young's modulus, Poisson ratio, and review state;
+- exact load and fully fixed restraint boundary selections plus the reviewed
+  total load vector;
+- displacement and/or von Mises limits with a source or explicit exploratory
+  rationale;
+- minimum and maximum SI mesh sizes, mesher identity, and review state;
+- a non-empty scenario description and explicit final confirmation.
+
+The setup compiler rejects unreviewed fields, invalid provenance, missing or
+changed boundary topology, stale selection areas/node sets, overlapping load
+and fixed faces, invalid mesh controls, and absent requirement rationale. Only
+then does it create the narrow numerical `StructuralRequest`. No YUBI material,
+load, restraint, or requirement has been supplied or inferred by this work.
+
+## Checkpoint 6: isolated CalculiX process authority
+
+The Qt-free structural library now owns a shell-free CalculiX process adapter
+with explicit executable, working directory, safe job identity, and timeout.
+It captures stdout and stderr independently, records elapsed time and exit code,
+terminates timed-out work, and distinguishes launch failure, timeout, nonzero
+exit, missing required output, invalid result data, and completed execution.
+Completed status requires `.dat`, `.frd`, and `.sta` files plus successfully
+parsed displacement and stress rows.
+
+Cross-platform executable-boundary tests exercise successful output parsing,
+nonzero exit, missing output, and forced timeout. The ordinary smoke script now
+uses this production runner rather than invoking `ccx` directly. CalculiX 2.23
+completed the existing SPOOLES smoke through the new runner in 1,249 ms and
+returned the unchanged `2.228571e-8 m` displacement and `3428.571 Pa` von Mises
+metrics. This remains execution wiring evidence, not bracket validation.
+
+## Checkpoint 7: scoped structural findings
+
+Completed metrics can now be compiled against only the displacement and/or von
+Mises obligations declared by the reviewed request. Each finding records the
+measured value, limit, signed margin, unit, and the bounded isotropic
+linear-elastic C3D4 scope. Values at or below a limit are described as
+`no_violation_detected_within_scope`; values above it are `violated`.
+
+A failed, timed-out, missing-output, or invalid-result execution evaluates zero
+obligations and creates no pass or violation findings. Tests exercise the same
+completed metrics against loose known-pass limits and tighter known-fail limits,
+and preserve an explicit limitation excluding safety, fatigue, buckling,
+contact, fasteners, nonlinear behavior, and project-wide correctness.
+
+## Checkpoint 8: analytic benchmarks and mesh refinement
+
+Two independent closed-form references now gate the CalculiX adapter:
+
+- A `1 m x 0.1 m x 0.1 m`, Poisson-ratio-zero axial bar under `1000 N`
+  uses `u = F L / (A E)` and `sigma = F / A`. CalculiX 2.23 returned the exact
+  expected `5.0e-7 m` displacement and `100000 Pa` von Mises stress (stress
+  relative error below `7e-15`).
+- A `1 m x 0.1 m x 0.1 m` cantilever under `1000 N` uses Euler-Bernoulli
+  `u = F L^3 / (3 E I)` and root stress `sigma = 6 F L / (b h^2)`, giving
+  `0.0002 m` and `6.0e6 Pa` references.
+
+The coarse `20 x 3 x 3` C3D4 cantilever mesh underpredicted displacement by
+37.41% and stress by 37.76%, so it is explicitly inadequate for this benchmark.
+The refined `40 x 6 x 6` mesh reduced those errors to 13.47% and 15.17%, within
+the declared 15% displacement and 25% stress tolerances. The automated gate
+requires both errors to decrease and the refined case to meet tolerance.
+
+Run both reproducibly with:
 
 ```powershell
-.\scripts\run-structural-validation.ps1
+.\scripts\run-structural-benchmarks.ps1
 ```
 
-For release checkpoints, `.github/workflows/structural-validation.yml` exposes
-the same command as an explicit manual Windows job. It installs only the UCRT64
-C++/Gmsh/CalculiX dependencies and uploads the bounded evidence directory even
-when the gate fails; it is not part of every-push CI.
+The solver runner also now rejects a directory containing pre-existing raw
+outputs, preventing stale `.dat`, `.frd`, or `.sta` bytes from becoming a new
+completed run.
 
-The runner preserves all three meshes, decks, `.sta`, `.dat`, `.frd`, captured
-streams, backend identities, elapsed times, package manifests, and result
-manifests under `out/validation/structural/tension-bar`. It rejects stale,
-byte-identical, or non-increasing mesh levels and records the exact mesher
-parameters plus exporter/verifier executable identities. It computes analytic
-comparisons only from normalized result rows, then re-evaluates the unchanged
-fine solve against the predeclared `1.6e-6 m` known-pass limit and `1.2e-6 m`
-known-fail limit.
+## Checkpoint 9: desktop structural setup review
 
-The checked-in `package-smoke` data exercises this package seam in CTest and
-proves that modified package bytes fail closed. It is synthetic data, not an
-executed solver benchmark. The Windows analytic run remains required before a
-YUBI finding is permitted.
+The Windows desktop now has a dedicated structural setup panel backed by a Qt
+adapter over the authoritative Qt-free structural library. It can load an
+isolated Gmsh/Abaqus C3D4 mesh, display mesh/boundary statistics, list
+deterministic geometric patches with area and representative normal, assign
+load and fully-fixed roles, collect reviewed material/load/restraint/
+requirement/mesh/scenario fields, and display deduplicated authoritative
+blocker codes or a compiled request preview.
 
-Local implementation verification on 2026-08-15 passed all 16 headless tests
-and built the desktop without Open Cascade. In the managed sandbox, 24 of 25
-desktop tests passed; the sole loopback-listener test passed in its isolated
-rerun with local socket access. These are software checks, not Windows solver
-evidence.
+The real YUBI mesh renders as 2,451 nodes, 7,566 tetrahedra, 4,616 exterior
+faces, and 263 patches at the panel's conservative 15-degree default. The panel
+does not infer surface meaning and does not expose execution merely because a
+mesh loaded. A controller test proves that a complete reviewed tetra setup
+becomes ready and that removing material review blocks it again. Execution and
+durable project storage remain the next separate boundaries.
 
-## Next checkpoint
+## Checkpoint 10: asynchronous desktop execution and findings
 
-1. Run the predeclared analytic gate on Windows and retain its compact summary.
-2. Rerun the hardened real CalculiX smoke on that same backend installation.
-3. Produce stable named boundary groups for the exact YUBI bracket.
-4. Obtain explicit human review of material applicability, load/restraint
-   groups, limits, mesh controls, and the complete bounded scenario.
-5. Execute the bracket only if the analytic and review gates pass; otherwise
-   record the result as indeterminate without relaxing a tolerance.
+The structural panel can now launch a validated request through the isolated
+CalculiX adapter without blocking the UI. Each attempt creates a unique output
+directory, writes the exact generated deck, retains raw solver files and both
+captured streams, and reports elapsed time, exit classification, metrics,
+coverage, limitations, and scoped displacement/stress findings. The UI labels
+these artifacts as local and not yet committed to the Prometheus project.
+
+The desktop controller test executes a real child-process fixture
+asynchronously, evaluates both declared obligations, and receives two scoped
+findings. Editing any reviewed setup field clears the displayed run and
+findings, preventing stale results from surviving a changed scenario. The
+panel exposes no project-wide pass and repeats that a scoped non-violation is
+not safety or real-scenario validation.
+
+## Checkpoint 11: exact structural archive and offline replay
+
+Every completed desktop run now writes a canonical structural archive alongside
+the raw solver files. It preserves the complete reviewed setup, generated input
+deck, `.dat`, `.frd`, and `.sta` output, captured standard streams, exact byte
+lengths and SHA-256 identities, parsed metrics, declared limits, finding
+coverage, and scoped findings. The reviewed setup retains exact load and
+restraint face/node identities rather than only their labels.
+
+The standalone `prometheus_replay_structural_run` verifier needs neither Qt nor
+CalculiX. It rejects non-canonical manifests, unsafe artifact paths, missing or
+changed bytes, setup/archive identity mismatches, metrics that cannot be
+reproduced from the raw DAT file, and findings that cannot be recompiled from
+those metrics and archived limits. The desktop controller test proves a valid
+archive replays and that changing the retained DAT bytes invalidates it.
+
+This is local self-consistency evidence until the user explicitly anchors the
+archive manifest hash through the Phase 4 Prometheus project transaction. The
+anchor detects replacement relative to project history, but raw artifact
+embedding remains open. It is not a signature, certification record, or
+validation of the real bracket scenario.
+
+## Checkpoint 12: spatial field parsing and extrema presentation
+
+The DAT parser now retains every nodal displacement vector and every element
+integration-point stress tensor with its derived von Mises value. The desktop
+reports the exact node carrying maximum displacement, its three displacement
+components, the exact element/integration point carrying maximum von Mises
+stress, and the number of parsed rows in each field. This makes the displayed
+maximum traceable to spatial solver output rather than an unlocated scalar.
+
+The raw fields remain preserved in the archive and are replayed from DAT.
+
+The first Phase 4 transport boundary is now available through
+`prometheus_export_structural_archive`. It accepts only a fully verified source
+archive, copies its exact manifest and seven retained artifacts through a new
+sibling temporary directory, verifies the relocated copy, and publishes it by
+atomic directory rename. Existing destinations are never overwritten. This
+makes an individual run relocatable without weakening its identity, but it is
+not yet the complete portable Prometheus project bundle required by Phase 4.
+
+## Checkpoint 13: deformed stress visualization
+
+Completed bound fields now generate an exterior-triangle Quick3D result mesh.
+Nodal displacement vectors deform the reviewed mesh with an explicitly shown
+automatic scale factor; each exterior face receives the maximum von Mises value
+of its owning tetrahedron and a blue-to-red color ramp with numeric endpoints.
+The desktop provides mouse orbit and wheel zoom and continues to show exact
+node/element extrema, field-row coverage, findings, and limitations beside the
+view.
+
+Before any field is rendered or archived, displacement node IDs must exactly
+cover the submitted mesh nodes and stress element IDs must exactly cover its
+elements; duplicates, omissions, or foreign identities classify the run as
+`result_invalid`. New archives retain the reviewed node and element identity
+sets so offline replay repeats this binding check. The visual is a deformed
+linear-static result, not physical-scale motion, surface stress interpolation,
+continuous collision proof, or a safety claim.
+
+All technically implementable Phase 3 workflow steps are now present. The exit
+gate remains open because the selected real bracket still needs human-reviewed
+scenario inputs and independent real-component comparison evidence; synthetic
+fixtures and analytic benchmark geometry cannot honestly substitute for that.
+
+## Remaining Phase 3 evidence
+
+1. Obtain reviewed real-component material, load, restraint, requirement, and
+   mesh-convergence evidence for the selected YUBI bracket.
+2. Run the independent real-component comparison and retain the external
+   evidence needed to close the Phase 3 exit gate.

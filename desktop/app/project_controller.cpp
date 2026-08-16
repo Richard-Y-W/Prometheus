@@ -5,15 +5,25 @@
 
 #include <prometheus/run_store/legacy_project_v1.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/project_bundle.hpp>
+#include <prometheus/run_store/object_store.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
+
+#include <nlohmann/json.hpp>
 
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QFutureWatcher>
+#include <QtConcurrent>
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
+#include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -303,9 +313,53 @@ ProjectController::ProjectController(CadController *cad,
 }
 
 int ProjectController::committedRunCount() const {
-  return project_.has_value()
-             ? static_cast<int>(project_->execution.committed_runs.size())
-             : 0;
+  if (!project_) return 0;
+  return static_cast<int>(std::count_if(
+      project_->execution.committed_runs.cbegin(),
+      project_->execution.committed_runs.cend(), [](const auto &reference) {
+        return reference.schema_id != run_store::project_inventory_schema_id &&
+               reference.schema_id !=
+                   run_store::execution_project_snapshot_schema_id &&
+               reference.schema_id !=
+                   run_store::project_evidence_archive_schema_id;
+      }));
+}
+
+int ProjectController::inventorySnapshotCount() const {
+  if (!project_) return 0;
+  return static_cast<int>(std::count_if(
+      project_->execution.committed_runs.cbegin(),
+      project_->execution.committed_runs.cend(), [](const auto &reference) {
+        return reference.schema_id == run_store::project_inventory_schema_id;
+      }));
+}
+
+QString ProjectController::latestInventoryHash() const {
+  if (!project_) return {};
+  for (auto reference = project_->execution.committed_runs.crbegin();
+       reference != project_->execution.committed_runs.crend(); ++reference)
+    if (reference->schema_id == run_store::project_inventory_schema_id)
+      return QString::fromStdString(reference->object_hash);
+  return {};
+}
+
+QString ProjectController::latestEvidenceInventoryHash() const {
+  if (!project_) return {};
+  for (auto reference = project_->execution.committed_runs.crbegin();
+       reference != project_->execution.committed_runs.crend(); ++reference) {
+    if (reference->schema_id != run_store::project_evidence_archive_schema_id)
+      continue;
+    const auto bytes = run_store::read_object(projectPath(), *reference);
+    if (!bytes.has_value()) return {};
+    try {
+      const auto document = nlohmann::json::parse(bytes.value());
+      return QString::fromStdString(
+          document.at("inventory_snapshot").at("object_hash").get<std::string>());
+    } catch (...) {
+      return {};
+    }
+  }
+  return {};
 }
 
 QVariantMap ProjectController::legacyEngineeringState() const {
@@ -361,13 +415,229 @@ void ProjectController::setError(QString message, QString code) {
 }
 
 void ProjectController::acceptProject(run_store::ProjectV2 project) {
+  inventory_changes_.clear();
+  inventory_comparison_status_.clear();
   project_ = std::move(project);
   emit changed();
+}
+
+void ProjectController::exportPortableBundle(const QUrl &parentFolder) {
+  if (bundle_busy_ || current_project_path_.isEmpty()) return;
+  const auto parent = parentFolder.toLocalFile();
+  if (parent.isEmpty() || !QFileInfo(parent).isDir()) {
+    setError("Select an existing destination folder for the portable bundle.",
+             "bundle_parent_invalid");
+    return;
+  }
+  const auto source = projectPath();
+  const auto base = QFileInfo(current_project_path_).completeBaseName();
+  const auto destination = QDir(parent).filePath(base + "-portable-bundle");
+  bundle_busy_ = true;
+  last_bundle_path_.clear();
+  clearError();
+  emit changed();
+  struct BundleResult final {
+    QString path;
+    QString code;
+    QString message;
+  };
+  auto *watcher = new QFutureWatcher<BundleResult>(this);
+  connect(watcher, &QFutureWatcher<BundleResult>::finished, this,
+          [this, watcher] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    bundle_busy_ = false;
+    if (!result.code.isEmpty()) setError(result.message, result.code);
+    else {
+      clearError();
+      last_bundle_path_ = result.path;
+    }
+    emit changed();
+  });
+  watcher->setFuture(QtConcurrent::run([source, destination] {
+    const auto exported = run_store::export_project_bundle(
+        source, nativePath(destination));
+    if (!exported.has_value())
+      return BundleResult{{}, QString::fromStdString(exported.diagnostic().code),
+                          QString::fromStdString(exported.diagnostic().message)};
+    return BundleResult{QString::fromStdWString(
+                            exported.value().bundle_directory.wstring()),
+                        {}, {}};
+  }));
+}
+
+void ProjectController::restorePortableBundle(const QUrl &bundleFolder,
+                                               const QUrl &parentFolder) {
+  if (bundle_busy_) return;
+  const auto source = bundleFolder.toLocalFile();
+  const auto parent = parentFolder.toLocalFile();
+  if (!QFileInfo(source).isDir() || !QFileInfo(parent).isDir()) {
+    setError("Select an existing portable bundle and destination folder.",
+             "bundle_restore_selection_invalid");
+    return;
+  }
+  const auto destination = QDir(parent).filePath(
+      QFileInfo(source).fileName() + "-restored");
+  bundle_busy_ = true;
+  last_bundle_path_.clear();
+  clearError();
+  emit changed();
+  struct RestoreResult final {
+    QString bundlePath;
+    QString projectPath;
+    QString code;
+    QString message;
+  };
+  auto *watcher = new QFutureWatcher<RestoreResult>(this);
+  connect(watcher, &QFutureWatcher<RestoreResult>::finished, this,
+          [this, watcher] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    bundle_busy_ = false;
+    if (!result.code.isEmpty()) {
+      setError(result.message, result.code);
+      emit changed();
+      return;
+    }
+    last_bundle_path_ = result.bundlePath;
+    emit changed();
+    openProject(QUrl::fromLocalFile(result.projectPath));
+  });
+  watcher->setFuture(QtConcurrent::run([source, destination] {
+    const auto restored = run_store::restore_project_bundle(
+        nativePath(source), nativePath(destination));
+    if (!restored.has_value())
+      return RestoreResult{
+          {}, {}, QString::fromStdString(restored.diagnostic().code),
+          QString::fromStdString(restored.diagnostic().message)};
+    return RestoreResult{
+        QString::fromStdWString(restored.value().bundle_directory.wstring()),
+        QString::fromStdWString(restored.value().project_path.wstring()), {}, {}};
+  }));
+}
+
+bool ProjectController::commitInventorySnapshot(
+    const run_store::ObjectToStore &snapshot) {
+  if (!project_.has_value() || current_project_path_.isEmpty()) return false;
+  const auto committed = run_store::commit_project_inventory_snapshot(
+      projectPath(), snapshot);
+  if (!committed.has_value()) {
+    setError(QString::fromStdString(committed.diagnostic().message),
+             QString::fromStdString(committed.diagnostic().code));
+    emit changed();
+    return false;
+  }
+  project_ = committed.value().project;
+  clearError();
+  emit changed();
+  emit projectSaved();
+  return true;
+}
+
+bool ProjectController::assessInventorySnapshot(
+    const run_store::ObjectToStore &snapshot, const QString &cadRelativePath,
+    const bool cadCurrent,
+    const run_store::ProjectEvidenceArchiveObjects *archive) {
+  inventory_changes_.clear();
+  inventory_comparison_status_ = "initial_inventory";
+  try {
+    using Json = nlohmann::json;
+    std::optional<run_store::StoredObjectReference> previous;
+    if (project_)
+      for (auto reference = project_->execution.committed_runs.crbegin();
+           reference != project_->execution.committed_runs.crend(); ++reference)
+        if (reference->schema_id == run_store::project_inventory_schema_id) {
+          previous = *reference;
+          break;
+        }
+    if (previous) {
+      const auto oldBytes = run_store::read_object(projectPath(), *previous);
+      if (!oldBytes.has_value()) {
+        setError(QString::fromStdString(oldBytes.diagnostic().message),
+                 QString::fromStdString(oldBytes.diagnostic().code));
+        emit changed();
+        return false;
+      }
+      const auto oldDocument = Json::parse(oldBytes.value());
+      const auto newDocument = Json::parse(snapshot.bytes);
+      std::map<std::string, Json> oldArtifacts;
+      std::map<std::string, Json> newArtifacts;
+      for (const auto &artifact : oldDocument.at("artifacts"))
+        oldArtifacts.emplace(artifact.at("relative_path").get<std::string>(),
+                             artifact);
+      for (const auto &artifact : newDocument.at("artifacts"))
+        newArtifacts.emplace(artifact.at("relative_path").get<std::string>(),
+                             artifact);
+      std::set<std::string> paths;
+      for (const auto &[path, artifact] : oldArtifacts) {
+        (void)artifact;
+        paths.insert(path);
+      }
+      for (const auto &[path, artifact] : newArtifacts) {
+        (void)artifact;
+        paths.insert(path);
+      }
+      for (const auto &path : paths) {
+        QString change;
+        if (!oldArtifacts.contains(path)) change = "added";
+        else if (!newArtifacts.contains(path)) change = "missing";
+        else if (oldArtifacts.at(path).at("sha256") !=
+                     newArtifacts.at(path).at("sha256") ||
+                 oldArtifacts.at(path).at("byte_length") !=
+                     newArtifacts.at(path).at("byte_length"))
+          change = "changed";
+        else if (oldArtifacts.at(path).at("analysis_state") !=
+                 newArtifacts.at(path).at("analysis_state"))
+          change = "state_changed";
+        if (!change.isEmpty())
+          inventory_changes_.append(QVariantMap{
+              {"relative_path", QString::fromStdString(path)},
+              {"change", change},
+              {"affects_current_assembly",
+               QString::fromStdString(path) == cadRelativePath}});
+      }
+      inventory_comparison_status_ = inventory_changes_.isEmpty()
+                                         ? "inventory_unchanged"
+                                         : "inventory_changed";
+    }
+  } catch (const std::exception &failure) {
+    setError(QString("Inventory comparison failed: %1").arg(failure.what()),
+             "inventory_comparison_failed");
+    emit changed();
+    return false;
+  }
+  if (!cadCurrent) {
+    assembly_artifact_current_ = false;
+    setError("The accounted CAD source changed. Structural rerun is revoked until geometry and surface selections are reviewed.",
+             "assembly_artifact_changed");
+    emit changed();
+    emit assemblyArtifactInvalidated();
+    return false;
+  }
+  assembly_artifact_current_ = true;
+  if (archive) {
+    const auto published = run_store::publish_project_inventory_archive(
+        projectPath(), snapshot, *archive);
+    if (!published.has_value()) {
+      setError(QString::fromStdString(published.diagnostic().message),
+               QString::fromStdString(published.diagnostic().code));
+      emit changed();
+      return false;
+    }
+    project_ = published.value().project;
+    clearError();
+    emit changed();
+    emit projectSaved();
+    return true;
+  }
+  return commitInventorySnapshot(snapshot);
 }
 
 void ProjectController::restoreProject(const run_store::ProjectV2 &project,
                                        const QString &projectPath,
                                        const QString &degradedStoreCode) {
+  inventory_changes_.clear();
+  inventory_comparison_status_.clear();
   project_ = project;
   current_project_path_ = projectPath;
   const auto state = cadState(project, projectPath);
@@ -445,6 +715,24 @@ void ProjectController::openProject(const QUrl &path) {
   save_as_required_ = true;
   execution_store_available_ = false;
   restoreProject(legacy.value().project, target);
+}
+
+void ProjectController::recoverProject(const QUrl &path) {
+  const auto target = localPath(path);
+  if (target.isEmpty()) {
+    setError("Choose a local project file to recover.",
+             "invalid_project_url");
+    return;
+  }
+  const auto recovered =
+      run_store::recover_previous_project_index(nativePath(target));
+  if (!recovered.has_value()) {
+    setError(diagnosticMessage(recovered.diagnostic()),
+             diagnosticCode(recovered.diagnostic()));
+    emit changed();
+    return;
+  }
+  openProject(QUrl::fromLocalFile(target));
 }
 
 void ProjectController::saveAsVersion2(const QUrl &destination) {

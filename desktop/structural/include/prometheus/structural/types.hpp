@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,27 +15,6 @@ struct Node final {
 struct Tetrahedron final {
   int id{};
   std::array<int, 4> node_ids{};
-};
-
-struct SurfaceTriangle final {
-  int id{};
-  std::array<int, 3> node_ids{};
-};
-
-struct SurfaceGroup final {
-  std::string name;
-  std::vector<SurfaceTriangle> triangles;
-  std::vector<int> node_ids;
-  double area_m2{};
-  std::array<double, 3> centroid_m{};
-  std::array<double, 3> representative_normal{};
-  bool representative_normal_defined{};
-};
-
-struct MeshDiagnostics final {
-  std::size_t connected_components{};
-  double minimum_mean_ratio{};
-  double maximum_mean_ratio{};
 };
 
 struct NodalForce final {
@@ -62,24 +40,6 @@ struct StructuralRequest final {
   bool restraints_reviewed{};
   bool requirements_reviewed{};
   bool scenario_confirmed{};
-  std::string material_designation;
-  std::string material_temper;
-  std::string material_product_form;
-  std::string material_applicability;
-  std::string material_evidence_sha256;
-  std::string mesh_sha256;
-  std::vector<std::string> restraint_surface_groups;
-  std::vector<std::string> load_surface_groups;
-  double reviewed_force_magnitude_n{};
-  std::array<double, 3> reviewed_force_direction{};
-  double selected_load_area_m2{};
-  double mesh_target_size_m{};
-  double minimum_mean_ratio_threshold{};
-  double observed_minimum_mean_ratio{};
-  std::string displacement_limit_basis;
-  std::string von_mises_limit_basis;
-  bool mesh_reviewed{};
-  double mesh_coordinate_scale_to_m{1.0};
 };
 
 struct ValidationIssue final {

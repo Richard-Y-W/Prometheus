@@ -321,4 +321,63 @@ def ingest_local_artifact(
     return artifact
 
 
-__all__ = ["ArtifactIngestionError", "ingest_local_artifact"]
+def store_submitted_artifact(
+    db: Session,
+    *,
+    payload_bytes: bytes,
+    media_type: str,
+    filename: str,
+) -> ArtifactObjectV2:
+    """Install exact caller-submitted bytes as an immutable artifact.
+
+    Unlike `ingest_local_artifact`, the source is an in-memory payload (for
+    example a canonicalized HTTP request body) rather than a trusted local
+    file, so no filesystem race or path protection applies; the caller is
+    responsible for canonicalizing and bounding the payload before calling.
+    """
+
+    if not isinstance(media_type, str) or not media_type.strip():
+        _error("artifact_unreadable", "artifact media type must be non-empty")
+    maximum_bytes = settings.max_artifact_bytes
+    if type(maximum_bytes) is not int or maximum_bytes <= 0:
+        _error("artifact_unreadable", "artifact byte limit is invalid")
+    if len(payload_bytes) > maximum_bytes:
+        _error(
+            "artifact_too_large",
+            f"artifact exceeds the {maximum_bytes}-byte ingestion limit",
+        )
+
+    computed_hash = f"sha256:{hashlib.sha256(payload_bytes).hexdigest()}"
+    existing = db.get(ArtifactObjectV2, computed_hash)
+    if existing is not None:
+        return _require_exact_existing(
+            existing, payload=payload_bytes, media_type=media_type
+        )
+
+    artifact = ArtifactObjectV2(
+        object_hash=computed_hash,
+        payload_bytes=payload_bytes,
+        byte_length=len(payload_bytes),
+        media_type=media_type,
+        origin_path="submitted://in-memory-request",
+        original_filename=filename,
+    )
+    try:
+        with db.begin_nested():
+            db.add(artifact)
+            db.flush()
+    except IntegrityError:
+        existing = db.get(ArtifactObjectV2, computed_hash)
+        if existing is None:
+            raise
+        return _require_exact_existing(
+            existing, payload=payload_bytes, media_type=media_type
+        )
+    return artifact
+
+
+__all__ = [
+    "ArtifactIngestionError",
+    "ingest_local_artifact",
+    "store_submitted_artifact",
+]

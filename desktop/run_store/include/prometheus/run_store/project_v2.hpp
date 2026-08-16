@@ -14,12 +14,32 @@ namespace prometheus::run_store {
 inline constexpr std::string_view project_v2_schema_id =
     "urn:prometheus:schema:project:2.0.0";
 inline constexpr std::string_view project_v2_schema_version = "2.0.0";
+inline constexpr std::string_view project_inventory_schema_id =
+    "urn:prometheus:schema:project-inventory-snapshot:1.0.0";
+inline constexpr std::string_view project_inventory_media_type =
+    "application/vnd.prometheus.project-inventory+json";
+inline constexpr std::string_view execution_project_snapshot_schema_id =
+    "urn:prometheus:schema:execution-project-snapshot:1.0.0";
+inline constexpr std::string_view execution_project_snapshot_media_type =
+    "application/vnd.prometheus.execution-project-snapshot+json";
 inline constexpr std::string_view execution_store_version = "1.0.0";
 inline constexpr std::size_t maximum_project_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_package_bindings = 10000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
+inline constexpr std::string_view structural_manifest_media_type =
+    "application/vnd.prometheus.structural-run-archive+json";
+inline constexpr std::string_view structural_manifest_schema_id =
+    "urn:prometheus:schema:structural-run-archive:1.0.0";
+inline constexpr std::string_view structural_project_run_media_type =
+    "application/vnd.prometheus.structural-project-run+json";
+inline constexpr std::string_view structural_project_run_schema_id =
+    "urn:prometheus:schema:structural-project-run:1.0.0";
+inline constexpr std::string_view structural_artifact_chunk_media_type =
+    "application/vnd.prometheus.structural-artifact-chunk+json";
+inline constexpr std::string_view structural_artifact_chunk_schema_id =
+    "urn:prometheus:schema:structural-artifact-chunk:1.0.0";
 
 struct Diagnostic final {
   std::string stage;

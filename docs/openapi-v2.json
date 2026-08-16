@@ -225,6 +225,125 @@
         "title": "ContractIdentityResponseV2",
         "type": "object"
       },
+      "CurvePointV2": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Y"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "CurvePointV2",
+        "type": "object"
+      },
+      "CurveValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "independent_quantity": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Independent Quantity",
+            "type": "string"
+          },
+          "independent_unit": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Independent Unit",
+            "type": "string"
+          },
+          "interpolation": {
+            "enum": [
+              "linear",
+              "step",
+              "cubic"
+            ],
+            "title": "Interpolation",
+            "type": "string"
+          },
+          "kind": {
+            "const": "curve",
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePointV2"
+            },
+            "maxItems": 10000,
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "independent_quantity",
+          "independent_unit",
+          "interpolation",
+          "points"
+        ],
+        "title": "CurveValueV2",
+        "type": "object"
+      },
+      "EnumerationValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "enumeration",
+            "title": "Kind",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "values"
+        ],
+        "title": "EnumerationValueV2",
+        "type": "object"
+      },
       "EvidenceSummaryResponseV2": {
         "additionalProperties": false,
         "properties": {
@@ -287,6 +406,28 @@
           "limitations"
         ],
         "title": "EvidenceSummaryResponseV2",
+        "type": "object"
+      },
+      "ExactDecimalStringValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "exact_decimal_string",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 4096,
+            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "ExactDecimalStringValueV2",
         "type": "object"
       },
       "FixtureIngestionRequestV2": {
@@ -388,6 +529,108 @@
           "statement"
         ],
         "title": "LimitationV2",
+        "type": "object"
+      },
+      "ManualComponentDraftRequestV2": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "pattern": "^[a-z][a-z0-9_.:-]{0,127}$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "component_class": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Component Class",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "manufacturer": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Manufacturer",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/_KnownManualParameter"
+                },
+                {
+                  "$ref": "#/components/schemas/_UnknownManualParameter"
+                }
+              ]
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Parameters",
+            "type": "array"
+          },
+          "part_number": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Part Number",
+            "type": "string"
+          },
+          "revision": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Revision",
+            "type": "string"
+          },
+          "schema_version": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "manufacturer",
+          "part_number",
+          "component_class",
+          "revision",
+          "capability_id",
+          "parameters"
+        ],
+        "title": "ManualComponentDraftRequestV2",
+        "type": "object"
+      },
+      "ManualComponentDraftResponseV2": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/RevisionResponseV2"
+          },
+          "state": {
+            "const": "succeeded",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "revision"
+        ],
+        "title": "ManualComponentDraftResponseV2",
         "type": "object"
       },
       "ParameterResponseV2": {
@@ -555,6 +798,45 @@
         "title": "PublicationSuccessResponseV2",
         "type": "object"
       },
+      "RangeValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "range",
+            "title": "Kind",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Minimum"
+          }
+        },
+        "required": [
+          "kind",
+          "minimum",
+          "maximum"
+        ],
+        "title": "RangeValueV2",
+        "type": "object"
+      },
       "ReviewRequestV2": {
         "additionalProperties": false,
         "properties": {
@@ -699,6 +981,33 @@
           "published_at"
         ],
         "title": "RevisionResponseV2",
+        "type": "object"
+      },
+      "ScalarValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "scalar",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "ScalarValueV2",
         "type": "object"
       },
       "ScenarioCreate": {
@@ -877,6 +1186,28 @@
         "title": "SelectedClaimResponseV2",
         "type": "object"
       },
+      "UnknownValueV2": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "unknown",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "title": "UnknownValueV2",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -916,6 +1247,168 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "_KnownManualParameter": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Dimension",
+            "type": "string"
+          },
+          "measurement_method": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Measurement Method",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "original_unit": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Original Unit",
+            "type": "string"
+          },
+          "original_value": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Original Value",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "required_for_execution": {
+            "default": false,
+            "title": "Required For Execution",
+            "type": "boolean"
+          },
+          "unit": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          },
+          "validity_conditions": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Validity Conditions",
+            "type": "array"
+          },
+          "value": {
+            "discriminator": {
+              "mapping": {
+                "curve": "#/components/schemas/CurveValueV2",
+                "enumeration": "#/components/schemas/EnumerationValueV2",
+                "exact_decimal_string": "#/components/schemas/ExactDecimalStringValueV2",
+                "range": "#/components/schemas/RangeValueV2",
+                "scalar": "#/components/schemas/ScalarValueV2",
+                "unknown": "#/components/schemas/UnknownValueV2"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScalarValueV2"
+              },
+              {
+                "$ref": "#/components/schemas/RangeValueV2"
+              },
+              {
+                "$ref": "#/components/schemas/EnumerationValueV2"
+              },
+              {
+                "$ref": "#/components/schemas/CurveValueV2"
+              },
+              {
+                "$ref": "#/components/schemas/ExactDecimalStringValueV2"
+              },
+              {
+                "$ref": "#/components/schemas/UnknownValueV2"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "quantity",
+          "dimension",
+          "value",
+          "unit",
+          "original_value",
+          "original_unit",
+          "measurement_method",
+          "observed_at"
+        ],
+        "title": "_KnownManualParameter",
+        "type": "object"
+      },
+      "_UnknownManualParameter": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Dimension",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^[a-z][a-z0-9_]{0,127}$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "required_for_execution": {
+            "default": false,
+            "title": "Required For Execution",
+            "type": "boolean"
+          },
+          "unknown_reason": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Unknown Reason",
+            "type": "string"
+          },
+          "validity_conditions": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Validity Conditions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "quantity",
+          "dimension",
+          "unknown_reason"
+        ],
+        "title": "_UnknownManualParameter",
+        "type": "object"
       }
     }
   },
@@ -925,6 +1418,100 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v2/component-drafts": {
+      "post": {
+        "operationId": "create_component_draft_api_v2_component_drafts_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualComponentDraftRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualComponentDraftResponseV2"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Component Draft",
+        "tags": [
+          "program-01a-v2"
+        ]
+      }
+    },
+    "/api/v2/component-drafts/{draft_id}": {
+      "get": {
+        "operationId": "get_component_draft_api_v2_component_drafts__draft_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualComponentDraftResponseV2"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Component Draft",
+        "tags": [
+          "program-01a-v2"
+        ]
+      }
+    },
     "/api/v2/fixture-ingestions": {
       "post": {
         "operationId": "create_fixture_ingestion_api_v2_fixture_ingestions_post",

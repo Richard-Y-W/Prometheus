@@ -24,6 +24,8 @@ namespace prometheus::run_store::detail {
 namespace {
 
 using namespace std::chrono_literals;
+constexpr std::wstring_view previous_project_index_name =
+    L".project-index.previous";
 
 class NativeHandle final {
 public:
@@ -654,11 +656,37 @@ read_project_index_file(const std::filesystem::path &project_path) noexcept {
   }
 }
 
+Result<std::string> read_previous_project_index_file(
+    const std::filesystem::path &project_path) noexcept {
+  try {
+    auto anchor = anchor_project(project_path);
+    if (!anchor.has_value())
+      return Result<std::string>::failure(anchor.diagnostic());
+    auto sidecar = open_sidecar(anchor.value(), false);
+    if (!sidecar.has_value())
+      return Result<std::string>::failure(sidecar.diagnostic());
+    const auto path = sidecar.value().path /
+                      std::wstring(previous_project_index_name);
+    return read_safe_file(path, sidecar.value(), previous_project_index_name,
+                          maximum_project_bytes,
+                          "unsafe_previous_project_index",
+                          "previous_project_index_missing");
+  } catch (const std::exception &failure) {
+    return fail<std::string>("previous_project_index_read_failed",
+                             failure.what(), project_path);
+  } catch (...) {
+    return fail<std::string>("previous_project_index_read_failed",
+                             "unknown previous-index read failure",
+                             project_path);
+  }
+}
+
 Result<Unit>
 replace_project_index_file(const std::filesystem::path &project_path,
                            const std::string_view bytes,
                            const bool replace_existing,
-                           const TransactionOptions &options) noexcept {
+                           const TransactionOptions &options,
+                           const bool retain_previous) noexcept {
   try {
     const auto parsed = parse_project_v2(bytes);
     if (!parsed.has_value()) {
@@ -772,9 +800,38 @@ replace_project_index_file(const std::filesystem::path &project_path,
     }
     BOOL replaced = FALSE;
     if (replace_existing) {
+      std::filesystem::path previous_path;
+      if (retain_previous) {
+        const auto current_bytes = read_safe_file(
+            project_path, anchor.value().parent, anchor.value().project_name,
+            maximum_project_bytes, "unsafe_project_path",
+            "project_read_failed");
+        if (!current_bytes.has_value() ||
+            !parse_project_v2(current_bytes.has_value()
+                                  ? current_bytes.value()
+                                  : std::string{})
+                 .has_value())
+          return fail<Unit>("previous_project_index_invalid",
+                            "current index is not valid enough to retain",
+                            project_path);
+        auto sidecar = open_sidecar(anchor.value(), true);
+        if (!sidecar.has_value())
+          return Result<Unit>::failure(sidecar.diagnostic());
+        previous_path = sidecar.value().path /
+                        std::wstring(previous_project_index_name);
+        const DWORD previous_attributes =
+            ::GetFileAttributesW(previous_path.c_str());
+        if (previous_attributes != INVALID_FILE_ATTRIBUTES &&
+            ((previous_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U ||
+             (previous_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U))
+          return fail<Unit>("unsafe_previous_project_index",
+                            "previous index destination is unsafe",
+                            previous_path);
+      }
       replaced = ::ReplaceFileW(project_path.c_str(), temporary_path.c_str(),
-                                nullptr, REPLACEFILE_WRITE_THROUGH, nullptr,
-                                nullptr);
+                                retain_previous ? previous_path.c_str()
+                                                : nullptr,
+                                REPLACEFILE_WRITE_THROUGH, nullptr, nullptr);
     } else {
       replaced = ::MoveFileExW(temporary_path.c_str(), project_path.c_str(),
                                MOVEFILE_WRITE_THROUGH);
@@ -1018,6 +1075,14 @@ read_object_file(const std::filesystem::path &project_path,
     if (!directory.has_value()) {
       return Result<std::string>::failure(directory.diagnostic());
     }
+    std::error_code existenceError;
+    const auto status = std::filesystem::symlink_status(
+        directory.value().destination_path, existenceError);
+    if (existenceError == std::errc::no_such_file_or_directory ||
+        (!existenceError && !std::filesystem::exists(status)))
+      return fail<std::string>("object_store_missing",
+                               "stored object does not exist",
+                               directory.value().destination_path);
     const auto loaded = read_safe_file(
         directory.value().destination_path, directory.value().fanout,
         directory.value().destination_name, maximum_object_bytes,

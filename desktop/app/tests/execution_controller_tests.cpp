@@ -653,13 +653,13 @@ void failClosedPreconditionsAndCancellation() {
               !scenarioRemovalError,
           "unreferenced current scenario can be removed for failure test");
   execution.reloadProject();
-  require(execution.errorCode() == "object_read_failed" &&
+  require(execution.errorCode() == "object_store_missing" &&
               !execution.scenarioConfirmed() &&
               execution.runHistory().size() == 1,
           "missing current scenario preserves its exact store failure and "
           "prior history");
   execution.runAnalysis();
-  require(execution.errorCode() == "object_read_failed" &&
+  require(execution.errorCode() == "object_store_missing" &&
               project.committedRunCount() == 1,
           "missing current scenario stays typed and cannot create a run");
   require(run_store::install_object(nativePath(projectPath),
@@ -681,14 +681,14 @@ void failClosedPreconditionsAndCancellation() {
               !packageRemovalError,
           "active package can be removed for failure test");
   execution.reloadProject();
-  require(execution.errorCode() == "object_read_failed" &&
+  require(execution.errorCode() == "object_store_missing" &&
               execution.activePackage().value("error_code") ==
-                  "object_read_failed" &&
+                  "object_store_missing" &&
               execution.runHistory().size() == 1,
           "missing active package preserves its exact store failure and run "
           "history row");
   execution.runAnalysis();
-  require(execution.errorCode() == "object_read_failed" &&
+  require(execution.errorCode() == "object_store_missing" &&
               project.committedRunCount() == 1,
           "missing active package stays typed and cannot create a run");
   require(geometry.findings() == geometryBefore,
@@ -854,7 +854,7 @@ void replayOutcomeStatesRemainDistinct() {
 
   const auto baseOpened = run_store::open_read_only(nativePath(projectPath));
   require(baseOpened.has_value() &&
-              baseOpened.value().execution.committed_runs.size() == 1,
+              baseOpened.value().execution.committed_runs.size() == 2,
           "replay-state baseline run is committed");
   const auto baseProject = baseOpened.value();
   const auto baseManifestReference =

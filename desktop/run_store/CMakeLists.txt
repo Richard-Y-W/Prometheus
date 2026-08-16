@@ -3,6 +3,9 @@ add_library(prometheus_run_store STATIC
   src/legacy_project_v1.cpp
   src/object_store.cpp
   src/run_store.cpp
+  src/structural_archive_store.cpp
+  src/project_bundle.cpp
+  src/project_evidence_archive.cpp
 )
 if(WIN32)
   target_sources(prometheus_run_store PRIVATE src/platform_io_windows.cpp)
@@ -88,6 +91,9 @@ if(BUILD_TESTING)
     tests/run_store_transaction_tests.cpp
   )
   target_compile_features(prometheus_run_store_transaction_tests PRIVATE cxx_std_20)
+  target_include_directories(prometheus_run_store_transaction_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
   target_compile_definitions(prometheus_run_store_transaction_tests PRIVATE
     PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_RUN_STORE_CONTENTION_HELPER="$<TARGET_FILE:prometheus_run_store_contention_helper>"

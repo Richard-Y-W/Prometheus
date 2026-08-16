@@ -809,7 +809,7 @@ void test_missing_corrupt_and_symlinked_objects(
         fs::remove(object_path(fixture, reference), error);
         require(!error, "remove replay result object");
       },
-      "object_read_failed");
+      "object_store_missing");
   mutate_result(
       "corrupt-object",
       [](const Fixture &fixture,

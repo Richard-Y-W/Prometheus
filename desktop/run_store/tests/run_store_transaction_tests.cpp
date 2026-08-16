@@ -1,8 +1,14 @@
 #include <prometheus/integrity/canonical_json.hpp>
 #include <prometheus/run_store/object_store.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/structural_archive_store.hpp>
+#include <prometheus/run_store/project_bundle.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
+
+#include <nlohmann/json.hpp>
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -129,6 +135,98 @@ run_store::CompletedRunObjects motor_a_run() {
           "application/vnd.prometheus.run-manifest+json;version=1.0.0",
           "urn:prometheus:schema:run-manifest:1.0.0", "1.0.0"),
   };
+}
+
+run_store::ObjectToStore structural_manifest_fixture() {
+  const auto artifact = [](const std::string &file, const char hashCharacter) {
+    return std::string{"{\"byte_length\":1,\"file\":\""} + file +
+           "\",\"sha256\":\"sha256:" + std::string(64U, hashCharacter) + "\"}";
+  };
+  const auto document =
+      std::string{"{\"$schema\":\"urn:prometheus:schema:structural-run-archive:1.0.0\","}
+      + "\"analysis_id\":\"analysis\",\"archive_kind\":\"completed_linear_static_run\","
+      + "\"artifacts\":{\"dat\":" + artifact("run.dat", '1') +
+      ",\"deck\":" + artifact("run.inp", '2') +
+      ",\"frd\":" + artifact("run.frd", '3') +
+      ",\"setup\":" + artifact("setup.json", '4') +
+      ",\"sta\":" + artifact("run.sta", '5') +
+      ",\"stderr\":" + artifact("stderr.txt", '6') +
+      ",\"stdout\":" + artifact("stdout.txt", '7') + "},"
+      + "\"component_name\":\"component\",\"coverage\":{},\"execution\":{},"
+      + "\"findings\":[],\"geometry_sha256\":\"sha256:" + std::string(64U, '8') +
+      "\",\"job_name\":\"run\",\"limitation\":\"bounded\",\"metrics\":{},"
+      + "\"requirements\":{},\"schema_version\":\"1.0.0\","
+      + "\"solver_identity\":\"fixture\"}";
+  auto bytes = integrity::canonicalize_json_bytes(document);
+  return {reference_for(bytes,
+                        std::string(run_store::structural_manifest_media_type),
+                        std::string(run_store::structural_manifest_schema_id),
+                        "1.0.0"),
+          std::move(bytes)};
+}
+
+run_store::ObjectToStore inventory_snapshot_fixture(
+    const std::string &cadHash, const std::uint64_t cadLength,
+    const std::string &documentHash, const std::uint64_t documentLength,
+    const std::string &toolHash, const std::uint64_t toolLength) {
+  nlohmann::json artifacts = nlohmann::json::array({
+      {{"relative_path", "docs/spec.pdf"}, {"byte_length", documentLength},
+       {"sha256", documentHash}, {"category", "document"},
+       {"analysis_state", "not_evaluated"}, {"detail", "Not interpreted"}},
+      {{"relative_path", "portable-bracket.step"}, {"byte_length", cadLength},
+       {"sha256", cadHash}, {"category", "geometry"},
+       {"analysis_state", "ready"}, {"detail", "STEP import ready"}},
+      {{"relative_path", "tools/check.exe"}, {"byte_length", toolLength},
+       {"sha256", toolHash}, {"category", "other"},
+       {"analysis_state", "unsupported"}, {"detail", "Not executable"}}});
+  const auto bytes = integrity::canonicalize_json_bytes(
+      nlohmann::json{{"$schema", run_store::project_inventory_schema_id},
+                     {"artifacts", std::move(artifacts)},
+                     {"root_label", "portable-source"},
+                     {"schema_version", "1.0.0"},
+                     {"snapshot_kind", "accounted_project_folder"}}
+          .dump());
+  return {reference_for(bytes,
+                        std::string(run_store::project_inventory_media_type),
+                        std::string(run_store::project_inventory_schema_id),
+                        "1.0.0"),
+          bytes};
+}
+
+fs::path create_structural_archive_fixture(const fs::path &root) {
+  const auto archive = root / "structural-archive";
+  require(fs::create_directory(archive), "create structural archive fixture");
+  const std::array<std::pair<std::string, std::string>, 7> smallFiles{{
+      {"setup.json", "setup\n"}, {"run.inp", "deck\n"},
+      {"run.dat", ""}, {"run.frd", "frd\n"}, {"run.sta", "sta\n"},
+      {"stdout.txt", "stdout\n"}, {"stderr.txt", "stderr\n"}}};
+  for (const auto &[name, bytes] : smallFiles) write_file(archive / name, bytes);
+  std::string large(run_store::structural_artifact_chunk_bytes + 17U, 'D');
+  write_file(archive / "run.dat", large);
+  const auto artifact = [&](const std::string &name) {
+    const auto bytes = read_file(archive / name);
+    return std::string{"{\"byte_length\":"} + std::to_string(bytes.size()) +
+           ",\"file\":\"" + name + "\",\"sha256\":\"" +
+           integrity::sha256_bytes(bytes) + "\"}";
+  };
+  const auto document =
+      std::string{"{\"$schema\":\"urn:prometheus:schema:structural-run-archive:1.0.0\","}
+      + "\"analysis_id\":\"embedded-analysis\",\"archive_kind\":\"completed_linear_static_run\","
+      + "\"artifacts\":{\"dat\":" + artifact("run.dat") +
+      ",\"deck\":" + artifact("run.inp") +
+      ",\"frd\":" + artifact("run.frd") +
+      ",\"setup\":" + artifact("setup.json") +
+      ",\"sta\":" + artifact("run.sta") +
+      ",\"stderr\":" + artifact("stderr.txt") +
+      ",\"stdout\":" + artifact("stdout.txt") + "},"
+      + "\"component_name\":\"component\",\"coverage\":{},\"execution\":{},"
+      + "\"findings\":[],\"geometry_sha256\":\"sha256:" + std::string(64U, '9') +
+      "\",\"job_name\":\"run\",\"limitation\":\"bounded\",\"metrics\":{},"
+      + "\"requirements\":{},\"schema_version\":\"1.0.0\","
+      + "\"solver_identity\":\"fixture\"}";
+  write_file(archive / "prometheus-structural-run.json",
+             integrity::canonicalize_json_bytes(document));
+  return archive / "prometheus-structural-run.json";
 }
 
 run_store::ObjectToStore motor_b_package() {
@@ -294,19 +392,42 @@ void test_normal_operations_and_idempotency() {
   const auto &published = require_success(
       run_store::publish_completed_run(project_path, run), "normal publish");
   require(!published.already_committed &&
-              published.project.execution.committed_runs.size() == 1U &&
+              published.project.execution.committed_runs.size() == 2U &&
               published.project.execution.committed_runs.front() ==
-                  run.manifest.reference,
-          "first publication commits one manifest reference");
+                  run.manifest.reference &&
+              published.project.execution.committed_runs.back().schema_id ==
+                  run_store::execution_project_snapshot_schema_id,
+          "first publication commits its manifest and pre-execution snapshot");
   require_complete_run_objects(project_path, run);
+  const auto snapshotReference =
+      published.project.execution.committed_runs.back();
+  const auto snapshotBytes = require_success(
+      run_store::read_object(project_path, snapshotReference),
+      "read motor execution project snapshot");
+  const auto snapshot = nlohmann::json::parse(snapshotBytes);
+  require(snapshot.at("execution_kind") == "motor_analysis" &&
+              snapshot.at("pending_manifest_hash") ==
+                  run.manifest.reference.object_hash &&
+              integrity::sha256_bytes(
+                  snapshot.at("project_index").get<std::string>()) ==
+                  snapshot.at("project_index_sha256").get<std::string>(),
+          "execution snapshot closes over its intended run and exact project bytes");
+  const auto preExecution = run_store::parse_project_v2(
+      snapshot.at("project_index").get<std::string>());
+  require(preExecution.has_value() &&
+              preExecution.value().execution.committed_runs.empty() &&
+              preExecution.value().execution.package_bindings.size() == 1U &&
+              preExecution.value().execution.current_scenario ==
+                  run.scenario.reference,
+          "execution snapshot is the complete project state before publication");
 
   const auto &repeated = require_success(
       run_store::publish_completed_run(project_path, run),
       "idempotent publish");
   require(repeated.already_committed &&
-              repeated.project.execution.committed_runs.size() == 1U,
+              repeated.project.execution.committed_runs.size() == 2U,
           "idempotent publish does not duplicate a manifest");
-  require(repeated.project.execution.events.size() == 2U &&
+  require(repeated.project.execution.events.size() == 3U &&
               repeated.project.execution.events.back().event_kind ==
                   "run_invoked" &&
               repeated.project.execution.events.back().status ==
@@ -315,7 +436,7 @@ void test_normal_operations_and_idempotency() {
 
   const auto reopened = run_store::open_read_only(project_path);
   require(reopened.has_value() &&
-              reopened.value().execution.committed_runs.size() == 1U,
+              reopened.value().execution.committed_runs.size() == 2U,
           "read-only reopen retains the committed run");
 
   const auto package_b = motor_b_package();
@@ -326,14 +447,357 @@ void test_normal_operations_and_idempotency() {
   require(rebound.execution.package_bindings.size() == 2U &&
               rebound.execution.package_bindings.back()
                       .supersedes_binding_revision == 1U &&
-              rebound.execution.committed_runs.size() == 1U,
+              rebound.execution.committed_runs.size() == 2U,
           "new package supersedes the active binding without altering history");
   const auto historical_retry = require_success(
       run_store::publish_completed_run(project_path, run),
       "historical idempotent publish after package switch");
   require(historical_retry.already_committed &&
-              historical_retry.project.execution.committed_runs.size() == 1U,
+              historical_retry.project.execution.committed_runs.size() == 2U,
           "already-committed manifest remains idempotent after binding changes");
+}
+
+void test_structural_manifest_anchor() {
+  TemporaryRoot root;
+  const auto projectPath = root.path() / "structural.prometheus";
+  require_success(run_store::create_project_v2(projectPath, initial_project()),
+                  "create structural project");
+  const auto manifest = structural_manifest_fixture();
+  const auto &anchored = require_success(
+      run_store::commit_structural_archive_manifest(projectPath, manifest),
+      "anchor structural manifest");
+  require(!anchored.already_committed &&
+              anchored.project.execution.committed_runs.size() == 1U &&
+              anchored.project.execution.committed_runs.front() ==
+                  manifest.reference &&
+              anchored.project.execution.events.back().event_kind ==
+                  "structural_run_anchored",
+          "structural manifest gets a distinct immutable project history entry");
+  const auto retained = run_store::read_object(projectPath, manifest.reference);
+  require(retained.has_value() && retained.value() == manifest.bytes,
+          "anchored structural manifest resolves to exact canonical bytes");
+  const auto &repeated = require_success(
+      run_store::commit_structural_archive_manifest(projectPath, manifest),
+      "repeat structural manifest anchor");
+  require(repeated.already_committed &&
+              repeated.project.execution.committed_runs.size() == 1U &&
+              repeated.project.execution.events.back().event_kind ==
+                  "structural_run_invoked",
+          "structural manifest anchoring is idempotent");
+  const auto reopened = run_store::open_read_only(projectPath);
+  require(reopened.has_value() &&
+              reopened.value().execution.committed_runs.front() ==
+                  manifest.reference,
+          "structural manifest reference survives close and reopen");
+
+  auto invalid = manifest;
+  invalid.bytes.replace(invalid.bytes.find("run.dat"), 7U, "../xdat");
+  invalid.reference = reference_for(
+      invalid.bytes, std::string(run_store::structural_manifest_media_type),
+      std::string(run_store::structural_manifest_schema_id), "1.0.0");
+  const auto rejected =
+      run_store::commit_structural_archive_manifest(projectPath, invalid);
+  require_failure(rejected, "structural_manifest_contract_invalid",
+                  "unsafe structural artifact identity");
+  require(run_store::open_read_only(projectPath)
+              .value()
+              .execution.committed_runs.size() == 1U,
+          "rejected structural manifest does not alter project history");
+}
+
+void test_embedded_structural_archive_round_trip() {
+  TemporaryRoot root;
+  const auto sourceManifest = create_structural_archive_fixture(root.path());
+  auto packed = run_store::build_structural_archive_objects(
+      sourceManifest, initial_project().assembly_artifact_hash);
+  if (!packed.has_value())
+    throw std::runtime_error("pack structural archive: " +
+                             packed.diagnostic().code + ": " +
+                             packed.diagnostic().message);
+  require(packed.value().chunks.size() == 8U,
+          "structural archive packs all artifacts and splits a large DAT file");
+  require_failure(run_store::build_structural_archive_objects(
+                      sourceManifest, "sha256:invalid"),
+                  "assembly_artifact_hash_invalid",
+                  "structural archive without exact assembly identity");
+  const auto projectPath = root.path() / "embedded.prometheus";
+  require_success(run_store::create_project_v2(projectPath, initial_project()),
+                  "create embedded structural project");
+  const auto &published = require_success(
+      run_store::publish_structural_archive(projectPath, packed.value()),
+      "publish embedded structural archive");
+  require(!published.already_committed &&
+              published.project.execution.committed_runs.size() == 2U &&
+              published.project.execution.committed_runs.front() ==
+                  packed.value().project_manifest.reference &&
+              published.project.execution.committed_runs.back().schema_id ==
+                  run_store::execution_project_snapshot_schema_id &&
+              published.project.execution.events.back().event_kind ==
+                  "structural_run_published",
+          "embedded structural graph commits its manifest and pre-execution snapshot");
+  for (const auto *object : {&packed.value().archive_manifest,
+                             &packed.value().project_manifest}) {
+    const auto retained = run_store::read_object(projectPath, object->reference);
+    require(retained.has_value() && retained.value() == object->bytes,
+            "embedded structural manifest object resolves exactly");
+  }
+  for (const auto &chunk : packed.value().chunks) {
+    const auto retained = run_store::read_object(projectPath, chunk.reference);
+    require(retained.has_value() && retained.value() == chunk.bytes,
+            "embedded structural chunk resolves exactly");
+  }
+  const auto destination = root.path() / "reconstructed";
+  const auto reconstructed = run_store::reconstruct_structural_archive(
+      projectPath, packed.value().project_manifest.reference, destination);
+  require(reconstructed.has_value(), "embedded structural archive reconstructs");
+  for (const auto &entry : fs::directory_iterator(sourceManifest.parent_path())) {
+    require(read_file(entry.path()) ==
+                read_file(destination / entry.path().filename()),
+            "reconstructed structural file is byte-identical");
+  }
+  const auto &repeated = require_success(
+      run_store::publish_structural_archive(projectPath, packed.value()),
+      "repeat embedded structural publication");
+  require(repeated.already_committed &&
+              repeated.project.execution.committed_runs.size() == 2U,
+          "embedded structural publication is idempotent");
+
+  auto forged = packed.value();
+  const auto oldChunkHash = forged.chunks.front().reference.object_hash;
+  const auto data = forged.chunks.front().bytes.find("\"data\":\"");
+  require(data != std::string::npos, "structural chunk contains encoded data");
+  auto &encodedByte = forged.chunks.front().bytes[data + 8U];
+  encodedByte = encodedByte == 'A' ? 'B' : 'A';
+  forged.chunks.front().reference.object_hash =
+      integrity::object_hash(forged.chunks.front().bytes);
+  const auto hashPosition =
+      forged.project_manifest.bytes.find(oldChunkHash);
+  require(hashPosition != std::string::npos,
+          "project manifest references first structural chunk");
+  forged.project_manifest.bytes.replace(
+      hashPosition, oldChunkHash.size(),
+      forged.chunks.front().reference.object_hash);
+  forged.project_manifest.reference.object_hash =
+      integrity::object_hash(forged.project_manifest.bytes);
+  const auto forgedRejected =
+      run_store::publish_structural_archive(projectPath, forged);
+  require_failure(forgedRejected, "structural_chunk_identity_mismatch",
+                  "forged structural chunk payload");
+
+  auto changed = packed.value();
+  changed.chunks.pop_back();
+  const auto rejected =
+      run_store::publish_structural_archive(projectPath, changed);
+  require_failure(rejected, "structural_chunk_reference_mismatch",
+                  "missing structural chunk graph");
+  require(run_store::open_read_only(projectPath)
+              .value()
+              .execution.committed_runs.size() == 2U,
+          "rejected embedded graph does not alter committed history");
+
+  const auto cadPath = root.path() / "portable-bracket.step";
+  write_file(cadPath, "portable CAD source bytes\n");
+  const auto documentPath = root.path() / "docs" / "spec.pdf";
+  const auto toolPath = root.path() / "tools" / "check.exe";
+  fs::create_directories(documentPath.parent_path());
+  fs::create_directories(toolPath.parent_path());
+  write_file(documentPath, "portable document evidence\n");
+  write_file(toolPath, "inert untrusted tool bytes\n");
+  const auto cadHash = integrity::sha256_file(cadPath);
+  auto portableProject = initial_project();
+  portableProject.cad_source = cadPath.string();
+  portableProject.assembly_artifact_hash = cadHash;
+  const auto portableProjectPath = root.path() / "portable-source.prometheus";
+  require_success(run_store::create_project_v2(portableProjectPath,
+                                                portableProject),
+                  "create portable structural project");
+  auto portableObjects = run_store::build_structural_archive_objects(
+      sourceManifest, cadHash);
+  require(portableObjects.has_value(), "pack portable structural archive");
+  require_success(run_store::publish_structural_archive(
+                      portableProjectPath, portableObjects.value()),
+                  "publish portable structural archive");
+  const auto inventory = inventory_snapshot_fixture(
+      cadHash, fs::file_size(cadPath), integrity::sha256_file(documentPath),
+      fs::file_size(documentPath), integrity::sha256_file(toolPath),
+      fs::file_size(toolPath));
+  const std::vector<run_store::ProjectEvidenceInput> evidenceInputs{
+      {"docs/spec.pdf", documentPath, fs::file_size(documentPath),
+       integrity::sha256_file(documentPath), "document", "not_evaluated"},
+      {"portable-bracket.step", cadPath, fs::file_size(cadPath), cadHash,
+       "geometry", "ready"},
+      {"tools/check.exe", toolPath, fs::file_size(toolPath),
+       integrity::sha256_file(toolPath), "other", "unsupported"}};
+  const auto evidence = run_store::build_project_evidence_archive(
+      inventory.reference, evidenceInputs);
+  require(evidence.has_value() && evidence.value().chunks.size() == 2U,
+          "bounded evidence retains a document and quarantines unknown bytes");
+  const auto evidenceManifest =
+      nlohmann::json::parse(evidence.value().manifest.bytes);
+  require(evidenceManifest.at("files").at(0).at("disposition") == "retained" &&
+              evidenceManifest.at("files").at(1).at("disposition") ==
+                  "external_only" &&
+              evidenceManifest.at("files").at(2).at("disposition") ==
+                  "quarantined",
+          "evidence policy retains documents, separates CAD, and quarantines unknown content");
+  auto forgedEvidence = evidence.value();
+  forgedEvidence.chunks.front().bytes.push_back(' ');
+  require_failure(run_store::validate_project_evidence_archive(
+                  inventory, forgedEvidence),
+                  "project_evidence_chunk_invalid",
+                  "changed evidence chunk bytes");
+  const auto interruptedEvidenceProject =
+      root.path() / "interrupted-evidence.prometheus";
+  require_success(run_store::create_project_v2(interruptedEvidenceProject,
+                                                portableProject),
+                  "create interrupted evidence project");
+  const auto interruptedEvidence = run_store::publish_project_inventory_archive(
+      interruptedEvidenceProject, inventory, evidence.value(),
+      fail_at(run_store::TransactionBoundary::before_project_replacement));
+  require_failure(interruptedEvidence, "injected_failure",
+                  "evidence publication interruption");
+  require(run_store::open_read_only(interruptedEvidenceProject)
+              .value().execution.committed_runs.empty(),
+          "interrupted evidence publication cites no partial archive");
+  const auto evidenceRetry = run_store::publish_project_inventory_archive(
+      interruptedEvidenceProject, inventory, evidence.value());
+  require(evidenceRetry.has_value() &&
+              evidenceRetry.value().project.execution.committed_runs.size() ==
+                  2U,
+          "evidence publication recovers from retained immutable objects");
+  require_success(run_store::publish_project_inventory_archive(
+                      portableProjectPath, inventory, evidence.value()),
+                  "publish portable project evidence archive");
+  const auto bundleDirectory = root.path() / "portable-bundle";
+  const auto bundle = run_store::export_project_bundle(
+      portableProjectPath, bundleDirectory);
+  require(bundle.has_value(),
+          "portable bundle exports: " +
+              (bundle.has_value() ? std::string{} :
+                                    bundle.diagnostic().code + " " +
+                                        bundle.diagnostic().message));
+  require(bundle.value().object_count ==
+              portableObjects.value().chunks.size() + 7U,
+          "portable bundle contains exactly the reachable structural object graph");
+  const auto movedBundle = root.path() / "moved-clean-machine-bundle";
+  fs::rename(bundleDirectory, movedBundle);
+  const auto moved = run_store::verify_project_bundle(movedBundle);
+  require(moved.has_value(), "whole project bundle verifies after directory relocation");
+  const auto restoredBundlePath = root.path() / "restored-portable-bundle";
+  const auto restoredBundle = run_store::restore_project_bundle(
+      movedBundle, restoredBundlePath);
+  require(restoredBundle.has_value() &&
+              restoredBundle.value().object_count == moved.value().object_count &&
+              run_store::open_read_only(restoredBundle.value().project_path)
+                  .has_value(),
+          "verified portable backup restores atomically into a new usable project");
+  const auto bundledPrevious =
+      run_store::sidecar_path_for_project(restoredBundle.value().project_path) /
+      ".project-index.previous";
+  const auto bundledPreviousBytes = read_file(bundledPrevious);
+  write_file(bundledPrevious, "changed recovery index\n");
+  require_failure(run_store::verify_project_bundle(restoredBundlePath),
+                  "bundle_previous_project_invalid",
+                  "portable bundle with changed recovery index");
+  write_file(bundledPrevious, bundledPreviousBytes);
+  require(run_store::verify_project_bundle(restoredBundlePath).has_value(),
+          "portable bundle verifies after exact recovery index restoration");
+  write_file(restoredBundlePath / "undeclared-tool.exe", "unexpected bytes");
+  require_failure(run_store::verify_project_bundle(restoredBundlePath),
+                  "bundle_file_set_invalid",
+                  "portable bundle with undeclared filesystem payload");
+  const auto rejectedRestorePath = root.path() / "rejected-bundle-restore";
+  require_failure(run_store::restore_project_bundle(
+                      restoredBundlePath, rejectedRestorePath),
+                  "bundle_file_set_invalid", "restore from changed bundle");
+  require(!fs::exists(rejectedRestorePath),
+          "rejected restore publishes no destination");
+  const auto movedProject = run_store::open_read_only(moved.value().project_path);
+  require(movedProject.has_value() &&
+              movedProject.value().cad_source == "sources/portable-bracket.step" &&
+              movedProject.value().execution.committed_runs.size() == 4U,
+          "relocated bundle opens with relative CAD and structural history");
+  require(run_store::read_object(moved.value().project_path, inventory.reference)
+              .value() == inventory.bytes,
+          "relocated bundle retains exact project inventory snapshot");
+  const auto movedEvidence = std::ranges::find_if(
+      movedProject.value().execution.committed_runs, [](const auto &reference) {
+        return reference.schema_id ==
+               run_store::project_evidence_archive_schema_id;
+      });
+  require(movedEvidence != movedProject.value().execution.committed_runs.end(),
+          "relocated project retains its evidence archive root");
+  const auto reconstructedEvidence =
+      run_store::reconstruct_project_evidence_archive(
+          moved.value().project_path, *movedEvidence,
+          root.path() / "reconstructed-project-evidence");
+  require(reconstructedEvidence.has_value() &&
+              read_file(reconstructedEvidence.value() / "retained" / "docs" /
+                        "spec.pdf") == read_file(documentPath) &&
+              read_file(reconstructedEvidence.value() / "quarantine" / "tools" /
+                        "check.exe.prometheus-quarantined") ==
+                  read_file(toolPath) &&
+              !fs::exists(reconstructedEvidence.value() / "retained" /
+                          "portable-bracket.step"),
+          "relocated evidence reconstructs retained bytes, neutralizes quarantine names, and leaves CAD separate");
+  const auto bundleRestored = run_store::reconstruct_structural_archive(
+      moved.value().project_path,
+      movedProject.value().execution.committed_runs.front(),
+      root.path() / "bundle-restored-run");
+  require(bundleRestored.has_value(),
+          "relocated bundle reconstructs its embedded structural archive");
+  for (const auto &entry : fs::directory_iterator(sourceManifest.parent_path())) {
+    require(read_file(entry.path()) ==
+                read_file(bundleRestored.value().parent_path() /
+                          entry.path().filename()),
+            "relocated bundle retains exact structural artifact bytes");
+  }
+  write_file(cadPath, "changed CAD source bytes\n");
+  const auto changedSourceBundle = run_store::export_project_bundle(
+      portableProjectPath, root.path() / "changed-source-bundle");
+  require_failure(changedSourceBundle, "bundle_source_changed",
+                  "portable export with changed CAD source");
+  require(!fs::exists(root.path() / "changed-source-bundle"),
+          "rejected portable export publishes no destination");
+
+  write_file(sourceManifest.parent_path() / "run.frd", "changed\n");
+  const auto corrupt = run_store::build_structural_archive_objects(
+      sourceManifest, initial_project().assembly_artifact_hash);
+  require_failure(corrupt, "artifact_identity_mismatch",
+                  "changed source artifact cannot be packed");
+
+  const auto interruptedPath = root.path() / "interrupted-structural.prometheus";
+  require_success(run_store::create_project_v2(interruptedPath, initial_project()),
+                  "create interrupted structural project");
+  const auto interrupted = run_store::publish_structural_archive(
+      interruptedPath, packed.value(),
+      fail_at(run_store::TransactionBoundary::before_project_replacement));
+  require_failure(interrupted, "injected_failure",
+                  "structural publication interruption");
+  require(run_store::open_read_only(interruptedPath)
+              .value()
+              .execution.committed_runs.empty(),
+          "interrupted structural publication leaves last valid project index");
+  const auto retry = run_store::publish_structural_archive(
+      interruptedPath, packed.value());
+  require(retry.has_value() &&
+              retry.value().project.execution.committed_runs.size() == 2U,
+          "structural publication recovers by retrying retained immutable objects");
+
+  const auto changedAssemblyPath = root.path() / "changed-assembly.prometheus";
+  auto changedAssemblyProject = initial_project();
+  changedAssemblyProject.assembly_artifact_hash =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  require_success(run_store::create_project_v2(changedAssemblyPath,
+                                                changedAssemblyProject),
+                  "create changed-assembly structural project");
+  const auto stalePublication = run_store::publish_structural_archive(
+      changedAssemblyPath, packed.value());
+  require_failure(stalePublication, "assembly_artifact_mismatch",
+                  "structural run built against another assembly");
+  require(run_store::open_read_only(changedAssemblyPath)
+              .value().execution.committed_runs.empty(),
+          "assembly mismatch cannot enter structural project history");
 }
 
 void test_create_failure_boundaries() {
@@ -425,7 +889,8 @@ void test_publication_failure_is_atomic() {
                     "publication failure boundary");
     const auto reopened = require_success(
         run_store::open_read_only(project_path), "reopen failed publication");
-    require(reopened.execution.committed_runs.size() <= 1U,
+    require(reopened.execution.committed_runs.empty() ||
+                reopened.execution.committed_runs.size() == 2U,
             "failed publication leaves old or complete new run history");
     if (!reopened.execution.committed_runs.empty()) {
       require(reopened.execution.committed_runs.front() ==
@@ -535,10 +1000,50 @@ void test_event_log_trims_only_display_metadata() {
       "publish with full display event log");
   require(published.project.execution.events.size() ==
                   run_store::maximum_events &&
-              published.project.execution.events.front().sequence == 2U &&
-              published.project.execution.events.back().sequence == 257U &&
-              published.project.execution.committed_runs.size() == 1U,
+              published.project.execution.events.front().sequence == 3U &&
+              published.project.execution.events.back().sequence == 258U &&
+              published.project.execution.committed_runs.size() == 2U,
           "event append trims only the oldest display event, not run history");
+}
+
+void test_previous_project_index_recovery() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "recoverable.prometheus";
+  const auto original = initial_project();
+  require_success(run_store::create_project_v2(project_path, original),
+                  "create recoverable project");
+  auto changed = original;
+  changed.name = "Changed project";
+  const auto saved = run_store::save_project_snapshot(project_path, changed);
+  require(saved.has_value() && saved.value().name == changed.name,
+          "successful replacement publishes changed index");
+  const auto previous_path = run_store::sidecar_path_for_project(project_path) /
+                             ".project-index.previous";
+  require(fs::is_regular_file(previous_path) &&
+              run_store::parse_project_v2(read_file(previous_path)).value().name ==
+                  original.name,
+          "replacement retains exact prior validated index");
+  require_failure(run_store::recover_previous_project_index(project_path),
+                  "project_recovery_not_required",
+                  "valid current index rollback");
+  require(run_store::open_read_only(project_path).value().name == changed.name,
+          "rejected rollback leaves valid current index unchanged");
+
+  write_file(project_path, "damaged current index\n");
+  const auto recovered =
+      run_store::recover_previous_project_index(project_path);
+  require(recovered.has_value() && recovered.value().name == original.name &&
+              run_store::open_read_only(project_path).value().name ==
+                  original.name,
+          "damaged current index recovers from retained validated predecessor");
+
+  write_file(previous_path, "damaged previous index\n");
+  write_file(project_path, "damaged current index again\n");
+  require_failure(run_store::recover_previous_project_index(project_path),
+                  "previous_project_index_invalid",
+                  "damaged retained previous index");
+  require(read_file(project_path) == "damaged current index again\n",
+          "failed recovery does not replace damaged current bytes");
 }
 
 class ChildProcess final {
@@ -750,6 +1255,8 @@ void test_kernel_lock_contention_and_recovery() {
 int main() {
   try {
     test_normal_operations_and_idempotency();
+    test_structural_manifest_anchor();
+    test_embedded_structural_archive_round_trip();
     test_create_failure_boundaries();
     test_binding_failure_boundaries();
     test_scenario_failure_is_atomic();
@@ -757,6 +1264,7 @@ int main() {
     test_publication_object_order_is_explicit();
     test_cancelled_and_invalid_publications_do_not_commit();
     test_event_log_trims_only_display_metadata();
+    test_previous_project_index_recovery();
     test_kernel_lock_contention_and_recovery();
     return 0;
   } catch (const std::exception &failure) {

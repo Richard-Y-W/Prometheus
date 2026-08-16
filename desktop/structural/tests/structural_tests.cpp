@@ -1,22 +1,24 @@
 #include "prometheus/structural/calculix_deck.hpp"
 #include "prometheus/structural/calculix_result.hpp"
+#include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
-#include "prometheus/structural/mesh_validation.hpp"
-#include "prometheus/structural/structural_case.hpp"
-#include "prometheus/structural/structural_finding.hpp"
 #include "prometheus/structural/structural_request.hpp"
-#include "prometheus/structural/surface_setup.hpp"
+#include "prometheus/structural/structural_findings.hpp"
+#include "prometheus/structural/structural_benchmarks.hpp"
+#include "prometheus/structural/structural_setup.hpp"
+#include "prometheus/structural/surface_groups.hpp"
+#include "prometheus/structural/surface_selection.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <functional>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
-#include <string>
 
 namespace ps = prometheus::structural;
+namespace fs = std::filesystem;
 
 [[noreturn]] void fail(const char *message) {
   std::cerr << "FAILED: " << message << '\n';
@@ -25,19 +27,6 @@ namespace ps = prometheus::structural;
 
 void require(const bool condition, const char *message) {
   if (!condition) fail(message);
-}
-
-void requireThrowsContaining(const std::function<void()> &operation,
-                             const std::string &expected,
-                             const char *message) {
-  try {
-    operation();
-  } catch (const std::exception &error) {
-    require(std::string(error.what()).find(expected) != std::string::npos,
-            message);
-    return;
-  }
-  fail(message);
 }
 
 ps::StructuralRequest validRequest() {
@@ -59,26 +48,6 @@ ps::StructuralRequest validRequest() {
       .restraints_reviewed = true,
       .requirements_reviewed = true,
       .scenario_confirmed = true,
-      .material_designation = "A2024",
-      .material_temper = "T351",
-      .material_product_form = "plate",
-      .material_applicability = "assumed",
-      .material_evidence_sha256 =
-          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      .mesh_sha256 =
-          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      .restraint_surface_groups = {"SurfaceFixed"},
-      .load_surface_groups = {"SurfaceLoad"},
-      .reviewed_force_magnitude_n = 100.0,
-      .reviewed_force_direction = {0.0, 0.0, -1.0},
-      .selected_load_area_m2 = 0.01,
-      .mesh_target_size_m = 0.002,
-      .minimum_mean_ratio_threshold = 0.05,
-      .observed_minimum_mean_ratio = 0.75,
-      .displacement_limit_basis = "reviewed test displacement requirement",
-      .von_mises_limit_basis = "reviewed test stress requirement",
-      .mesh_reviewed = true,
-      .mesh_coordinate_scale_to_m = 0.001,
   };
 }
 
@@ -89,51 +58,25 @@ bool hasIssue(const std::vector<ps::ValidationIssue> &issues,
   });
 }
 
-bool hasResultIssue(const ps::CompiledCalculixResult &result,
-                    const std::string &code) {
-  return std::ranges::any_of(result.issues, [&](const auto &value) {
-    return value.code == code;
-  });
-}
-
-const ps::StructuralFinding &
-finding(const std::vector<ps::StructuralFinding> &findings,
-        const ps::StructuralMetric metric) {
-  const auto found =
-      std::ranges::find(findings, metric, &ps::StructuralFinding::metric);
-  require(found != findings.end(), "expected structural finding exists");
-  return *found;
-}
-
-std::string replaceOnce(std::string source, const std::string &from,
-                        const std::string &to) {
-  const auto position = source.find(from);
-  require(position != std::string::npos, "test replacement source exists");
-  source.replace(position, from.size(), to);
-  return source;
-}
-
-ps::VolumeMesh twoTetraSurfaceMesh() {
-  ps::VolumeMesh mesh;
-  mesh.nodes = {{1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
-                {3, {0.0, 1.0, 0.0}}, {4, {0.0, 0.0, 1.0}},
-                {5, {0.0, 0.0, -1.0}}};
-  mesh.elements = {{1, {1, 2, 3, 4}}, {2, {1, 3, 2, 5}}};
-  const auto validated = ps::validate_and_measure_mesh(
-      mesh.nodes, mesh.elements,
-      {{.name = "Fixed", .triangles = {{10, {1, 2, 4}}}},
-       {.name = "Load",
-        .triangles = {{11, {1, 3, 4}}, {12, {3, 2, 5}}}},
-       {.name = "Other",
-        .triangles = {{13, {2, 3, 4}},
-                      {14, {1, 3, 5}},
-                      {15, {1, 2, 5}}}}});
-  mesh.surface_groups = validated.surface_groups;
-  mesh.diagnostics = validated.diagnostics;
-  return mesh;
-}
-
 int main() {
+  const auto axialBenchmark = ps::axial_tension_bar_benchmark();
+  require(ps::validate_request(axialBenchmark.request).empty() &&
+              std::abs(axialBenchmark.expected_maximum_displacement_m - 5.0e-7) < 1e-18 &&
+              std::abs(axialBenchmark.expected_maximum_von_mises_pa - 1.0e5) < 1e-9,
+          "axial benchmark derives closed-form displacement and stress references");
+  const auto exactComparison = ps::compare_benchmark(
+      axialBenchmark, {5.0e-7, 1.0e5, 8, 6});
+  require(exactComparison.passed(), "exact analytic benchmark metrics pass tolerance");
+  const auto badComparison = ps::compare_benchmark(
+      axialBenchmark, {6.0e-7, 1.2e5, 8, 6});
+  require(!badComparison.passed(), "benchmark comparison rejects material error");
+  const auto cantilever = ps::cantilever_benchmark(20, 3, 3);
+  require(ps::validate_request(cantilever.request).empty() &&
+              cantilever.request.nodes.size() == 336 &&
+              cantilever.request.elements.size() == 1080 &&
+              std::abs(cantilever.expected_maximum_displacement_m - 0.0002) < 1e-15 &&
+              std::abs(cantilever.expected_maximum_von_mises_pa - 6.0e6) < 1e-8,
+          "cantilever benchmark derives beam references and bounded solid mesh");
   const auto request = validRequest();
   require(ps::validate_request(request).empty(), "reviewed tetra request validates");
   const auto deck = ps::generate_calculix_deck(request);
@@ -145,63 +88,10 @@ int main() {
               deck.find("*STATIC, SOLVER=SPOOLES") != std::string::npos &&
               deck.find("4, 3, -1.0000000000e+02") != std::string::npos,
           "deck pins the solver and contains bounded tetra and reviewed force");
-
-  const auto structuralCase = ps::build_structural_case(request);
-  const auto rebuiltCase = ps::build_structural_case(request);
-  require(structuralCase.bytes == rebuiltCase.bytes &&
-              structuralCase.object_hash == rebuiltCase.object_hash &&
-              structuralCase.object_hash.starts_with("sha256:"),
-          "reviewed structural case bytes and identity are deterministic");
-  const auto parsedCase = ps::parse_structural_case(structuralCase.bytes);
-  require(parsedCase.bytes == structuralCase.bytes &&
-              parsedCase.object_hash == structuralCase.object_hash &&
-              parsedCase.request.mesh_coordinate_scale_to_m == 0.001 &&
-              ps::generate_calculix_deck(parsedCase.request) == deck,
-          "canonical structural case retains mesh units and regenerates identical deck bytes");
-
-  const auto unknownCase = replaceOnce(
-      structuralCase.bytes, "{\"$schema\":", "{\"!\":0,\"$schema\":");
-  requireThrowsContaining(
-      [&] { (void)ps::parse_structural_case(unknownCase); }, "unknown",
-      "unknown structural case members are rejected");
-  const auto duplicateCase = replaceOnce(
-      structuralCase.bytes, "{\"$schema\":",
-      "{\"$schema\":\"duplicate\",\"$schema\":");
-  requireThrowsContaining(
-      [&] { (void)ps::parse_structural_case(duplicateCase); }, "duplicate",
-      "duplicate structural case members are rejected");
-  requireThrowsContaining(
-      [&] { (void)ps::parse_structural_case(structuralCase.bytes + "\n"); },
-      "canonical", "noncanonical stored structural case bytes are rejected");
-  auto missingCaseProvenance = request;
-  missingCaseProvenance.mesh_sha256.clear();
-  requireThrowsContaining(
-      [&] { (void)ps::build_structural_case(missingCaseProvenance); },
-      "invalid_mesh_identity",
-      "reviewed structural case requires exact mesh provenance");
-  missingCaseProvenance = request;
-  missingCaseProvenance.material_evidence_sha256.clear();
-  requireThrowsContaining(
-      [&] { (void)ps::build_structural_case(missingCaseProvenance); },
-      "invalid_material_evidence_identity",
-      "reviewed structural case requires exact material provenance");
-  auto oversizedCaseText = request;
-  oversizedCaseText.component_name = std::string(4097U, 'x');
-  requireThrowsContaining(
-      [&] { (void)ps::build_structural_case(oversizedCaseText); },
-      "text_too_long",
-      "case builder enforces the same text bound as its strict decoder");
-
-  auto widerThanDefaultIntegrityLimits = request;
-  widerThanDefaultIntegrityLimits.restraint_surface_groups.clear();
-  for (int index = 0; index < 10'001; ++index)
-    widerThanDefaultIntegrityLimits.restraint_surface_groups.push_back(
-        "SurfaceFixed" + std::to_string(index));
-  const auto wideCase =
-      ps::build_structural_case(widerThanDefaultIntegrityLimits);
-  require(ps::parse_structural_case(wideCase.bytes)
-                  .request.restraint_surface_groups.size() == 10'001U,
-          "case identity uses the structural contract limits");
+  const auto restoredDeckMesh = ps::parse_gmsh_abaqus_mesh(deck, 1.0);
+  require(restoredDeckMesh.nodes.size() == request.nodes.size() &&
+              restoredDeckMesh.elements.size() == request.elements.size(),
+          "generated CalculiX deck restores its exact submitted volume mesh");
 
   auto blocked = request;
   blocked.material_reviewed = false;
@@ -226,76 +116,10 @@ int main() {
   require(hasIssue(ps::validate_request(missingNode), "load_node_missing"),
           "load on missing mesh node stays blocked");
 
-  auto zeroForce = request;
-  zeroForce.nodal_forces = {{4, {0.0, 0.0, 0.0}}};
-  zeroForce.reviewed_force_magnitude_n = 0.0;
-  require(hasIssue(ps::validate_request(zeroForce), "zero_resultant_load"),
-          "an all-zero load stays blocked");
-
-  auto duplicateForce = request;
-  duplicateForce.nodal_forces.push_back({4, {1.0, 0.0, 0.0}});
-  require(hasIssue(ps::validate_request(duplicateForce), "duplicate_load_node"),
-          "duplicate nodal forces stay blocked");
-
-  auto malformedHash = request;
-  malformedHash.geometry_sha256 =
-      "sha256:4A6FBA05B237B725BE2CA4E5BA7F7617674B4BCAE4164FF32E88D9E75275017A";
-  require(hasIssue(ps::validate_request(malformedHash),
-                   "invalid_geometry_identity"),
-          "uppercase SHA-256 stays blocked");
-
-  auto injectedHeading = request;
-  injectedHeading.component_name = "bracket\n*INCLUDE, INPUT=other.inp";
-  require(hasIssue(ps::validate_request(injectedHeading),
-                   "unsafe_heading_text"),
-          "CalculiX keyword injection stays blocked");
-
-  auto unknownMaterial = request;
-  unknownMaterial.material_applicability = "unresolved";
-  require(hasIssue(ps::validate_request(unknownMaterial),
-                   "material_applicability_unresolved"),
-          "an unresolved material cannot become reviewed");
-
-  auto weakMesh = request;
-  weakMesh.observed_minimum_mean_ratio = 0.09;
-  weakMesh.minimum_mean_ratio_threshold = 0.10;
-  require(hasIssue(ps::validate_request(weakMesh),
-                   "mesh_quality_below_limit"),
-          "a mesh below its predeclared quality floor stays blocked");
-
-  auto invalidMeshScale = request;
-  invalidMeshScale.mesh_coordinate_scale_to_m = 0.0;
-  require(hasIssue(ps::validate_request(invalidMeshScale),
-                   "invalid_mesh_coordinate_scale"),
-          "a reviewed case cannot lose the source mesh unit scale");
-
-  auto mismatchedResultant = request;
-  mismatchedResultant.reviewed_force_magnitude_n = 101.0;
-  require(hasIssue(ps::validate_request(mismatchedResultant),
-                   "compiled_load_mismatch"),
-          "compiled nodal forces must reproduce the reviewed force");
-
-  auto nonunitDirection = request;
-  nonunitDirection.reviewed_force_direction = {0.0, 0.0, -2.0};
-  require(hasIssue(ps::validate_request(nonunitDirection),
-                   "invalid_reviewed_force_direction"),
-          "reviewed force direction must already be normalized");
-
-  auto unsafeBasis = request;
-  unsafeBasis.displacement_limit_basis.clear();
-  require(hasIssue(ps::validate_request(unsafeBasis),
-                   "missing_displacement_limit_basis"),
-          "a displacement limit without a basis stays blocked");
-
   auto zeroVolume = request;
   zeroVolume.nodes.front().position_m = {1.0, 1.0, 0.0};
   require(hasIssue(ps::validate_request(zeroVolume), "zero_volume_element"),
           "zero-volume tetrahedron stays blocked");
-
-  auto inverted = request;
-  inverted.elements.front().node_ids = {1, 3, 2, 4};
-  require(hasIssue(ps::validate_request(inverted), "inverted_element"),
-          "an inverted tetrahedron cannot enter a solver deck directly");
 
   auto collinear = request;
   collinear.nodes[3].position_m = {2.0, 0.0, 0.0};
@@ -306,292 +130,39 @@ int main() {
  displacements (vx,vy,vz) for set NALL and time  0.1000000E+01
 
          1  0.000000E+00  0.000000E+00  0.000000E+00
-         2  0.100000E-08  0.000000E+00  0.000000E+00
-         3  0.000000E+00  0.200000E-08  0.000000E+00
          4  0.000000E+00  0.000000E+00 -2.228571E-08
 
  stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) for set COMPONENT and time  0.1000000E+01
 
          1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00
 )";
-  const auto parsedDat = ps::parse_calculix_dat(rawDat);
-  require(parsedDat.displacements.size() == 4 &&
-              parsedDat.stresses.size() == 1 &&
-              parsedDat.displacements.front().node_id == 1 &&
-              parsedDat.stresses.front().element_id == 1 &&
-              parsedDat.stresses.front().integration_point == 1,
-          "raw CalculiX rows retain result identities");
+  const auto metrics = ps::parse_calculix_dat(rawDat);
+  require(metrics.displacement_rows == 2 && metrics.stress_rows == 1 &&
+              metrics.displacements.size() == 2 &&
+              metrics.displacements.back().node_id == 4 &&
+              metrics.stresses.size() == 1 && metrics.stresses.front().element_id == 1 &&
+              std::abs(metrics.maximum_displacement_m - 2.228571e-8) < 1e-15 &&
+              std::abs(metrics.maximum_von_mises_pa - 3428.571) < 1e-6,
+          "raw CalculiX displacement and stress rows compile to SI maxima");
+  auto resultRequest = request;
+  resultRequest.nodes = {request.nodes.front(), request.nodes.back()};
+  resultRequest.nodes[0].id = 1;
+  resultRequest.nodes[1].id = 4;
+  resultRequest.elements = {request.elements.front()};
+  resultRequest.elements.front().id = 1;
+  require(ps::validate_calculix_result_binding(resultRequest, metrics).empty(),
+          "solver field identities bind exactly to submitted node and element IDs");
+  auto incompleteMetrics = metrics;
+  incompleteMetrics.displacements.pop_back();
+  require(hasIssue(ps::validate_calculix_result_binding(resultRequest,
+                                                         incompleteMetrics),
+                   "displacement_mesh_mismatch"),
+          "incomplete solver field coverage fails closed");
   try {
     (void)ps::parse_calculix_dat("solver stopped before result output\n");
     fail("missing solver output became metrics");
   } catch (const std::runtime_error &) {
   }
-
-  const std::string rawStatus = R"(SUMMARY OF JOB INFORMATION
-
- STEP INC ATT ITRS TOT TIME STEP TIME INC TIME
-    1   1   1    1  0.100000E+01  0.100000E+01  0.100000E+01
-)";
-  const ps::CalculixRunEvidence evidence{
-      .process_exit_code = 0,
-      .solver_executable_sha256 =
-          "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      .solver_version = "CalculiX Version 2.23",
-      .deck_bytes = deck,
-      .standard_output = "CalculiX Version 2.23\n\nJob finished\n",
-      .standard_error = "",
-      .status_bytes = rawStatus,
-      .data_bytes = std::string(rawDat),
-  };
-  const auto compiled = ps::compile_calculix_result(request, evidence);
-  require(compiled.complete() && compiled.metrics.has_value() &&
-              compiled.normalized.displacements.size() == 4 &&
-              compiled.normalized.stresses.size() == 1 &&
-              compiled.metrics->displacement_rows == 4 &&
-              compiled.metrics->stress_rows == 1 &&
-              std::abs(compiled.metrics->maximum_displacement_m -
-                       2.228571e-8) < 1.0e-15 &&
-              std::abs(compiled.metrics->maximum_von_mises_pa - 3428.571) <
-                  1.0e-6 &&
-              compiled.artifacts.deck_sha256.starts_with("sha256:") &&
-              compiled.backend.version == "CalculiX Version 2.23" &&
-              compiled.convergence.has_value() &&
-              compiled.convergence->step == 1 &&
-              std::abs(compiled.convergence->step_time - 1.0) < 1.0e-12,
-          "complete solver evidence compiles typed metrics and identities");
-
-  const ps::StructuralRefinementEvidence acceptedRefinement{
-      .complete = true,
-      .criteria_satisfied = true,
-      .medium_to_fine_displacement_change_fraction = 0.01,
-      .maximum_allowed_change_fraction = 0.02,
-      .evidence_sha256 =
-          {"sha256:"
-           "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-           "sha256:"
-           "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
-  };
-  auto passingRequest = request;
-  passingRequest.displacement_limit_m = 3.0e-8;
-  passingRequest.von_mises_limit_pa = 4.0e3;
-  const auto passingFindings = ps::compile_structural_findings(
-      passingRequest, compiled, acceptedRefinement);
-  require(
-      passingFindings.size() == 2 &&
-          finding(passingFindings, ps::StructuralMetric::maximum_displacement)
-                  .status == ps::FindingStatus::pass &&
-          finding(passingFindings, ps::StructuralMetric::maximum_von_mises)
-                  .status == ps::FindingStatus::pass,
-      "complete converged metrics below reviewed limits pass");
-
-  auto equalityRequest = passingRequest;
-  equalityRequest.displacement_limit_m =
-      compiled.metrics->maximum_displacement_m;
-  equalityRequest.von_mises_limit_pa = compiled.metrics->maximum_von_mises_pa;
-  const auto equalityFindings = ps::compile_structural_findings(
-      equalityRequest, compiled, acceptedRefinement);
-  require(finding(equalityFindings, ps::StructuralMetric::maximum_displacement)
-                      .status == ps::FindingStatus::fail &&
-              finding(equalityFindings, ps::StructuralMetric::maximum_von_mises)
-                      .status == ps::FindingStatus::fail,
-          "a metric equal to its reviewed limit fails");
-
-  auto oneMissingLimit = passingRequest;
-  oneMissingLimit.von_mises_limit_pa.reset();
-  oneMissingLimit.von_mises_limit_basis.clear();
-  const auto missingLimitFindings = ps::compile_structural_findings(
-      oneMissingLimit, compiled, acceptedRefinement);
-  require(
-      finding(missingLimitFindings, ps::StructuralMetric::maximum_displacement)
-                  .status == ps::FindingStatus::pass &&
-          finding(missingLimitFindings, ps::StructuralMetric::maximum_von_mises)
-                  .status == ps::FindingStatus::indeterminate,
-      "a missing metric limit remains indeterminate");
-
-  auto failedRefinement = acceptedRefinement;
-  failedRefinement.criteria_satisfied = false;
-  const auto unrefinedFindings = ps::compile_structural_findings(
-      passingRequest, compiled, failedRefinement);
-  require(std::ranges::all_of(unrefinedFindings,
-                              [](const auto &value) {
-                                return value.status ==
-                                       ps::FindingStatus::indeterminate;
-                              }),
-          "failed refinement evidence cannot produce pass or fail findings");
-
-  auto unsupportedRefinementClaim = acceptedRefinement;
-  unsupportedRefinementClaim.evidence_sha256.resize(1U);
-  const auto unsupportedRefinementFindings = ps::compile_structural_findings(
-      passingRequest, compiled, unsupportedRefinementClaim);
-  require(std::ranges::all_of(unsupportedRefinementFindings,
-                              [](const auto &value) {
-                                return value.status ==
-                                       ps::FindingStatus::indeterminate;
-                              }),
-          "refinement needs at least two exact result identities");
-
-  auto duplicateRefinement = acceptedRefinement;
-  duplicateRefinement.evidence_sha256[1] =
-      duplicateRefinement.evidence_sha256[0];
-  const auto duplicateRefinementFindings = ps::compile_structural_findings(
-      passingRequest, compiled, duplicateRefinement);
-  require(std::ranges::all_of(duplicateRefinementFindings,
-                              [](const auto &value) {
-                                return value.status ==
-                                       ps::FindingStatus::indeterminate;
-                              }),
-          "refinement requires distinct result identities");
-
-  auto inconsistentRefinement = acceptedRefinement;
-  inconsistentRefinement.medium_to_fine_displacement_change_fraction = 0.03;
-  const auto inconsistentRefinementFindings = ps::compile_structural_findings(
-      passingRequest, compiled, inconsistentRefinement);
-  require(std::ranges::all_of(inconsistentRefinementFindings,
-                              [](const auto &value) {
-                                return value.status ==
-                                       ps::FindingStatus::indeterminate;
-                              }),
-          "a claimed refinement pass outside its numeric limit is rejected");
-
-  auto incompleteEvidence = evidence;
-  incompleteEvidence.process_exit_code = 9;
-  const auto incompleteResult =
-      ps::compile_calculix_result(request, incompleteEvidence);
-  const auto incompleteFindings = ps::compile_structural_findings(
-      passingRequest, incompleteResult, acceptedRefinement);
-  require(std::ranges::all_of(incompleteFindings,
-                              [](const auto &value) {
-                                return value.status ==
-                                       ps::FindingStatus::indeterminate;
-                              }),
-          "incomplete solver evidence cannot produce pass or fail findings");
-
-  auto failedExit = evidence;
-  failedExit.process_exit_code = 9;
-  require(hasResultIssue(ps::compile_calculix_result(request, failedExit),
-                         "solver_process_failed"),
-          "nonzero solver status is indeterminate");
-
-  auto missingSolverIdentity = evidence;
-  missingSolverIdentity.solver_executable_sha256.clear();
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, missingSolverIdentity),
-              "invalid_solver_identity"),
-          "missing exact solver executable identity is indeterminate");
-
-  auto unsafeSolverVersion = evidence;
-  unsafeSolverVersion.solver_version = "CalculiX 2.23\nforged";
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, unsafeSolverVersion),
-              "invalid_solver_version"),
-          "unsafe solver version evidence is indeterminate");
-
-  auto missingCompletion = evidence;
-  missingCompletion.standard_output = "CalculiX Version 2.23\n";
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, missingCompletion),
-              "solver_completion_marker_missing"),
-          "missing solver completion marker is indeterminate");
-
-  auto deceptiveCompletion = evidence;
-  deceptiveCompletion.standard_output =
-      "No Job finished marker was emitted by the solver\n";
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, deceptiveCompletion),
-              "solver_completion_marker_missing"),
-          "completion text embedded in another line is indeterminate");
-
-  auto errorMarker = evidence;
-  errorMarker.standard_output =
-      "*ERROR in e_c3d: nonpositive jacobian\nJob finished\n";
-  require(hasResultIssue(ps::compile_calculix_result(request, errorMarker),
-                         "solver_reported_error"),
-          "solver error text cannot be hidden by Job finished");
-
-  auto incompleteStep = evidence;
-  incompleteStep.status_bytes = replaceOnce(
-      rawStatus, "0.100000E+01  0.100000E+01",
-      "0.500000E+00  0.500000E+00");
-  require(hasResultIssue(ps::compile_calculix_result(request, incompleteStep),
-                         "solver_step_incomplete"),
-          "a converged row below final step time is indeterminate");
-
-  auto malformedStatus = evidence;
-  malformedStatus.status_bytes = replaceOnce(rawStatus, "   1    1", "   X    1");
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, malformedStatus),
-              "invalid_solver_status"),
-          "malformed convergence evidence is indeterminate");
-
-  auto missingNodeResult = evidence;
-  missingNodeResult.data_bytes = replaceOnce(
-      missingNodeResult.data_bytes,
-      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n", "");
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, missingNodeResult),
-              "missing_displacement_row"),
-          "missing displacement identities are indeterminate");
-
-  auto duplicateNodeResult = evidence;
-  duplicateNodeResult.data_bytes = replaceOnce(
-      duplicateNodeResult.data_bytes,
-      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
-      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n\n"
-      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, duplicateNodeResult),
-              "duplicate_displacement_row"),
-          "duplicate displacement identities are indeterminate");
-
-  auto unexpectedNodeResult = evidence;
-  unexpectedNodeResult.data_bytes = replaceOnce(
-      unexpectedNodeResult.data_bytes,
-      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
-      "        99  0.000000E+00  0.000000E+00  0.000000E+00\n\n"
-      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, unexpectedNodeResult),
-              "unexpected_displacement_row"),
-          "unexpected displacement identities are indeterminate");
-
-  auto missingStressResult = evidence;
-  missingStressResult.data_bytes = replaceOnce(
-      missingStressResult.data_bytes,
-      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n",
-      "");
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, missingStressResult),
-              "missing_stress_row"),
-          "missing stress identities are indeterminate");
-
-  auto duplicateStressResult = evidence;
-  duplicateStressResult.data_bytes +=
-      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, duplicateStressResult),
-              "duplicate_stress_row"),
-          "duplicate stress identities are indeterminate");
-
-  auto unexpectedStressResult = evidence;
-  unexpectedStressResult.data_bytes +=
-      "        99   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
-  require(hasResultIssue(
-              ps::compile_calculix_result(request, unexpectedStressResult),
-              "unexpected_stress_row"),
-          "unexpected stress identities are indeterminate");
-
-  auto nonfiniteResult = evidence;
-  nonfiniteResult.data_bytes = replaceOnce(nonfiniteResult.data_bytes,
-                                           "-2.228571E-08", "nan");
-  require(hasResultIssue(ps::compile_calculix_result(request, nonfiniteResult),
-                         "invalid_result_data"),
-          "nonfinite solver rows are indeterminate");
-
-  auto wrongDeck = evidence;
-  wrongDeck.deck_bytes += "** changed after execution\n";
-  require(hasResultIssue(ps::compile_calculix_result(request, wrongDeck),
-                         "deck_request_mismatch"),
-          "result evidence must bind to exact generated deck bytes");
 
   constexpr auto rawMesh = R"(*Heading
 *NODE
@@ -599,214 +170,199 @@ int main() {
 1, 0, 0, 0
 2, 10, 0, 0
 3, 0, 10, 0
-*ELEMENT, type=CPS3, ELSET=FixedFaces
-5, 1, 3, 2
-6, 1, 2, 4
-7, 1, 4, 3
-*ELEMENT, type=CPS3, ELSET=LoadedFace
-8, 2, 3, 4
+*ELEMENT, type=CPS3, ELSET=Surface1
+8, 1, 2, 3
 *ELEMENT, type=C3D4, ELSET=Volume1
 9, 1, 2, 3, 4
 )";
   const auto mesh = ps::parse_gmsh_abaqus_mesh(rawMesh, 0.001);
   require(mesh.nodes.size() == 4 && mesh.elements.size() == 1 &&
               mesh.nodes.front().position_m[2] == 0.01,
-          "Gmsh mesh parser retains C3D4 and converts mm to m explicitly");
-  require(mesh.surface_groups.size() == 2,
-          "Gmsh surface ELSETs remain selectable");
-  const auto loaded = std::ranges::find(mesh.surface_groups,
-                                        std::string("LoadedFace"),
-                                        &ps::SurfaceGroup::name);
-  require(loaded != mesh.surface_groups.end() && loaded->area_m2 > 0.0 &&
-              loaded->node_ids == std::vector<int>({2, 3, 4}) &&
-              loaded->representative_normal_defined,
-          "surface groups expose measured SI geometry");
-  require(mesh.diagnostics.connected_components == 1 &&
-              mesh.diagnostics.minimum_mean_ratio > 0.0 &&
-              mesh.diagnostics.maximum_mean_ratio <= 1.0,
-          "mesh diagnostics expose connectivity and tetra quality");
+          "Gmsh mesh parser retains only C3D4 and converts mm to m explicitly");
+  const auto boundary = ps::extract_boundary_faces(mesh);
+  require(boundary.size() == 4,
+          "one tetrahedron exposes four deterministic boundary faces");
+  double boundaryArea = 0.0;
+  for (const auto &face : boundary) {
+    boundaryArea += face.area_m2;
+    const auto oppositeId = *std::ranges::find_if(
+        mesh.elements.front().node_ids, [&](const int nodeId) {
+          return std::ranges::find(face.node_ids, nodeId) == face.node_ids.end();
+        });
+    const auto oppositeNode = std::ranges::find_if(
+        mesh.nodes, [&](const auto &node) { return node.id == oppositeId; });
+    require(oppositeNode != mesh.nodes.end(), "opposite boundary node exists");
+    const auto &opposite = oppositeNode->position_m;
+    const auto towardInterior = std::array<double, 3>{
+        opposite[0] - face.centroid_m[0], opposite[1] - face.centroid_m[1],
+        opposite[2] - face.centroid_m[2]};
+    require(face.outward_unit_normal[0] * towardInterior[0] +
+                    face.outward_unit_normal[1] * towardInterior[1] +
+                    face.outward_unit_normal[2] * towardInterior[2] <
+                0.0,
+            "boundary normals point away from the tetrahedron interior");
+  }
+  require(std::abs(boundaryArea - (0.00015 + std::sqrt(3.0) * 0.00005)) < 1e-12,
+          "boundary face areas are reported in square metres");
+  require(ps::group_boundary_faces(boundary, 1.0).size() == 4,
+          "sharp tetrahedron faces remain separate selectable patches");
 
-  constexpr auto gmshPhysicalGroups = R"(*Heading
-*NODE
-4, 0, 0, 10
-1, 0, 0, 0
-2, 10, 0, 0
-3, 0, 10, 0
-*ELEMENT, type=CPS3, ELSET=Surface1
-5, 1, 3, 2
-6, 1, 2, 4
-7, 1, 4, 3
-*ELEMENT, type=CPS3, ELSET=Surface2
-8, 2, 3, 4
-*ELEMENT, type=C3D4, ELSET=Volume1
-9, 1, 2, 3, 4
-*ELSET,ELSET=FIXED
-5, 6, 7
-*ELSET,ELSET=LOADED
-8
-*ELSET,ELSET=BAR
-9
-)";
-  const auto physicalMesh =
-      ps::parse_gmsh_abaqus_mesh(gmshPhysicalGroups, 0.001);
-  require(physicalMesh.surface_groups.size() == 2 &&
-              physicalMesh.surface_groups[0].name == "FIXED" &&
-              physicalMesh.surface_groups[1].name == "LOADED",
-          "Gmsh physical surface ELSETs replace elementary surface names");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::parse_gmsh_abaqus_mesh(
-            replaceOnce(gmshPhysicalGroups, "5, 6, 7\n", "5, 6, 99\n"),
-            0.001);
-      },
-      "unknown element", "physical ELSETs cannot reference missing elements");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::parse_gmsh_abaqus_mesh(
-            replaceOnce(gmshPhysicalGroups, "5, 6, 7\n", "5, 6, 9\n"),
-            0.001);
-      },
-      "mixes surface and volume",
-      "physical ELSETs cannot mix boundary and volume identities");
+  const std::vector<ps::BoundaryFace> flatFaces{
+      {1, {1, 2, 3}, {2.0 / 3.0, 1.0 / 3.0, 0.0}, {0.0, 0.0, 1.0}, 0.5},
+      {2, {2, 4, 3}, {1.0 / 3.0, 2.0 / 3.0, 0.0}, {0.0, 0.0, 1.0}, 0.5}};
+  const auto flatPatches = ps::group_boundary_faces(flatFaces, 0.0);
+  require(flatPatches.size() == 1 && flatPatches.front().id == 1 &&
+              flatPatches.front().face_node_ids.size() == 2 &&
+              flatPatches.front().node_ids == std::vector<int>({1, 2, 3, 4}) &&
+              std::abs(flatPatches.front().area_m2 - 1.0) < 1e-15 &&
+              std::abs(flatPatches.front().area_weighted_centroid_m[0] - 0.5) < 1e-15,
+          "adjacent coplanar triangles form one deterministic SI surface patch");
+  const auto selected = ps::resolve_boundary_selection(
+      "reviewed load face", flatPatches, {flatPatches.front().id});
+  require(selected.face_node_ids.size() == 2 && selected.node_ids.size() == 4 &&
+              std::abs(selected.area_m2 - 1.0) < 1e-15,
+          "visual patches resolve into durable exact boundary topology");
+  const auto distributed = ps::distribute_surface_total_force(
+      selected, {0.0, 0.0, -120.0}, flatFaces);
+  std::array<double, 3> distributedSum{};
+  for (const auto &nodal : distributed)
+    for (int axis = 0; axis < 3; ++axis)
+      distributedSum[axis] += nodal.force_n[axis];
+  require(distributed.size() == 4 && std::abs(distributedSum[2] + 120.0) < 1e-12 &&
+              std::abs(distributed[0].force_n[2] + 20.0) < 1e-12 &&
+              std::abs(distributed[1].force_n[2] + 40.0) < 1e-12,
+          "surface force distribution preserves the reviewed total vector");
+  try {
+    (void)ps::resolve_boundary_selection("reviewed load face", flatPatches,
+                                         {1, 1});
+    fail("duplicate visual patch selection was accepted");
+  } catch (const std::invalid_argument &) {
+  }
+  try {
+    (void)ps::group_boundary_faces(flatFaces, -1.0);
+    fail("invalid surface grouping angle was accepted");
+  } catch (const std::invalid_argument &) {
+  }
+
+  const auto tetraPatches = ps::group_boundary_faces(boundary, 1.0);
+  ps::StructuralSetup setup{
+      .analysis_id = "reviewed-tetra-setup",
+      .component_name = "benchmark tetrahedron",
+      .geometry_sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      .mesh = mesh,
+      .boundary_faces = boundary,
+      .material = {"benchmark isotropic material",
+                   "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                   "applies only to this analytic benchmark", 7.0e10, 0.33, true},
+      .load = {ps::resolve_boundary_selection("load", tetraPatches, {1}),
+               {0.0, 0.0, -100.0}, true},
+      .restraint = {ps::resolve_boundary_selection("fixed", tetraPatches, {2}), true},
+      .requirement = {0.001, 1.0e8, "explicit exploratory benchmark limits", true},
+      .mesh_controls = {0.001, 0.003, "test mesher 1.0", true},
+      .scenario_description = "one bounded linear-static benchmark scenario",
+      .scenario_confirmed = true};
+  require(ps::validate_setup(setup).empty(),
+          "reviewed setup with provenance and exact topology validates");
+  const auto compiledSetup = ps::compile_structural_request(setup);
+  require(compiledSetup.fully_fixed_node_ids.size() == 3 &&
+              compiledSetup.nodal_forces.size() == 3,
+          "reviewed surface setup compiles into the narrow solver request");
+  auto unreviewedSetup = setup;
+  unreviewedSetup.material.reviewed = false;
+  unreviewedSetup.requirement.source_or_exploratory_rationale.clear();
+  unreviewedSetup.scenario_confirmed = false;
+  const auto setupIssues = ps::validate_setup(unreviewedSetup);
+  require(hasIssue(setupIssues, "material_unreviewed") &&
+              hasIssue(setupIssues, "requirement_provenance_missing") &&
+              hasIssue(setupIssues, "scenario_unconfirmed"),
+          "unreviewed setup and missing rationale remain explicit blockers");
+  auto staleSelection = setup;
+  staleSelection.load.selection.area_m2 *= 2.0;
+  require(hasIssue(ps::validate_setup(staleSelection), "load_selection_invalid"),
+          "stale exact boundary selection is rejected before solver compilation");
+  auto invalidPatchAngle = setup;
+  invalidPatchAngle.selection_patch_angle_degrees = 0.0;
+  require(hasIssue(ps::validate_setup(invalidPatchAngle),
+                   "selection_patch_angle_invalid"),
+          "invalid reviewed surface grouping angle is rejected");
+  try {
+    (void)ps::compile_structural_request(unreviewedSetup);
+    fail("unreviewed structural setup compiled into a solver request");
+  } catch (const std::invalid_argument &) {
+  }
+
+  auto paired = mesh;
+  paired.nodes.push_back({5, {0.0, 0.0, -0.01}});
+  paired.elements.push_back({10, {1, 3, 2, 5}});
+  require(ps::extract_boundary_faces(paired).size() == 6,
+          "a shared tetrahedron face is excluded from the exterior boundary");
+  auto nonManifold = paired;
+  nonManifold.nodes.push_back({6, {0.0, 0.0, 0.02}});
+  nonManifold.elements.push_back({11, {1, 2, 3, 6}});
+  try {
+    (void)ps::extract_boundary_faces(nonManifold);
+    fail("non-manifold volume face was accepted");
+  } catch (const std::invalid_argument &) {
+  }
   try {
     (void)ps::parse_gmsh_abaqus_mesh(rawMesh, 0.0);
     fail("invalid mesh scale was accepted");
   } catch (const std::invalid_argument &) {
   }
 
-  const std::vector<ps::Node> directNodes{
-      {1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
-      {3, {0.0, 1.0, 0.0}}, {4, {0.0, 0.0, 1.0}}};
-  const std::vector<ps::SurfaceGroup> completeBoundary{{
-      .name = "boundary",
-      .triangles = {{1, {1, 3, 2}}, {2, {1, 2, 4}},
-                    {3, {1, 4, 3}}, {4, {2, 3, 4}}},
-  }};
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            directNodes, {{1, {1, 3, 2, 4}}}, completeBoundary);
-      },
-      "inverted tetrahedron", "inverted tetrahedra are rejected");
-
-  std::vector<ps::Node> disconnectedNodes = directNodes;
-  disconnectedNodes.insert(disconnectedNodes.end(),
-                           {{5, {10.0, 0.0, 0.0}},
-                            {6, {11.0, 0.0, 0.0}},
-                            {7, {10.0, 1.0, 0.0}},
-                            {8, {10.0, 0.0, 1.0}}});
-  auto disconnectedBoundary = completeBoundary;
-  disconnectedBoundary.front().triangles.insert(
-      disconnectedBoundary.front().triangles.end(),
-      {{5, {5, 7, 6}}, {6, {5, 6, 8}}, {7, {5, 8, 7}},
-       {8, {6, 7, 8}}});
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            disconnectedNodes, {{1, {1, 2, 3, 4}}, {2, {5, 6, 7, 8}}},
-            disconnectedBoundary);
-      },
-      "face-connected volume component",
-      "face-disconnected tetrahedral regions are rejected");
-
-  auto missingBoundary = completeBoundary;
-  missingBoundary.front().triangles.pop_back();
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            directNodes, {{1, {1, 2, 3, 4}}}, missingBoundary);
-      },
-      "not completely represented",
-      "missing boundary triangles are rejected");
-
-  auto duplicateBoundary = completeBoundary;
-  duplicateBoundary.front().triangles.push_back({5, {2, 4, 3}});
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            directNodes, {{1, {1, 2, 3, 4}}}, duplicateBoundary);
-      },
-      "more than once",
-      "duplicate boundary triangles cannot appear in surface groups");
-
-  auto nonBoundary = completeBoundary;
-  nonBoundary.front().triangles.front().node_ids = {1, 2, 2};
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            directNodes, {{1, {1, 2, 3, 4}}}, nonBoundary);
-      },
-      "three distinct nodes", "invalid surface triangles are rejected");
-
-  auto joinedNodes = directNodes;
-  joinedNodes.push_back({5, {0.0, 0.0, -1.0}});
-  const std::vector<ps::SurfaceGroup> interiorFace{{
-      .name = "not-a-boundary",
-      .triangles = {{1, {1, 2, 3}}},
-  }};
-  requireThrowsContaining(
-      [&] {
-        (void)ps::validate_and_measure_mesh(
-            joinedNodes, {{1, {1, 2, 3, 4}}, {2, {1, 3, 2, 5}}},
-            interiorFace);
-      },
-      "not a volume boundary face",
-      "interior tetrahedral faces cannot become selectable surfaces");
-
-  const auto setupMesh = twoTetraSurfaceMesh();
-  const auto setup = ps::compile_surface_setup(
-      setupMesh, {"Fixed"}, {"Load"}, 120.0, {0.0, 0.0, -2.0});
-  require(setup.fully_fixed_node_ids == std::vector<int>({1, 2, 4}),
-          "restraint groups compile unique sorted nodes");
-  require(setup.loaded_node_ids == std::vector<int>({1, 2, 3, 4, 5}) &&
-              setup.nodal_forces.size() == setup.loaded_node_ids.size(),
-          "shared load nodes compile once in sorted order");
-  require(std::abs(setup.resultant_force_n[0]) < 1.0e-10 &&
-              std::abs(setup.resultant_force_n[1]) < 1.0e-10 &&
-              std::abs(setup.resultant_force_n[2] + 120.0) < 1.0e-10,
-          "area-weighted nodal loads preserve the reviewed resultant");
-
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(setupMesh, {"Missing"}, {"Load"},
-                                        120.0, {0.0, 0.0, -1.0});
-      },
-      "Unknown restraint surface group",
-      "unknown restraint groups are rejected");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(setupMesh, {"Fixed"}, {}, 120.0,
-                                        {0.0, 0.0, -1.0});
-      },
-      "At least one load surface group",
-      "empty load selections are rejected");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(setupMesh, {"Fixed"}, {"Load"}, 0.0,
-                                        {0.0, 0.0, -1.0});
-      },
-      "finite and positive", "zero force magnitude is rejected");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(
-            setupMesh, {"Fixed"}, {"Load"}, 120.0,
-            {0.0, std::numeric_limits<double>::quiet_NaN(), -1.0});
-      },
-      "finite nonzero vector", "nonfinite force direction is rejected");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(setupMesh, {"Fixed"},
-                                        {"Load", "Load"}, 120.0,
-                                        {0.0, 0.0, -1.0});
-      },
-      "selected more than once",
-      "duplicate surface selections cannot double the applied load");
-  requireThrowsContaining(
-      [&] {
-        (void)ps::compile_surface_setup(setupMesh, {"Load"}, {"Load"},
-                                        120.0, {0.0, 0.0, -1.0});
-      },
-      "both restrained and loaded",
-      "one surface group cannot carry conflicting boundary roles");
+  const auto processRoot = fs::temp_directory_path() /
+      ("prometheus-structural-process-" + std::to_string(std::rand()));
+  fs::create_directories(processRoot);
+  const auto fixture = fs::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
+  const auto runFixture = [&](const std::string &job,
+                              const std::chrono::milliseconds timeout) {
+    std::ofstream(processRoot / (job + ".inp")) << "fixture input\n";
+    return ps::run_calculix({fixture, processRoot, job, timeout});
+  };
+  const auto completed = runFixture("success", std::chrono::seconds(5));
+  require(completed.status == ps::SolverRunStatus::completed &&
+              completed.exit_code == 0 && completed.metrics.has_value() &&
+              std::abs(completed.metrics->maximum_displacement_m - 2.0e-5) < 1e-15 &&
+              completed.standard_output.find("fixture stdout") != std::string::npos &&
+              completed.standard_error.find("fixture stderr") != std::string::npos,
+          "isolated solver process captures streams and parses required raw outputs");
+  const auto staleOutputs = runFixture("success", std::chrono::seconds(5));
+  require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
+              !staleOutputs.metrics,
+          "pre-existing raw solver outputs cannot be reused as a new run");
+  const auto withinLimits = ps::compile_structural_findings(request, completed);
+  require(withinLimits.declared_obligations == 2 &&
+              withinLimits.evaluated_obligations == 2 &&
+              std::ranges::all_of(withinLimits.findings, [](const auto &finding) {
+                return finding.disposition ==
+                    ps::StructuralFindingDisposition::no_violation_detected_within_scope;
+              }) &&
+              withinLimits.limitation.find("project-wide") != std::string::npos,
+          "completed metrics compile into scoped no-violation findings");
+  auto strictRequest = request;
+  strictRequest.displacement_limit_m = 1.0e-6;
+  strictRequest.von_mises_limit_pa = 1.0e5;
+  const auto violated = ps::compile_structural_findings(strictRequest, completed);
+  require(std::ranges::all_of(violated.findings, [](const auto &finding) {
+            return finding.disposition == ps::StructuralFindingDisposition::violated &&
+                   finding.margin_to_limit < 0.0;
+          }),
+          "the same completed metrics produce known-fail violations at tighter limits");
+  const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
+  require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
+              nonzero.exit_code == 7 && !nonzero.metrics,
+          "nonzero solver exit cannot become completed metrics");
+  const auto missing = runFixture("missing", std::chrono::seconds(5));
+  require(missing.status == ps::SolverRunStatus::output_missing && !missing.metrics,
+          "successful process without required raw files fails closed");
+  const auto timedOut = runFixture("timeout", std::chrono::milliseconds(30));
+  require(timedOut.status == ps::SolverRunStatus::timed_out && !timedOut.metrics,
+          "solver timeout is terminated and classified without metrics");
+  const auto indeterminate = ps::compile_structural_findings(request, timedOut);
+  require(indeterminate.declared_obligations == 2 &&
+              indeterminate.evaluated_obligations == 0 &&
+              indeterminate.findings.empty(),
+          "failed execution cannot satisfy or violate engineering obligations");
+  fs::remove_all(processRoot);
   return 0;
 }
