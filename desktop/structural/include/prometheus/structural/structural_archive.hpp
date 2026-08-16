@@ -16,6 +16,7 @@ struct StructuralArchive final {
   std::string manifest_sha256;
   std::string schema_version;
   std::string validated_result_identity;
+  std::string coarse_result_identity;
 };
 
 struct StructuralArchiveVerification final {
@@ -31,8 +32,14 @@ struct StructuralArchiveVerification final {
   std::optional<StructuralSetup> reviewed_setup;
   std::optional<CompiledStructuralSetup> compiled_setup;
   std::optional<StructuralEvaluation> evaluation;
+  VerifiedStructuralRefinementPtr refinement;
 };
 
+[[nodiscard]] StructuralArchive write_structural_refinement_archive(
+    const VerifiedStructuralRefinement &refinement,
+    const StructuralEvaluation &evaluation);
+
+// Legacy v2 writer retained until active callers migrate to v3 in Task 8.
 [[nodiscard]] StructuralArchive write_structural_archive(
     const std::filesystem::path &working_directory, std::string job_name,
     const CompiledStructuralSetup &setup,

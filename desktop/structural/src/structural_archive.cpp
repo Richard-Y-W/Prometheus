@@ -11,9 +11,11 @@
 #include <cmath>
 #include <fstream>
 #include <iterator>
+#include <locale>
 #include <map>
 #include <random>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace prometheus::structural {
@@ -25,10 +27,14 @@ constexpr auto archiveSchemaV1 =
     "urn:prometheus:schema:structural-run-archive:1.0.0";
 constexpr auto archiveSchemaV2 =
     "urn:prometheus:schema:structural-run-archive:2.0.0";
+constexpr auto archiveSchemaV3 =
+    "urn:prometheus:schema:structural-run-archive:3.0.0";
 constexpr auto setupSchemaV1 =
     "urn:prometheus:schema:reviewed-structural-setup:1.0.0";
 constexpr auto setupSchemaV2 =
     "urn:prometheus:schema:reviewed-structural-setup:2.0.0";
+constexpr auto compiledSetupSchemaV1 =
+    "urn:prometheus:schema:compiled-structural-setup:1.0.0";
 
 std::string read(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
@@ -199,6 +205,353 @@ Json findings_json(const StructuralEvaluation &evaluation) {
   return findings;
 }
 
+std::string refinement_status_string(
+    const StructuralRefinementStatus status) {
+  return status == StructuralRefinementStatus::accepted
+             ? "accepted"
+             : "indeterminate";
+}
+
+Json criterion_json(const StructuralRefinementCriterion &criterion) {
+  return {{"identity", criterion.identity()},
+          {"maximum_change_fraction",
+           criterion.maximum_change_fraction()}};
+}
+
+Json boundary_correspondence_json(
+    const ReviewedBoundaryCorrespondence &correspondence) {
+  return {
+      {"coarse_setup_identity", correspondence.coarse_setup_identity()},
+      {"fine_setup_identity", correspondence.fine_setup_identity()},
+      {"load_region_confirmed", correspondence.load_region_confirmed()},
+      {"restraint_region_confirmed",
+       correspondence.restraint_region_confirmed()},
+      {"coarse_load_area_m2", correspondence.coarse_load_area_m2()},
+      {"fine_load_area_m2", correspondence.fine_load_area_m2()},
+      {"coarse_restraint_area_m2",
+       correspondence.coarse_restraint_area_m2()},
+      {"fine_restraint_area_m2",
+       correspondence.fine_restraint_area_m2()}};
+}
+
+Json comparison_json(const VerifiedStructuralRefinement &refinement) {
+  return {
+      {"status", refinement_status_string(refinement.status())},
+      {"displacement_change_fraction",
+       refinement.displacement_change_fraction()},
+      {"stress_change_fraction", refinement.stress_change_fraction()},
+      {"maximum_change_fraction", refinement.maximum_change_fraction()},
+      {"maximum_allowed_change_fraction",
+       refinement.coarse().criterion().maximum_change_fraction()},
+      {"setup_sha256",
+       {refinement.coarse().setup().identity,
+        refinement.fine().setup().identity}},
+      {"result_sha256",
+       {refinement.coarse().run().validated_result->identity,
+        refinement.fine().run().validated_result->identity}}};
+}
+
+Json comparison_json(const StructuralRefinementSummary &summary) {
+  return {
+      {"status", refinement_status_string(summary.status)},
+      {"displacement_change_fraction",
+       summary.displacement_change_fraction},
+      {"stress_change_fraction", summary.stress_change_fraction},
+      {"maximum_change_fraction", summary.maximum_change_fraction},
+      {"maximum_allowed_change_fraction",
+       summary.maximum_allowed_change_fraction},
+      {"setup_sha256", summary.setup_sha256},
+      {"result_sha256", summary.result_sha256}};
+}
+
+Json mesh_json(const StructuralSetup &setup) {
+  return {
+      {"source_sha256", setup.mesh_controls.mesh_sha256},
+      {"coordinate_scale_to_m",
+       setup.mesh_controls.coordinate_scale_to_m},
+      {"node_count", setup.mesh.nodes.size()},
+      {"element_count", setup.mesh.elements.size()},
+      {"boundary_face_count", setup.boundary_faces.size()},
+      {"minimum_size_m", setup.mesh_controls.minimum_size_m},
+      {"maximum_size_m", setup.mesh_controls.maximum_size_m},
+      {"target_size_m", setup.mesh_controls.target_size_m},
+      {"minimum_mean_ratio_threshold",
+       setup.mesh_controls.minimum_mean_ratio_threshold},
+      {"observed_minimum_mean_ratio",
+       setup.mesh_controls.observed_minimum_mean_ratio},
+      {"mesher_identity", setup.mesh_controls.mesher_identity},
+      {"reviewed", setup.mesh_controls.reviewed}};
+}
+
+struct PreparedV3Sample final {
+  const CompletedStructuralSample *sample{};
+  std::string role;
+  std::string setup_name;
+  std::string deck_name;
+  std::string dat_name;
+  std::string frd_name;
+  std::string sta_name;
+  std::string stdout_name;
+  std::string stderr_name;
+  std::string setup_bytes;
+  CalculixArtifactIdentity setup_identity;
+};
+
+bool file_matches(const std::filesystem::path &path,
+                  const CalculixArtifactIdentity &identity) {
+  std::error_code error;
+  const auto length = std::filesystem::file_size(path, error);
+  return !error && std::filesystem::is_regular_file(path) &&
+         length == identity.byte_length && strict_sha256(identity.sha256) &&
+         integrity::sha256_file(path) == identity.sha256;
+}
+
+std::string deck_difference_detail(const std::string &stored,
+                                   const std::string &replayed) {
+  const auto mismatch = std::mismatch(stored.begin(), stored.end(),
+                                      replayed.begin(), replayed.end());
+  const auto position =
+      static_cast<std::size_t>(std::distance(stored.begin(), mismatch.first));
+  const auto line = [&](const std::string &bytes) {
+    const auto boundedPosition = std::min(position, bytes.size());
+    const auto start = bytes.rfind('\n', boundedPosition == 0U
+                                            ? 0U
+                                            : boundedPosition - 1U);
+    const auto lineStart = start == std::string::npos ? 0U : start + 1U;
+    const auto end = bytes.find('\n', boundedPosition);
+    const auto lineEnd = end == std::string::npos ? bytes.size() : end;
+    return bytes.substr(lineStart,
+                        std::min<std::size_t>(160U, lineEnd - lineStart));
+  };
+  return "v3 solver deck differs at byte " + std::to_string(position) +
+         "; stored line [" + line(stored) + "]; replayed line [" +
+         line(replayed) + "]";
+}
+
+std::string_view trimmed(std::string_view value) {
+  const auto first = value.find_first_not_of(" \t\r");
+  if (first == std::string_view::npos)
+    return {};
+  const auto last = value.find_last_not_of(" \t\r");
+  return value.substr(first, last - first + 1U);
+}
+
+std::optional<double> deck_number(const std::string_view token) {
+  std::istringstream input{std::string(token)};
+  input.imbue(std::locale::classic());
+  double value{};
+  char trailing{};
+  if (!(input >> value) || (input >> trailing) || !std::isfinite(value))
+    return std::nullopt;
+  return value;
+}
+
+std::vector<std::string_view> comma_tokens(const std::string_view line) {
+  std::vector<std::string_view> tokens;
+  std::size_t start = 0U;
+  while (true) {
+    const auto comma = line.find(',', start);
+    tokens.push_back(trimmed(line.substr(
+        start, comma == std::string_view::npos
+                   ? std::string_view::npos
+                   : comma - start)));
+    if (comma == std::string_view::npos)
+      return tokens;
+    start = comma + 1U;
+  }
+}
+
+bool deck_lines_equivalent(const std::string_view stored,
+                           const std::string_view replayed) {
+  if (stored == replayed)
+    return true;
+  const auto storedTokens = comma_tokens(stored);
+  const auto replayedTokens = comma_tokens(replayed);
+  if (storedTokens.size() != replayedTokens.size() ||
+      storedTokens.size() < 2U)
+    return false;
+  for (std::size_t index = 0; index < storedTokens.size(); ++index) {
+    const auto storedToken = storedTokens[index];
+    const auto replayedToken = replayedTokens[index];
+    if (storedToken == replayedToken)
+      continue;
+    const bool floatingToken =
+        storedToken.find_first_of(".eEdD") != std::string_view::npos ||
+        replayedToken.find_first_of(".eEdD") != std::string_view::npos;
+    const auto storedNumber = deck_number(storedToken);
+    const auto replayedNumber = deck_number(replayedToken);
+    if (!floatingToken || !storedNumber || !replayedNumber)
+      return false;
+    const double scale =
+        std::max(std::abs(*storedNumber), std::abs(*replayedNumber));
+    if (scale == 0.0)
+      continue;
+    if (std::abs(*storedNumber - *replayedNumber) > scale * 1.0e-10)
+      return false;
+  }
+  return true;
+}
+
+bool decks_round_trip_equivalent(const std::string &stored,
+                                 const std::string &replayed) {
+  std::istringstream storedInput(stored);
+  std::istringstream replayedInput(replayed);
+  std::string storedLine;
+  std::string replayedLine;
+  while (true) {
+    const bool hasStored = static_cast<bool>(
+        std::getline(storedInput, storedLine));
+    const bool hasReplayed = static_cast<bool>(
+        std::getline(replayedInput, replayedLine));
+    if (hasStored != hasReplayed)
+      return false;
+    if (!hasStored)
+      return true;
+    if (storedLine.size() > 4096U || replayedLine.size() > 4096U)
+      return false;
+    if (!deck_lines_equivalent(storedLine, replayedLine))
+      return false;
+  }
+}
+
+std::string compiled_setup_v1_identity(
+    const std::string_view canonicalSetupEvidence,
+    const std::string_view calculixDeck) {
+  const auto identityDocument = integrity::canonicalize_json_bytes(
+      Json{{"$schema", compiledSetupSchemaV1},
+           {"schema_version", "1.0.0"},
+           {"compiler_version", "structural-setup-compiler-v1"},
+           {"setup_evidence_sha256",
+            integrity::sha256_bytes(canonicalSetupEvidence)},
+           {"calculix_deck_sha256", integrity::sha256_bytes(calculixDeck)}}
+          .dump());
+  return integrity::sha256_bytes(identityDocument);
+}
+
+PreparedV3Sample prepare_v3_sample(
+    const CompletedStructuralSample &sample,
+    const StructuralSampleRole expectedRole,
+    const std::filesystem::path &workingDirectory) {
+  if (sample.role() != expectedRole ||
+      sample.run().status != SolverRunStatus::completed ||
+      !sample.run().validated_result ||
+      !sample.run().validated_result->complete() ||
+      !sample.run().validated_result->metrics ||
+      !sample.run().validated_result->convergence)
+    throw std::invalid_argument(
+        "v3 archives require two completed structural samples");
+  if (!safe_job_name(sample.options().job_name))
+    throw std::invalid_argument("v3 sample job name is unsafe");
+  const auto &setup = sample.setup();
+  const auto &validated = *sample.run().validated_result;
+  if (!strict_sha256(setup.identity) ||
+      validated.compiled_setup_identity != setup.identity ||
+      validated.artifacts.deck.sha256 !=
+          integrity::sha256_bytes(setup.calculix_deck) ||
+      validated.artifacts.deck.byte_length != setup.calculix_deck.size())
+    throw std::invalid_argument(
+        "v3 sample result is detached from its compiled setup");
+
+  PreparedV3Sample prepared;
+  prepared.sample = &sample;
+  prepared.role = expectedRole == StructuralSampleRole::coarse
+                      ? "coarse"
+                      : "fine";
+  const auto &job = sample.options().job_name;
+  prepared.setup_name = job + ".reviewed-structural-setup.json";
+  prepared.deck_name = job + ".inp";
+  prepared.dat_name = job + ".dat";
+  prepared.frd_name = job + ".frd";
+  prepared.sta_name = job + ".sta";
+  prepared.stdout_name = job + ".stdout.txt";
+  prepared.stderr_name = job + ".stderr.txt";
+  for (const auto *name : {&prepared.setup_name, &prepared.deck_name,
+                           &prepared.dat_name, &prepared.frd_name,
+                           &prepared.sta_name, &prepared.stdout_name,
+                           &prepared.stderr_name})
+    if (!safe_file(*name))
+      throw std::invalid_argument(
+          "v3 sample artifact filename is unsafe");
+
+  prepared.setup_bytes = integrity::verify_canonical_bytes(
+      setup.canonical_setup_evidence,
+      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U,
+                        100000U, 4U * 1024U * 1024U});
+  const auto setupJson = Json::parse(prepared.setup_bytes);
+  if (!setupJson.is_object() ||
+      setupJson.value("$schema", "") != setupSchemaV2 ||
+      setupJson.value("schema_version", "") != "2.0.0" ||
+      setupJson.value("analysis_id", "") != setup.request.analysis_id ||
+      setupJson.value("component_name", "") !=
+          setup.request.component_name ||
+      setupJson.value("geometry_sha256", "") !=
+          setup.request.geometry_sha256)
+    throw std::invalid_argument(
+        "v3 reviewed setup evidence binding is invalid");
+  prepared.setup_identity = {
+      integrity::sha256_bytes(prepared.setup_bytes),
+      prepared.setup_bytes.size()};
+
+  if (!file_matches(workingDirectory / prepared.deck_name,
+                    validated.artifacts.deck) ||
+      !file_matches(workingDirectory / prepared.dat_name,
+                    validated.artifacts.dat) ||
+      !file_matches(workingDirectory / prepared.frd_name,
+                    validated.artifacts.frd) ||
+      !file_matches(workingDirectory / prepared.sta_name,
+                    validated.artifacts.sta) ||
+      validated.artifacts.standard_output !=
+          CalculixArtifactIdentity{
+              integrity::sha256_bytes(sample.run().standard_output),
+              sample.run().standard_output.size()} ||
+      validated.artifacts.standard_error !=
+          CalculixArtifactIdentity{
+              integrity::sha256_bytes(sample.run().standard_error),
+              sample.run().standard_error.size()})
+    throw std::runtime_error(
+        "active v3 solver artifacts changed before archiving");
+  if (std::filesystem::exists(workingDirectory / prepared.setup_name) ||
+      std::filesystem::exists(workingDirectory / prepared.stdout_name) ||
+      std::filesystem::exists(workingDirectory / prepared.stderr_name))
+    throw std::runtime_error("v3 structural archive output already exists");
+  return prepared;
+}
+
+Json sample_json(const PreparedV3Sample &prepared) {
+  const auto &sample = *prepared.sample;
+  const auto &validated = *sample.run().validated_result;
+  return {
+      {"role", prepared.role},
+      {"compiled_setup_identity", sample.setup().identity},
+      {"validated_result_identity", validated.identity},
+      {"mesh", mesh_json(sample.setup().reviewed_setup)},
+      {"execution",
+       {{"job_name", sample.options().job_name},
+        {"exit_code", sample.run().exit_code},
+        {"elapsed_ms", sample.run().elapsed.count()},
+        {"status", "completed"}}},
+      {"backend",
+       {{"executable_sha256", validated.backend.executable_sha256},
+        {"version", validated.backend.version}}},
+      {"convergence", convergence_json(*validated.convergence)},
+      {"artifacts",
+       {{"setup", artifact_json(prepared.setup_name,
+                                prepared.setup_identity)},
+        {"deck", artifact_json(prepared.deck_name,
+                               validated.artifacts.deck)},
+        {"dat", artifact_json(prepared.dat_name,
+                              validated.artifacts.dat)},
+        {"frd", artifact_json(prepared.frd_name,
+                              validated.artifacts.frd)},
+        {"sta", artifact_json(prepared.sta_name,
+                              validated.artifacts.sta)},
+        {"stdout", artifact_json(prepared.stdout_name,
+                                 validated.artifacts.standard_output)},
+        {"stderr", artifact_json(prepared.stderr_name,
+                                 validated.artifacts.standard_error)}}},
+      {"metrics", metrics_json(*validated.metrics)}};
+}
+
 BoundarySelection selection_from_json(const Json &value) {
   if (!exact_keys(value, {"label", "face_node_ids", "node_ids", "area_m2"}) ||
       !value.at("face_node_ids").is_array() ||
@@ -366,7 +719,8 @@ struct PersistedArtifacts final {
 };
 
 PersistedArtifacts verify_and_load_artifacts(
-    const std::filesystem::path &directory, const Json &artifacts) {
+    const std::filesystem::path &directory, const Json &artifacts,
+    std::set<std::string> *allNames = nullptr) {
   if (!exact_keys(artifacts,
                   {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"}))
     reject("archive_contract_invalid", "archive artifact set is invalid");
@@ -388,7 +742,9 @@ PersistedArtifacts verify_and_load_artifacts(
       reject("archive_contract_invalid", "artifact reference is invalid");
     const auto name = json_string(reference, "file");
     const auto hash = json_string(reference, "sha256");
-    if (!safe_file(name) || !names.insert(name).second || !strict_sha256(hash))
+    if (!safe_file(name) || !names.insert(name).second ||
+        (allNames && !allNames->insert(name).second) ||
+        !strict_sha256(hash))
       reject("archive_contract_invalid", "artifact identity is unsafe");
     const auto length = reference.at("byte_length").get<std::uintmax_t>();
     const auto path = directory / name;
@@ -482,6 +838,113 @@ StructuralEvaluation replay_legacy_v1_findings(
 }
 
 } // namespace
+
+StructuralArchive write_structural_refinement_archive(
+    const VerifiedStructuralRefinement &refinement,
+    const StructuralEvaluation &evaluation) {
+  const auto &coarse = refinement.coarse();
+  const auto &fine = refinement.fine();
+  if (coarse.options().working_directory.empty() ||
+      fine.options().working_directory.empty() ||
+      !std::filesystem::is_directory(coarse.options().working_directory) ||
+      !std::filesystem::is_directory(fine.options().working_directory))
+    throw std::invalid_argument(
+        "v3 refinement samples require one existing study directory");
+  const auto coarseDirectory =
+      std::filesystem::canonical(coarse.options().working_directory);
+  const auto fineDirectory =
+      std::filesystem::canonical(fine.options().working_directory);
+  if (coarseDirectory != fineDirectory ||
+      coarse.options().job_name == fine.options().job_name)
+    throw std::invalid_argument(
+        "v3 refinement samples require one directory and distinct jobs");
+  const auto manifestPath = coarseDirectory / archiveName;
+  if (std::filesystem::exists(manifestPath))
+    throw std::runtime_error("v3 structural archive manifest already exists");
+
+  const int declaredObligations =
+      static_cast<int>(fine.setup().request.displacement_limit_m.has_value()) +
+      static_cast<int>(fine.setup().request.von_mises_limit_pa.has_value());
+  const bool accepted =
+      refinement.status() == StructuralRefinementStatus::accepted;
+  if (evaluation.execution_status != SolverRunStatus::completed ||
+      !evaluation.comparison ||
+      comparison_json(*evaluation.comparison) != comparison_json(refinement) ||
+      evaluation.declared_obligations != declaredObligations ||
+      evaluation.limitation.empty() ||
+      (accepted &&
+       (evaluation.evaluated_obligations != declaredObligations ||
+        evaluation.findings.size() !=
+            static_cast<std::size_t>(declaredObligations))) ||
+      (!accepted &&
+       (evaluation.evaluated_obligations != 0 ||
+        !evaluation.findings.empty())))
+    throw std::invalid_argument(
+        "v3 evaluation does not match the verified refinement status");
+
+  auto coarsePrepared = prepare_v3_sample(
+      coarse, StructuralSampleRole::coarse, coarseDirectory);
+  auto finePrepared = prepare_v3_sample(
+      fine, StructuralSampleRole::fine, coarseDirectory);
+  std::set<std::string> artifactNames;
+  for (const auto *prepared : {&coarsePrepared, &finePrepared})
+    for (const auto *name : {
+             &prepared->setup_name, &prepared->deck_name,
+             &prepared->dat_name, &prepared->frd_name,
+             &prepared->sta_name, &prepared->stdout_name,
+             &prepared->stderr_name})
+      if (!artifactNames.insert(*name).second)
+        throw std::invalid_argument(
+            "v3 sample artifact filenames must be globally unique");
+
+  const Json document{
+      {"$schema", archiveSchemaV3},
+      {"schema_version", "3.0.0"},
+      {"archive_kind", "linear_static_refinement_study"},
+      {"analysis_id", fine.setup().request.analysis_id},
+      {"component_name", fine.setup().request.component_name},
+      {"geometry_sha256", fine.setup().request.geometry_sha256},
+      {"criterion", criterion_json(coarse.criterion())},
+      {"boundary_correspondence",
+       boundary_correspondence_json(refinement.boundary_correspondence())},
+      {"samples",
+       {{"coarse", sample_json(coarsePrepared)},
+        {"fine", sample_json(finePrepared)}}},
+      {"comparison", comparison_json(refinement)},
+      {"coverage",
+       {{"declared_obligations", evaluation.declared_obligations},
+        {"evaluated_obligations", evaluation.evaluated_obligations}}},
+      {"findings", findings_json(evaluation)},
+      {"limitation", evaluation.limitation}};
+  const auto canonical = integrity::canonicalize_json_bytes(document.dump());
+
+  std::vector<std::filesystem::path> created;
+  try {
+    for (const auto *prepared : {&coarsePrepared, &finePrepared}) {
+      const auto setupPath = coarseDirectory / prepared->setup_name;
+      created.push_back(setupPath);
+      write(setupPath, prepared->setup_bytes);
+      const auto stdoutPath = coarseDirectory / prepared->stdout_name;
+      created.push_back(stdoutPath);
+      write(stdoutPath, prepared->sample->run().standard_output);
+      const auto stderrPath = coarseDirectory / prepared->stderr_name;
+      created.push_back(stderrPath);
+      write(stderrPath, prepared->sample->run().standard_error);
+    }
+    write(manifestPath, canonical);
+  } catch (...) {
+    std::error_code ignored;
+    std::filesystem::remove(manifestPath, ignored);
+    for (const auto &path : created)
+      std::filesystem::remove(path, ignored);
+    throw;
+  }
+  return {manifestPath,
+          integrity::sha256_bytes(canonical),
+          "3.0.0",
+          fine.run().validated_result->identity,
+          coarse.run().validated_result->identity};
+}
 
 StructuralArchive write_structural_archive(
     const std::filesystem::path &workingDirectory, std::string jobName,
@@ -604,6 +1067,251 @@ StructuralArchive write_structural_archive(
 }
 
 namespace {
+
+StructuralRefinementCriterion criterion_from_v3_json(const Json &value) {
+  if (!exact_keys(value, {"identity", "maximum_change_fraction"}))
+    reject("archive_contract_invalid",
+           "v3 refinement criterion is invalid");
+  const auto identity = json_string(value, "identity");
+  const auto maximum = json_number(value, "maximum_change_fraction");
+  if (!strict_sha256(identity))
+    reject("archive_contract_invalid",
+           "v3 refinement criterion identity is invalid");
+  try {
+    auto criterion = compile_structural_refinement_criterion(maximum);
+    if (criterion.identity() != identity ||
+        criterion_json(criterion) != value)
+      reject("archive_contract_invalid",
+             "v3 refinement criterion does not reproduce its identity");
+    return criterion;
+  } catch (const ArchiveVerificationError &) {
+    throw;
+  } catch (const std::exception &error) {
+    reject("archive_contract_invalid",
+           std::string("v3 refinement criterion is invalid: ") +
+               error.what());
+  }
+}
+
+CompletedStructuralSamplePtr replay_v3_sample(
+    const std::filesystem::path &directory,
+    const Json &value,
+    const StructuralSampleRole expectedRole,
+    const StructuralRefinementCriterion &criterion,
+    const std::string &analysisId,
+    const std::string &componentName,
+    const std::string &geometryIdentity,
+    std::set<std::string> &allArtifactNames) {
+  if (!exact_keys(value, {"role", "compiled_setup_identity",
+                          "validated_result_identity", "mesh", "execution",
+                          "backend", "convergence", "artifacts",
+                          "metrics"}))
+    reject("archive_contract_invalid",
+           "v3 sample root contract is invalid");
+  const auto expectedRoleName =
+      expectedRole == StructuralSampleRole::coarse ? "coarse" : "fine";
+  if (json_string(value, "role") != expectedRoleName)
+    reject("archive_contract_invalid", "v3 sample role is invalid");
+  const auto setupIdentity =
+      json_string(value, "compiled_setup_identity");
+  const auto resultIdentity =
+      json_string(value, "validated_result_identity");
+  if (!strict_sha256(setupIdentity) || !strict_sha256(resultIdentity))
+    reject("archive_contract_invalid",
+           "v3 sample identities are invalid");
+
+  const auto &execution = value.at("execution");
+  if (!exact_keys(execution,
+                  {"job_name", "exit_code", "elapsed_ms", "status"}) ||
+      !execution.at("exit_code").is_number_integer() ||
+      !execution.at("elapsed_ms").is_number_integer() ||
+      execution.at("exit_code").get<int>() != 0 ||
+      execution.at("elapsed_ms").get<std::int64_t>() < 0 ||
+      execution.at("status") != "completed")
+    reject("archive_contract_invalid",
+           "v3 sample execution evidence is invalid");
+  const auto jobName = json_string(execution, "job_name");
+  if (!safe_job_name(jobName))
+    reject("archive_contract_invalid", "v3 sample job name is invalid");
+
+  const auto &backend = value.at("backend");
+  if (!exact_keys(backend, {"executable_sha256", "version"}))
+    reject("archive_contract_invalid",
+           "v3 sample backend identity is invalid");
+  const auto backendHash = json_string(backend, "executable_sha256");
+  const auto backendVersion = json_string(backend, "version");
+  if (!strict_sha256(backendHash) || backendVersion.empty())
+    reject("archive_contract_invalid",
+           "v3 sample backend identity is invalid");
+
+  const auto artifacts = verify_and_load_artifacts(
+      directory, value.at("artifacts"), &allArtifactNames);
+  auto reviewedSetup = deserialize_setup(artifacts.setup, artifacts.deck);
+  auto compiledSetup = compile_structural_setup(reviewedSetup);
+  if (compiledSetup.canonical_setup_evidence != artifacts.setup)
+    reject("setup_binding_mismatch",
+           "v3 reviewed setup bytes do not recompile exactly");
+  if (!decks_round_trip_equivalent(artifacts.deck,
+                                   compiledSetup.calculix_deck))
+    reject("setup_binding_mismatch",
+           deck_difference_detail(artifacts.deck,
+                                  compiledSetup.calculix_deck));
+  compiledSetup.calculix_deck = artifacts.deck;
+  compiledSetup.identity =
+      compiled_setup_v1_identity(artifacts.setup, artifacts.deck);
+  if (compiledSetup.identity != setupIdentity)
+    reject("setup_binding_mismatch",
+           "v3 compiled setup identity does not replay exactly");
+  if (compiledSetup.request.analysis_id != analysisId ||
+      compiledSetup.request.component_name != componentName ||
+      compiledSetup.request.geometry_sha256 != geometryIdentity)
+    reject("setup_binding_mismatch",
+           "v3 setup project identity differs from the archive root");
+  if (value.at("mesh") != mesh_json(compiledSetup.reviewed_setup))
+    reject("setup_binding_mismatch",
+           "v3 sample mesh evidence differs from the reviewed setup");
+
+  const CalculixRunEvidence evidence{
+      .process_exit_code = execution.at("exit_code").get<int>(),
+      .solver_executable_sha256 = backendHash,
+      .solver_version = backendVersion,
+      .deck_bytes = artifacts.deck,
+      .standard_output = artifacts.standard_output,
+      .standard_error = artifacts.standard_error,
+      .status_bytes = artifacts.sta,
+      .data_bytes = artifacts.dat,
+      .frd_sha256 = artifacts.frd.sha256,
+      .frd_byte_length = artifacts.frd.byte_length};
+  auto replayedResult = compile_calculix_result(compiledSetup, evidence);
+  if (!replayedResult.complete()) {
+    const auto detail = replayedResult.issues.empty()
+                            ? "persisted v3 solver evidence is incomplete"
+                            : replayedResult.issues.front().code + ": " +
+                                  replayedResult.issues.front().message;
+    reject("replay_result_invalid", detail);
+  }
+  if (replayedResult.compiled_setup_identity != setupIdentity ||
+      replayedResult.identity != resultIdentity)
+    reject("replay_result_identity_mismatch",
+           "v3 solver evidence produces a different result identity");
+  if (backend !=
+          Json{{"executable_sha256",
+                replayedResult.backend.executable_sha256},
+               {"version", replayedResult.backend.version}} ||
+      value.at("convergence") !=
+          convergence_json(*replayedResult.convergence) ||
+      value.at("metrics") != metrics_json(*replayedResult.metrics))
+    reject("replay_result_mismatch",
+           "v3 solver evidence differs from stored result fields");
+
+  SolverRunOptions options{
+      .executable = {},
+      .working_directory = directory,
+      .job_name = jobName,
+      .timeout = std::chrono::minutes(5)};
+  SolverRunResult run{
+      .status = SolverRunStatus::completed,
+      .exit_code = execution.at("exit_code").get<int>(),
+      .elapsed = std::chrono::milliseconds(
+          execution.at("elapsed_ms").get<std::int64_t>()),
+      .standard_output = artifacts.standard_output,
+      .standard_error = artifacts.standard_error,
+      .detail = "replayed_v3_archive",
+      .validated_result = std::move(replayedResult)};
+  return compile_completed_structural_sample(
+      expectedRole, criterion, std::move(options),
+      std::move(compiledSetup), std::move(run));
+}
+
+StructuralArchiveVerification verify_v3_archive(
+    const std::filesystem::path &manifestPath, const Json &root) {
+  if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                         "analysis_id", "component_name", "geometry_sha256",
+                         "criterion", "boundary_correspondence", "samples",
+                         "comparison", "coverage", "findings", "limitation"}) ||
+      root.at("$schema") != archiveSchemaV3 ||
+      root.at("schema_version") != "3.0.0" ||
+      root.at("archive_kind") != "linear_static_refinement_study")
+    return failure("archive_contract_invalid",
+                   "archive v3 root contract is invalid");
+  const auto analysisId = json_string(root, "analysis_id");
+  const auto componentName = json_string(root, "component_name");
+  const auto geometryIdentity = json_string(root, "geometry_sha256");
+  if (analysisId.empty() || componentName.empty() ||
+      !strict_sha256(geometryIdentity))
+    return failure("archive_contract_invalid",
+                   "archive v3 project identities are invalid");
+  const auto criterion = criterion_from_v3_json(root.at("criterion"));
+
+  const auto &samples = root.at("samples");
+  if (!exact_keys(samples, {"coarse", "fine"}))
+    return failure("archive_contract_invalid",
+                   "archive v3 sample set is invalid");
+  std::set<std::string> artifactNames;
+  auto coarse = replay_v3_sample(
+      manifestPath.parent_path(), samples.at("coarse"),
+      StructuralSampleRole::coarse, criterion, analysisId, componentName,
+      geometryIdentity, artifactNames);
+  auto fine = replay_v3_sample(
+      manifestPath.parent_path(), samples.at("fine"),
+      StructuralSampleRole::fine, criterion, analysisId, componentName,
+      geometryIdentity, artifactNames);
+  if (artifactNames.size() != 14U)
+    return failure("archive_contract_invalid",
+                   "archive v3 must declare fourteen unique artifacts");
+
+  const auto &persistedBoundary = root.at("boundary_correspondence");
+  if (!exact_keys(
+          persistedBoundary,
+          {"coarse_setup_identity", "fine_setup_identity",
+           "load_region_confirmed", "restraint_region_confirmed",
+           "coarse_load_area_m2", "fine_load_area_m2",
+           "coarse_restraint_area_m2", "fine_restraint_area_m2"}))
+    return failure("archive_contract_invalid",
+                   "archive v3 boundary correspondence is invalid");
+  const auto boundary = review_structural_boundary_correspondence(
+      coarse->setup(), fine->setup(),
+      json_bool(persistedBoundary, "load_region_confirmed"),
+      json_bool(persistedBoundary, "restraint_region_confirmed"));
+  if (boundary_correspondence_json(boundary) != persistedBoundary)
+    return failure("replay_refinement_mismatch",
+                   "archive v3 boundary review differs from both setups");
+
+  const auto compiled =
+      compile_structural_refinement(coarse, fine, boundary);
+  if (!compiled.complete()) {
+    const auto detail = compiled.issues().empty()
+                            ? "v3 refinement pair is invalid"
+                            : compiled.issues().front().code + ": " +
+                                  compiled.issues().front().message;
+    return failure("replay_refinement_invalid", detail);
+  }
+  auto evaluation = compile_structural_findings(*compiled.value());
+  const Json expectedCoverage{
+      {"declared_obligations", evaluation.declared_obligations},
+      {"evaluated_obligations", evaluation.evaluated_obligations}};
+  if (root.at("comparison") != comparison_json(*compiled.value()) ||
+      root.at("coverage") != expectedCoverage ||
+      root.at("findings") != findings_json(evaluation) ||
+      json_string(root, "limitation") != evaluation.limitation)
+    return failure("replay_finding_mismatch",
+                   "v3 raw evidence produces different comparison or findings");
+
+  const auto &fineResult = *fine->run().validated_result;
+  return {true,
+          "verified",
+          "v3 two-sample setup, solver evidence, comparison, and findings replay verified",
+          fineResult.metrics,
+          evaluation.declared_obligations,
+          evaluation.evaluated_obligations,
+          "3.0.0",
+          fineResult.identity,
+          fineResult.normalized,
+          fine->setup().reviewed_setup,
+          fine->setup(),
+          std::move(evaluation),
+          compiled.value()};
+}
 
 StructuralArchiveVerification verify_v2_archive(
     const std::filesystem::path &manifestPath, const Json &root) {
@@ -731,6 +1439,9 @@ StructuralArchiveVerification verify_structural_archive(
     const auto bytes = bounded_read(manifestPath, 8U * 1024U * 1024U);
     const auto canonical = integrity::verify_canonical_bytes(bytes);
     const auto root = Json::parse(canonical);
+    if (root.is_object() && root.value("$schema", "") == archiveSchemaV3 &&
+        root.value("schema_version", "") == "3.0.0")
+      return verify_v3_archive(manifestPath, root);
     if (root.is_object() && root.value("$schema", "") == archiveSchemaV2 &&
         root.value("schema_version", "") == "2.0.0")
       return verify_v2_archive(manifestPath, root);
@@ -880,10 +1591,35 @@ StructuralArchive export_structural_archive(
     std::filesystem::create_directory(temporary);
     const auto manifestBytes = read(manifestPath);
     const auto manifest = Json::parse(manifestBytes);
-    for (const auto key : {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"}) {
-      const auto name = manifest.at("artifacts").at(key).at("file").get<std::string>();
+    std::vector<std::string> artifactNames;
+    if (manifest.value("$schema", "") == archiveSchemaV3 &&
+        manifest.value("schema_version", "") == "3.0.0") {
+      for (const auto role : {"coarse", "fine"})
+        for (const auto key : {"setup", "deck", "dat", "frd", "sta",
+                               "stdout", "stderr"})
+          artifactNames.push_back(
+              manifest.at("samples")
+                  .at(role)
+                  .at("artifacts")
+                  .at(key)
+                  .at("file")
+                  .get<std::string>());
+    } else {
+      for (const auto key : {"setup", "deck", "dat", "frd", "sta",
+                             "stdout", "stderr"})
+        artifactNames.push_back(
+            manifest.at("artifacts")
+                .at(key)
+                .at("file")
+                .get<std::string>());
+    }
+    std::set<std::string> uniqueNames;
+    for (const auto &name : artifactNames) {
       if (!safe_file(name))
         throw std::runtime_error("archive contains an unsafe artifact filename");
+      if (!uniqueNames.insert(name).second)
+        throw std::runtime_error(
+            "archive contains a duplicate artifact filename");
       const auto bytes = read(manifestPath.parent_path() / name);
       write(temporary / name, bytes);
     }
@@ -897,7 +1633,12 @@ StructuralArchive export_structural_archive(
     return {destinationDirectory / archiveName,
             integrity::sha256_bytes(manifestBytes),
             copyVerification.schema_version,
-            copyVerification.validated_result_identity};
+            copyVerification.validated_result_identity,
+            copyVerification.refinement
+                ? copyVerification.refinement->coarse()
+                      .run()
+                      .validated_result->identity
+                : std::string{}};
   } catch (...) {
     std::error_code ignored;
     std::filesystem::remove_all(temporary, ignored);

@@ -144,6 +144,25 @@ std::string replaceOnce(std::string source, const std::string_view from,
   return source;
 }
 
+std::string replaceJsonMemberAfter(
+    std::string source, const std::string_view marker,
+    const std::string_view key, const std::string_view encodedValue) {
+  const auto markerPosition = source.find(marker);
+  require(markerPosition != std::string::npos,
+          "scoped test replacement marker exists");
+  const auto member = "\"" + std::string(key) + "\":";
+  const auto memberPosition =
+      source.find(member, markerPosition + marker.size());
+  require(memberPosition != std::string::npos,
+          "scoped JSON member exists");
+  const auto valuePosition = memberPosition + member.size();
+  const auto valueEnd = source.find_first_of(",}", valuePosition);
+  require(valueEnd != std::string::npos,
+          "scoped JSON member has a bounded value");
+  source.replace(valuePosition, valueEnd - valuePosition, encodedValue);
+  return source;
+}
+
 template <typename Function>
 void requireThrows(Function &&function, const std::string_view expected,
                    const char *message) {
@@ -877,7 +896,10 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   }
 
   const auto processRoot = fs::temp_directory_path() /
-      ("prometheus-structural-process-" + std::to_string(std::rand()));
+      ("prometheus-structural-process-" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()));
   fs::create_directories(processRoot);
   const auto fixture = fs::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
   const auto runFixture = [&](const std::string &job,
@@ -909,11 +931,13 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   const auto fineSetup = ps::compile_structural_setup(fineReviewed);
   const auto criterion =
       ps::compile_structural_refinement_criterion(0.10);
+  const auto refinementRoot = processRoot / "typed-refinement-study";
+  fs::create_directory(refinementRoot);
   const ps::SolverRunOptions coarseOptions{
-      fixture, processRoot, "typed_cantilever_coarse",
+      fixture, refinementRoot, "typed_cantilever_coarse",
       std::chrono::seconds(5)};
   const ps::SolverRunOptions fineOptions{
-      fixture, processRoot, "typed_cantilever_fine",
+      fixture, refinementRoot, "typed_cantilever_fine",
       std::chrono::seconds(5)};
   const auto coarseRun = ps::run_calculix(coarseOptions, coarseSetup);
   const auto fineRun = ps::run_calculix(fineOptions, fineSetup);
@@ -1101,6 +1125,115 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(hasRefinementIssue(incompletePair,
                              "refinement_result_incomplete"),
           "an incomplete sample cannot become a verified comparison");
+
+  const auto acceptedArchive = ps::write_structural_refinement_archive(
+      *verified.value(), acceptedEvaluation);
+  require(acceptedArchive.schema_version == "3.0.0" &&
+              acceptedArchive.coarse_result_identity ==
+                  coarseRun.validated_result->identity &&
+              acceptedArchive.validated_result_identity ==
+                  fineRun.validated_result->identity,
+          "new writes bind both active validated results under v3");
+  const auto replay =
+      ps::verify_structural_archive(acceptedArchive.manifest_path);
+  require(replay.valid && replay.schema_version == "3.0.0" &&
+              replay.refinement &&
+              replay.refinement->status() ==
+                  ps::StructuralRefinementStatus::accepted &&
+              replay.evaluation &&
+              replay.evaluation->evaluated_obligations == 2,
+          "v3 replay reconstructs both results and findings");
+
+  const auto relocated = ps::export_structural_archive(
+      acceptedArchive.manifest_path, processRoot / "relocated-v3");
+  require(ps::verify_structural_archive(relocated.manifest_path).valid &&
+              relocated.manifest_sha256 ==
+                  acceptedArchive.manifest_sha256,
+          "v3 export copies all fourteen declared artifacts and replays exactly");
+
+  const auto unresolvedRoot = processRoot / "unresolved-refinement-study";
+  fs::create_directory(unresolvedRoot);
+  for (const auto *job : {"typed_cantilever_coarse",
+                          "typed_cantilever_fine"})
+    for (const auto *extension : {".inp", ".dat", ".frd", ".sta"})
+      fs::copy_file(refinementRoot / (std::string(job) + extension),
+                    unresolvedRoot / (std::string(job) + extension));
+  auto unresolvedCoarseOptions = coarseOptions;
+  unresolvedCoarseOptions.working_directory = unresolvedRoot;
+  auto unresolvedFineOptions = fineOptions;
+  unresolvedFineOptions.working_directory = unresolvedRoot;
+  const auto archivedStrictCoarse =
+      ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::coarse, strictCriterion,
+          unresolvedCoarseOptions, coarseSetup, coarseRun);
+  const auto archivedStrictFine =
+      ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::fine, strictCriterion,
+          unresolvedFineOptions, fineSetup, fineRun);
+  const auto archivedUnresolvedPair = ps::compile_structural_refinement(
+      archivedStrictCoarse, archivedStrictFine, correspondence);
+  const auto archivedUnresolvedEvaluation =
+      ps::compile_structural_findings(*archivedUnresolvedPair.value());
+  const auto unresolvedArchive = ps::write_structural_refinement_archive(
+      *archivedUnresolvedPair.value(), archivedUnresolvedEvaluation);
+  const auto unresolvedReplay =
+      ps::verify_structural_archive(unresolvedArchive.manifest_path);
+  require(unresolvedReplay.valid && unresolvedReplay.evaluation &&
+              unresolvedReplay.evaluation->evaluated_obligations == 0 &&
+              unresolvedReplay.evaluation->findings.empty(),
+          "an above-threshold study remains replayable and indeterminate");
+
+  const auto tamperManifest =
+      [&](const std::string &name, const std::string_view marker,
+          const std::string_view key,
+          const std::string_view encodedValue) {
+        const auto copied = ps::export_structural_archive(
+            acceptedArchive.manifest_path, processRoot / name);
+        auto bytes = fixtureBytes(copied.manifest_path);
+        bytes = replaceJsonMemberAfter(
+            std::move(bytes), marker, key, encodedValue);
+        writeFixtureBytes(copied.manifest_path, bytes);
+        return ps::verify_structural_archive(copied.manifest_path);
+      };
+  const auto forgedMaximum = jsonNumber(
+      verified.value()->maximum_change_fraction() + 0.01);
+  require(!tamperManifest(
+               "tampered-v3-maximum", "\"comparison\":",
+               "maximum_change_fraction", forgedMaximum)
+               .valid,
+          "a caller-authored maximum refinement change cannot replay");
+  require(!tamperManifest(
+               "tampered-v3-status", "\"comparison\":",
+               "status", "\"indeterminate\"")
+               .valid,
+          "a caller-authored refinement status cannot replay");
+  require(!tamperManifest(
+               "tampered-v3-coarse-result", "\"samples\":{\"coarse\":",
+               "validated_result_identity",
+               "\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")
+               .valid,
+          "a detached coarse result identity cannot replay");
+  require(!tamperManifest(
+               "tampered-v3-fine-setup", "\"fine\":",
+               "compiled_setup_identity",
+               "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"")
+               .valid,
+          "a detached fine setup identity cannot replay");
+
+  const auto tamperedDat = ps::export_structural_archive(
+      acceptedArchive.manifest_path, processRoot / "tampered-v3-coarse-dat");
+  const auto coarseDatPath = tamperedDat.manifest_path.parent_path() /
+      "typed_cantilever_coarse.dat";
+  writeFixtureBytes(coarseDatPath, fixtureBytes(coarseDatPath) + "tampered\n");
+  require(!ps::verify_structural_archive(tamperedDat.manifest_path).valid,
+          "changed coarse DAT bytes cannot replay");
+  const auto tamperedSta = ps::export_structural_archive(
+      acceptedArchive.manifest_path, processRoot / "tampered-v3-fine-sta");
+  const auto fineStaPath = tamperedSta.manifest_path.parent_path() /
+      "typed_cantilever_fine.sta";
+  writeFixtureBytes(fineStaPath, fixtureBytes(fineStaPath) + "tampered\n");
+  require(!ps::verify_structural_archive(tamperedSta.manifest_path).valid,
+          "changed fine STA bytes cannot replay");
 
   const auto staleOutputs = runFixture("success", std::chrono::seconds(5));
   require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
