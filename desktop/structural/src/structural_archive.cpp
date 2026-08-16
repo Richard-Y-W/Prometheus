@@ -59,61 +59,6 @@ StructuralArchiveVerification failure(std::string code, std::string detail) {
 
 } // namespace
 
-std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
-  const auto issues = validate_setup(setup);
-  if (!issues.empty())
-    throw std::invalid_argument(issues.front().code + ": " + issues.front().message);
-  const auto selection = [](const BoundarySelection &value) {
-    Json faces = Json::array();
-    for (const auto &face : value.face_node_ids)
-      faces.push_back({face[0], face[1], face[2]});
-    return Json{{"label", value.label}, {"face_node_ids", std::move(faces)},
-                {"node_ids", value.node_ids}, {"area_m2", value.area_m2}};
-  };
-  const auto optionalNumber = [](const std::optional<double> value) {
-    return value ? Json(*value) : Json(nullptr);
-  };
-  Json nodeIds = Json::array();
-  for (const auto &node : setup.mesh.nodes) nodeIds.push_back(node.id);
-  Json elementIds = Json::array();
-  for (const auto &element : setup.mesh.elements) elementIds.push_back(element.id);
-  const Json document{
-      {"$schema", setupSchema}, {"schema_version", "1.0.0"},
-      {"analysis_id", setup.analysis_id}, {"component_name", setup.component_name},
-      {"geometry_sha256", setup.geometry_sha256},
-      {"mesh", {{"node_count", setup.mesh.nodes.size()},
-                 {"element_count", setup.mesh.elements.size()},
-                 {"boundary_face_count", setup.boundary_faces.size()},
-                 {"node_ids", std::move(nodeIds)},
-                 {"element_ids", std::move(elementIds)}}},
-      {"material", {{"designation", setup.material.designation},
-                     {"source_sha256", setup.material.source_sha256},
-                     {"applicability", setup.material.applicability},
-                     {"youngs_modulus_pa", setup.material.youngs_modulus_pa},
-                     {"poisson_ratio", setup.material.poisson_ratio},
-                     {"reviewed", setup.material.reviewed}}},
-      {"load", {{"selection", selection(setup.load.selection)},
-                 {"total_force_n", setup.load.total_force_n},
-                 {"reviewed", setup.load.reviewed}}},
-      {"restraint", {{"selection", selection(setup.restraint.selection)},
-                      {"reviewed", setup.restraint.reviewed}}},
-      {"requirement", {{"displacement_limit_m", optionalNumber(setup.requirement.displacement_limit_m)},
-                        {"von_mises_limit_pa", optionalNumber(setup.requirement.von_mises_limit_pa)},
-                        {"source_or_exploratory_rationale",
-                         setup.requirement.source_or_exploratory_rationale},
-                        {"reviewed", setup.requirement.reviewed}}},
-      {"mesh_controls", {{"minimum_size_m", setup.mesh_controls.minimum_size_m},
-                          {"maximum_size_m", setup.mesh_controls.maximum_size_m},
-                          {"mesher_identity", setup.mesh_controls.mesher_identity},
-                          {"reviewed", setup.mesh_controls.reviewed}}},
-      {"scenario", {{"description", setup.scenario_description},
-                     {"confirmed", setup.scenario_confirmed}}},
-      {"selection_patch_angle_degrees", setup.selection_patch_angle_degrees}};
-  return integrity::canonicalize_json_bytes(document.dump(),
-      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U, 100000U,
-                        4U * 1024U * 1024U});
-}
-
 StructuralArchive write_structural_archive(
     const std::filesystem::path &workingDirectory, std::string jobName,
     std::string solverIdentity, std::string reviewedSetupBytes,

@@ -1,8 +1,11 @@
 #include "prometheus/structural/structural_benchmarks.hpp"
 
+#include "prometheus/structural/mesh_validation.hpp"
+
+#include <algorithm>
 #include <cmath>
-#include <stdexcept>
 #include <map>
+#include <stdexcept>
 
 namespace prometheus::structural {
 
@@ -36,7 +39,27 @@ BenchmarkReference axial_tension_bar_benchmark() {
       .loads_reviewed = true,
       .restraints_reviewed = true,
       .requirements_reviewed = true,
-      .scenario_confirmed = true};
+      .scenario_confirmed = true,
+      .material_designation = "analytic isotropic benchmark material",
+      .material_temper = "not_applicable",
+      .material_product_form = "synthetic benchmark",
+      .material_applicability = "known",
+      .material_evidence_sha256 =
+          "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+      .mesh_sha256 =
+          "sha256:4111111111111111111111111111111111111111111111111111111111111111",
+      .mesh_coordinate_scale_to_m = 1.0,
+      .reviewed_force_magnitude_n = forceN,
+      .reviewed_force_direction = {1.0, 0.0, 0.0},
+      .selected_load_area_m2 = areaM2,
+      .mesh_target_size_m = 0.1,
+      .minimum_mean_ratio_threshold = 0.01,
+      .displacement_limit_basis = "analytic axial benchmark envelope",
+      .von_mises_limit_basis = "analytic axial benchmark envelope",
+      .mesh_reviewed = true};
+  request.observed_minimum_mean_ratio =
+      validate_and_measure_mesh({request.nodes, request.elements}, {})
+          .diagnostics.minimum_mean_ratio;
   return {std::move(request), forceN * lengthM / (areaM2 * youngsModulusPa),
           forceN / areaM2, 1.0e-5, 1.0e-5};
 }
@@ -67,7 +90,24 @@ BenchmarkReference cantilever_benchmark(const int nx, const int ny,
       .loads_reviewed = true,
       .restraints_reviewed = true,
       .requirements_reviewed = true,
-      .scenario_confirmed = true};
+      .scenario_confirmed = true,
+      .material_designation = "analytic isotropic benchmark material",
+      .material_temper = "not_applicable",
+      .material_product_form = "synthetic benchmark",
+      .material_applicability = "known",
+      .material_evidence_sha256 =
+          "sha256:3222222222222222222222222222222222222222222222222222222222222222",
+      .mesh_sha256 =
+          "sha256:4222222222222222222222222222222222222222222222222222222222222222",
+      .mesh_coordinate_scale_to_m = 1.0,
+      .reviewed_force_magnitude_n = force,
+      .reviewed_force_direction = {0.0, 0.0, -1.0},
+      .selected_load_area_m2 = width * height,
+      .mesh_target_size_m = std::min({length / nx, width / ny, height / nz}),
+      .minimum_mean_ratio_threshold = 0.001,
+      .displacement_limit_basis = "analytic cantilever benchmark envelope",
+      .von_mises_limit_basis = "analytic cantilever benchmark envelope",
+      .mesh_reviewed = true};
   for (int i = 0; i <= nx; ++i)
     for (int j = 0; j <= ny; ++j)
       for (int k = 0; k <= nz; ++k) {
@@ -109,6 +149,9 @@ BenchmarkReference cantilever_benchmark(const int nx, const int ny,
     }
   for (const auto &[id, value] : loadByNode)
     request.nodal_forces.push_back({id, {0.0, 0.0, value}});
+  request.observed_minimum_mean_ratio =
+      validate_and_measure_mesh({request.nodes, request.elements}, {})
+          .diagnostics.minimum_mean_ratio;
   constexpr double inertia = width * height * height * height / 12.0;
   const double expectedDisplacement = force * length * length * length /
                                       (3.0 * youngsModulus * inertia);

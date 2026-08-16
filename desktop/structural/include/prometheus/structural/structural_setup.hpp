@@ -18,6 +18,8 @@ struct ReviewedMaterial final {
   double youngs_modulus_pa{};
   double poisson_ratio{};
   bool reviewed{};
+  std::string temper;
+  std::string product_form;
 };
 
 struct ReviewedSurfaceLoad final {
@@ -36,6 +38,8 @@ struct ReviewedStructuralRequirement final {
   std::optional<double> von_mises_limit_pa;
   std::string source_or_exploratory_rationale;
   bool reviewed{};
+  std::string displacement_limit_basis;
+  std::string von_mises_limit_basis;
 };
 
 struct ReviewedMeshControls final {
@@ -43,6 +47,11 @@ struct ReviewedMeshControls final {
   double maximum_size_m{};
   std::string mesher_identity;
   bool reviewed{};
+  std::string mesh_sha256;
+  double coordinate_scale_to_m{1.0};
+  double target_size_m{};
+  double minimum_mean_ratio_threshold{};
+  double observed_minimum_mean_ratio{};
 };
 
 struct StructuralSetup final {
@@ -61,10 +70,23 @@ struct StructuralSetup final {
   double selection_patch_angle_degrees{15.0};
 };
 
+struct CompiledStructuralSetup final {
+  StructuralRequest request;
+  std::string canonical_setup_evidence;
+  std::string calculix_deck;
+  std::string identity;
+};
+
 [[nodiscard]] std::vector<ValidationIssue> validate_setup(
     const StructuralSetup &setup);
 
 [[nodiscard]] StructuralRequest compile_structural_request(
+    const StructuralSetup &setup);
+
+[[nodiscard]] std::string serialize_structural_setup_evidence(
+    const StructuralSetup &setup);
+
+[[nodiscard]] CompiledStructuralSetup compile_structural_setup(
     const StructuralSetup &setup);
 
 } // namespace prometheus::structural

@@ -65,6 +65,24 @@ ps::StructuralRequest validRequest() {
       .restraints_reviewed = true,
       .requirements_reviewed = true,
       .scenario_confirmed = true,
+      .material_designation = "benchmark isotropic material",
+      .material_temper = "not_applicable",
+      .material_product_form = "synthetic benchmark",
+      .material_applicability = "known",
+      .material_evidence_sha256 =
+          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      .mesh_sha256 =
+          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      .mesh_coordinate_scale_to_m = 1.0,
+      .reviewed_force_magnitude_n = 100.0,
+      .reviewed_force_direction = {0.0, 0.0, -1.0},
+      .selected_load_area_m2 = 0.5,
+      .mesh_target_size_m = 0.1,
+      .minimum_mean_ratio_threshold = 0.05,
+      .observed_minimum_mean_ratio = 0.75,
+      .displacement_limit_basis = "reviewed benchmark displacement limit",
+      .von_mises_limit_basis = "reviewed benchmark stress limit",
+      .mesh_reviewed = true,
   };
 }
 
@@ -386,29 +404,130 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   } catch (const std::invalid_argument &) {
   }
 
-  const auto tetraPatches = ps::group_boundary_faces(boundary, 1.0);
+  const auto tetraPatches =
+      ps::group_boundary_faces(prepared.boundary_faces, 1.0);
   ps::StructuralSetup setup{
       .analysis_id = "reviewed-tetra-setup",
       .component_name = "benchmark tetrahedron",
       .geometry_sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      .mesh = mesh,
-      .boundary_faces = boundary,
-      .material = {"benchmark isotropic material",
-                   "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                   "applies only to this analytic benchmark", 7.0e10, 0.33, true},
+      .mesh = prepared.mesh,
+      .boundary_faces = prepared.boundary_faces,
+      .material =
+          {.designation = "benchmark isotropic material",
+           .source_sha256 =
+               "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+           .applicability = "known",
+           .youngs_modulus_pa = 7.0e10,
+           .poisson_ratio = 0.33,
+           .reviewed = true,
+           .temper = "not_applicable",
+           .product_form = "synthetic benchmark"},
       .load = {ps::resolve_boundary_selection("load", tetraPatches, {1}),
                {0.0, 0.0, -100.0}, true},
       .restraint = {ps::resolve_boundary_selection("fixed", tetraPatches, {2}), true},
-      .requirement = {0.001, 1.0e8, "explicit exploratory benchmark limits", true},
-      .mesh_controls = {0.001, 0.003, "test mesher 1.0", true},
+      .requirement =
+          {.displacement_limit_m = 0.001,
+           .von_mises_limit_pa = 1.0e8,
+           .source_or_exploratory_rationale =
+               "explicit exploratory benchmark limits",
+           .reviewed = true,
+           .displacement_limit_basis =
+               "explicit exploratory displacement limit",
+           .von_mises_limit_basis =
+               "explicit exploratory stress limit"},
+      .mesh_controls =
+          {.minimum_size_m = 0.001,
+           .maximum_size_m = 0.003,
+           .mesher_identity = "test mesher 1.0",
+           .reviewed = true,
+           .mesh_sha256 = prepared.identity.source_sha256,
+           .coordinate_scale_to_m = prepared.identity.coordinate_scale_to_m,
+           .target_size_m = 0.002,
+           .minimum_mean_ratio_threshold = 0.05,
+           .observed_minimum_mean_ratio =
+               prepared.diagnostics.minimum_mean_ratio},
       .scenario_description = "one bounded linear-static benchmark scenario",
       .scenario_confirmed = true};
   require(ps::validate_setup(setup).empty(),
           "reviewed setup with provenance and exact topology validates");
-  const auto compiledSetup = ps::compile_structural_request(setup);
-  require(compiledSetup.fully_fixed_node_ids.size() == 3 &&
-              compiledSetup.nodal_forces.size() == 3,
+  const auto reviewedRequest = ps::compile_structural_request(setup);
+  require(reviewedRequest.fully_fixed_node_ids.size() == 3 &&
+              reviewedRequest.nodal_forces.size() == 3,
           "reviewed surface setup compiles into the narrow solver request");
+  require(reviewedRequest.material_temper == "not_applicable" &&
+              reviewedRequest.material_product_form == "synthetic benchmark" &&
+              reviewedRequest.mesh_sha256 == prepared.identity.source_sha256 &&
+              reviewedRequest.mesh_reviewed,
+          "compiled request retains reviewed material and mesh provenance");
+
+  auto zeroForce = reviewedRequest;
+  zeroForce.nodal_forces = {{1, {0.0, 0.0, 0.0}}};
+  require(hasIssue(ps::validate_request(zeroForce), "zero_resultant_load"),
+          "all-zero force cannot enter a deck");
+  auto duplicateForce = reviewedRequest;
+  duplicateForce.nodal_forces.push_back(duplicateForce.nodal_forces.front());
+  require(hasIssue(ps::validate_request(duplicateForce), "duplicate_load_node"),
+          "duplicate nodal loads require deterministic aggregation");
+  auto uppercaseHash = reviewedRequest;
+  uppercaseHash.geometry_sha256 =
+      "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  require(hasIssue(ps::validate_request(uppercaseHash),
+                   "invalid_geometry_identity"),
+          "SHA-256 identity is strict lowercase");
+  auto injectedHeading = reviewedRequest;
+  injectedHeading.component_name = "bracket\n*INCLUDE, INPUT=other.inp";
+  require(hasIssue(ps::validate_request(injectedHeading), "unsafe_heading_text"),
+          "heading text cannot inject CalculiX keywords");
+  auto unresolvedMaterial = reviewedRequest;
+  unresolvedMaterial.material_applicability = "unresolved";
+  require(hasIssue(ps::validate_request(unresolvedMaterial),
+                   "material_applicability_unresolved"),
+          "unresolved material applicability cannot become reviewed");
+  auto weakMesh = reviewedRequest;
+  weakMesh.observed_minimum_mean_ratio = 0.04;
+  weakMesh.minimum_mean_ratio_threshold = 0.05;
+  require(hasIssue(ps::validate_request(weakMesh),
+                   "mesh_quality_below_limit"),
+          "mesh quality below the reviewed floor remains blocked");
+  auto invalidMeshScale = reviewedRequest;
+  invalidMeshScale.mesh_coordinate_scale_to_m = 0.0;
+  require(hasIssue(ps::validate_request(invalidMeshScale),
+                   "invalid_mesh_coordinate_scale"),
+          "source mesh unit scale cannot disappear during compilation");
+  auto inverted = reviewedRequest;
+  std::swap(inverted.elements.front().node_ids[0],
+            inverted.elements.front().node_ids[1]);
+  require(hasIssue(ps::validate_request(inverted), "inverted_element"),
+          "inverted tetrahedra cannot enter a deck");
+  auto loadMismatch = reviewedRequest;
+  loadMismatch.nodal_forces.front().force_n[2] += 1.0;
+  require(hasIssue(ps::validate_request(loadMismatch),
+                   "compiled_load_mismatch"),
+          "compiled nodal force reproduces the reviewed resultant");
+  auto nonunitDirection = reviewedRequest;
+  nonunitDirection.reviewed_force_direction = {0.0, 0.0, -2.0};
+  require(hasIssue(ps::validate_request(nonunitDirection),
+                   "invalid_reviewed_force_direction"),
+          "reviewed force direction must be normalized");
+  auto missingBasis = reviewedRequest;
+  missingBasis.displacement_limit_basis.clear();
+  require(hasIssue(ps::validate_request(missingBasis),
+                   "missing_displacement_limit_basis"),
+          "a displacement limit requires a reviewed basis");
+
+  const auto compiled = ps::compile_structural_setup(setup);
+  require(compiled.calculix_deck ==
+              ps::generate_calculix_deck(compiled.request),
+          "compiled setup retains its exact deterministic deck");
+  require(compiled.identity.starts_with("sha256:") &&
+              !compiled.canonical_setup_evidence.empty(),
+          "compiled setup has canonical evidence and a content identity");
+  const auto compiledAgain = ps::compile_structural_setup(setup);
+  require(compiledAgain.identity == compiled.identity &&
+              compiledAgain.canonical_setup_evidence ==
+                  compiled.canonical_setup_evidence &&
+              compiledAgain.calculix_deck == compiled.calculix_deck,
+          "identical reviewed setup compiles to identical immutable bytes");
   auto unreviewedSetup = setup;
   unreviewedSetup.material.reviewed = false;
   unreviewedSetup.requirement.source_or_exploratory_rationale.clear();

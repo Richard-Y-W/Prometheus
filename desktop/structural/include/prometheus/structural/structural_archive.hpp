@@ -25,9 +25,6 @@ struct StructuralArchiveVerification final {
   int evaluated_obligations{};
 };
 
-[[nodiscard]] std::string serialize_structural_setup_evidence(
-    const StructuralSetup &setup);
-
 [[nodiscard]] StructuralArchive write_structural_archive(
     const std::filesystem::path &working_directory, std::string job_name,
     std::string solver_identity, std::string reviewed_setup_bytes,
