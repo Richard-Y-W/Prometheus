@@ -3,6 +3,7 @@
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/mesh_validation.hpp"
 #include "prometheus/structural/structural_case.hpp"
+#include "prometheus/structural/structural_finding.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/surface_setup.hpp"
 
@@ -93,6 +94,15 @@ bool hasResultIssue(const ps::CompiledCalculixResult &result,
   return std::ranges::any_of(result.issues, [&](const auto &value) {
     return value.code == code;
   });
+}
+
+const ps::StructuralFinding &
+finding(const std::vector<ps::StructuralFinding> &findings,
+        const ps::StructuralMetric metric) {
+  const auto found =
+      std::ranges::find(findings, metric, &ps::StructuralFinding::metric);
+  require(found != findings.end(), "expected structural finding exists");
+  return *found;
 }
 
 std::string replaceOnce(std::string source, const std::string &from,
@@ -350,6 +360,112 @@ int main() {
               std::abs(compiled.convergence->step_time - 1.0) < 1.0e-12,
           "complete solver evidence compiles typed metrics and identities");
 
+  const ps::StructuralRefinementEvidence acceptedRefinement{
+      .complete = true,
+      .criteria_satisfied = true,
+      .medium_to_fine_displacement_change_fraction = 0.01,
+      .maximum_allowed_change_fraction = 0.02,
+      .evidence_sha256 =
+          {"sha256:"
+           "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+           "sha256:"
+           "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+  };
+  auto passingRequest = request;
+  passingRequest.displacement_limit_m = 3.0e-8;
+  passingRequest.von_mises_limit_pa = 4.0e3;
+  const auto passingFindings = ps::compile_structural_findings(
+      passingRequest, compiled, acceptedRefinement);
+  require(
+      passingFindings.size() == 2 &&
+          finding(passingFindings, ps::StructuralMetric::maximum_displacement)
+                  .status == ps::FindingStatus::pass &&
+          finding(passingFindings, ps::StructuralMetric::maximum_von_mises)
+                  .status == ps::FindingStatus::pass,
+      "complete converged metrics below reviewed limits pass");
+
+  auto equalityRequest = passingRequest;
+  equalityRequest.displacement_limit_m =
+      compiled.metrics->maximum_displacement_m;
+  equalityRequest.von_mises_limit_pa = compiled.metrics->maximum_von_mises_pa;
+  const auto equalityFindings = ps::compile_structural_findings(
+      equalityRequest, compiled, acceptedRefinement);
+  require(finding(equalityFindings, ps::StructuralMetric::maximum_displacement)
+                      .status == ps::FindingStatus::fail &&
+              finding(equalityFindings, ps::StructuralMetric::maximum_von_mises)
+                      .status == ps::FindingStatus::fail,
+          "a metric equal to its reviewed limit fails");
+
+  auto oneMissingLimit = passingRequest;
+  oneMissingLimit.von_mises_limit_pa.reset();
+  oneMissingLimit.von_mises_limit_basis.clear();
+  const auto missingLimitFindings = ps::compile_structural_findings(
+      oneMissingLimit, compiled, acceptedRefinement);
+  require(
+      finding(missingLimitFindings, ps::StructuralMetric::maximum_displacement)
+                  .status == ps::FindingStatus::pass &&
+          finding(missingLimitFindings, ps::StructuralMetric::maximum_von_mises)
+                  .status == ps::FindingStatus::indeterminate,
+      "a missing metric limit remains indeterminate");
+
+  auto failedRefinement = acceptedRefinement;
+  failedRefinement.criteria_satisfied = false;
+  const auto unrefinedFindings = ps::compile_structural_findings(
+      passingRequest, compiled, failedRefinement);
+  require(std::ranges::all_of(unrefinedFindings,
+                              [](const auto &value) {
+                                return value.status ==
+                                       ps::FindingStatus::indeterminate;
+                              }),
+          "failed refinement evidence cannot produce pass or fail findings");
+
+  auto unsupportedRefinementClaim = acceptedRefinement;
+  unsupportedRefinementClaim.evidence_sha256.resize(1U);
+  const auto unsupportedRefinementFindings = ps::compile_structural_findings(
+      passingRequest, compiled, unsupportedRefinementClaim);
+  require(std::ranges::all_of(unsupportedRefinementFindings,
+                              [](const auto &value) {
+                                return value.status ==
+                                       ps::FindingStatus::indeterminate;
+                              }),
+          "refinement needs at least two exact result identities");
+
+  auto duplicateRefinement = acceptedRefinement;
+  duplicateRefinement.evidence_sha256[1] =
+      duplicateRefinement.evidence_sha256[0];
+  const auto duplicateRefinementFindings = ps::compile_structural_findings(
+      passingRequest, compiled, duplicateRefinement);
+  require(std::ranges::all_of(duplicateRefinementFindings,
+                              [](const auto &value) {
+                                return value.status ==
+                                       ps::FindingStatus::indeterminate;
+                              }),
+          "refinement requires distinct result identities");
+
+  auto inconsistentRefinement = acceptedRefinement;
+  inconsistentRefinement.medium_to_fine_displacement_change_fraction = 0.03;
+  const auto inconsistentRefinementFindings = ps::compile_structural_findings(
+      passingRequest, compiled, inconsistentRefinement);
+  require(std::ranges::all_of(inconsistentRefinementFindings,
+                              [](const auto &value) {
+                                return value.status ==
+                                       ps::FindingStatus::indeterminate;
+                              }),
+          "a claimed refinement pass outside its numeric limit is rejected");
+
+  auto incompleteEvidence = evidence;
+  incompleteEvidence.process_exit_code = 9;
+  const auto incompleteResult =
+      ps::compile_calculix_result(request, incompleteEvidence);
+  const auto incompleteFindings = ps::compile_structural_findings(
+      passingRequest, incompleteResult, acceptedRefinement);
+  require(std::ranges::all_of(incompleteFindings,
+                              [](const auto &value) {
+                                return value.status ==
+                                       ps::FindingStatus::indeterminate;
+                              }),
+          "incomplete solver evidence cannot produce pass or fail findings");
+
   auto failedExit = evidence;
   failedExit.process_exit_code = 9;
   require(hasResultIssue(ps::compile_calculix_result(request, failedExit),
@@ -509,6 +625,49 @@ int main() {
               mesh.diagnostics.minimum_mean_ratio > 0.0 &&
               mesh.diagnostics.maximum_mean_ratio <= 1.0,
           "mesh diagnostics expose connectivity and tetra quality");
+
+  constexpr auto gmshPhysicalGroups = R"(*Heading
+*NODE
+4, 0, 0, 10
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+*ELEMENT, type=CPS3, ELSET=Surface1
+5, 1, 3, 2
+6, 1, 2, 4
+7, 1, 4, 3
+*ELEMENT, type=CPS3, ELSET=Surface2
+8, 2, 3, 4
+*ELEMENT, type=C3D4, ELSET=Volume1
+9, 1, 2, 3, 4
+*ELSET,ELSET=FIXED
+5, 6, 7
+*ELSET,ELSET=LOADED
+8
+*ELSET,ELSET=BAR
+9
+)";
+  const auto physicalMesh =
+      ps::parse_gmsh_abaqus_mesh(gmshPhysicalGroups, 0.001);
+  require(physicalMesh.surface_groups.size() == 2 &&
+              physicalMesh.surface_groups[0].name == "FIXED" &&
+              physicalMesh.surface_groups[1].name == "LOADED",
+          "Gmsh physical surface ELSETs replace elementary surface names");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::parse_gmsh_abaqus_mesh(
+            replaceOnce(gmshPhysicalGroups, "5, 6, 7\n", "5, 6, 99\n"),
+            0.001);
+      },
+      "unknown element", "physical ELSETs cannot reference missing elements");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::parse_gmsh_abaqus_mesh(
+            replaceOnce(gmshPhysicalGroups, "5, 6, 7\n", "5, 6, 9\n"),
+            0.001);
+      },
+      "mixes surface and volume",
+      "physical ELSETs cannot mix boundary and volume identities");
   try {
     (void)ps::parse_gmsh_abaqus_mesh(rawMesh, 0.0);
     fail("invalid mesh scale was accepted");

@@ -132,15 +132,97 @@ reproducible mesh identity. Run this checkpoint with:
 Meshing success does not authorize solver execution or demonstrate mesh
 convergence.
 
+## Checkpoint 3: reviewed setup and bounded material evidence
+
+The desktop now has an explicit Structural workspace. It renders the retained
+boundary mesh and lets the reviewer assign named groups as restraints or loads,
+choose a material candidate and mark its applicability `known` or `assumed`,
+enter force and requirement values, review the exact mesh controls, and confirm
+the complete scenario. All readiness decisions remain in the C++ controller;
+QML cannot enable export by inventing a local readiness condition.
+
+The initial 2024 aluminum candidate ledger is
+[`fixtures/evidence/aluminum-2024-candidates-v1.json`](../fixtures/evidence/aluminum-2024-candidates-v1.json),
+with its source analysis in
+[`docs/evidence/2024-aluminum-material-candidates.md`](evidence/2024-aluminum-material-candidates.md).
+The Toyota BOM supports only `A2024`. Generic producer and canceled-handbook
+values remain candidates and do not identify the supplied YUBI bracket. The
+prepared structural slice therefore records material applicability as
+`unresolved` and keeps every review flag false.
+
+## Checkpoint 4: predeclared analytic validation gate
+
+The benchmark contract was recorded before solver execution in
+[`fixtures/structural/tension-bar/expectations.json`](../fixtures/structural/tension-bar/expectations.json).
+It defines a 1.0 m by 0.1 m by 0.1 m tension bar, `F = 1000 N`, `E = 70 GPa`,
+`nu = 0.30`, and these analytic values:
+
+```text
+loaded-face axial displacement = F L / (A E) = 1.4285714286e-6 m
+central axial stress           = F / A       = 100000 Pa
+```
+
+The contract also fixes coarse, medium, and fine target sizes of 0.100 m,
+0.050 m, and 0.025 m. Fine loaded-face displacement and volume-weighted
+central axial stress must each be within 5 percent of the analytic values.
+Medium-to-fine loaded-face displacement change, divided by the absolute fine
+value, must not exceed 2 percent. Those tolerances are not adjusted after a
+run.
+
+`prometheus_export_structural_case` re-parses a canonical reviewed case,
+recompiles its selected faces from the exact mesh, and emits an immutable
+case/mesh/deck package. `prometheus_verify_structural_case` independently
+rechecks the package, compiles complete CalculiX evidence, derives the scoped
+benchmark metrics, and emits deterministic `pass`, `fail`, or `indeterminate`
+findings. A result equal to its limit fails. Missing convergence, coverage,
+refinement, or a requested limit basis is indeterminate.
+
+The execution manifest declares whether the result profile is generic
+structural findings or the analytic tension-bar check. Benchmark-only central-
+band math is never applied silently to a YUBI or other arbitrary component.
+The verifier hash-binds the retained `.frd` bytes alongside the deck, `.sta`,
+`.dat`, streams, refinement evidence, case, mesh, and execution manifest.
+
+A macOS preflight with the official Gmsh 4.15.2 ARM SDK exercised the real INP
+export for all three declared sizes. The strict parser retained the named
+physical ELSETs and the exporter accepted 87 nodes/203 tetrahedra (coarse),
+190 nodes/435 tetrahedra (medium), and 1,072 nodes/3,558 tetrahedra (fine).
+Their minimum mean ratios were 0.4195,
+0.06560, and 0.4038, respectively, all above the predeclared 0.05 floor. This
+is mesh/export wiring evidence only; it contains no CalculiX result.
+
+Run the real gate on the reviewed Windows environment:
+
+```powershell
+.\scripts\run-structural-validation.ps1
+```
+
+The runner preserves all three meshes, decks, `.sta`, `.dat`, `.frd`, captured
+streams, backend identities, elapsed times, package manifests, and result
+manifests under `out/validation/structural/tension-bar`. It rejects stale,
+byte-identical, or non-increasing mesh levels and records the exact mesher
+parameters plus exporter/verifier executable identities. It computes analytic
+comparisons only from normalized result rows, then re-evaluates the unchanged
+fine solve against the predeclared `1.6e-6 m` known-pass limit and `1.2e-6 m`
+known-fail limit.
+
+The checked-in `package-smoke` data exercises this package seam in CTest and
+proves that modified package bytes fail closed. It is synthetic data, not an
+executed solver benchmark. The Windows analytic run remains required before a
+YUBI finding is permitted.
+
+Local implementation verification on 2026-08-15 passed all 16 headless tests
+and built the desktop without Open Cascade. In the managed sandbox, 24 of 25
+desktop tests passed; the sole loopback-listener test passed in its isolated
+rerun with local socket access. These are software checks, not Windows solver
+evidence.
+
 ## Next checkpoint
 
-1. Produce stable named boundary groups for the exact bracket and retain the
-   exact mesh plus diagnostics.
-2. Present mesh statistics and selectable face groups for human restraint/load
-   review.
-3. Obtain reviewed elastic properties for the exact A2024 applicability state.
-4. Define one bounded load and requirement without inferring them from bolt
-   torque or servo identity.
-5. Execute known-pass and known-fail cases, a refinement comparison, and an
-   independent analytic benchmark before evaluating the real bracket.
-6. Rerun the hardened real CalculiX smoke on Windows before any YUBI solve.
+1. Run the predeclared analytic gate on Windows and retain its compact summary.
+2. Rerun the hardened real CalculiX smoke on that same backend installation.
+3. Produce stable named boundary groups for the exact YUBI bracket.
+4. Obtain explicit human review of material applicability, load/restraint
+   groups, limits, mesh controls, and the complete bounded scenario.
+5. Execute the bracket only if the analytic and review gates pass; otherwise
+   record the result as indeterminate without relaxing a tolerance.

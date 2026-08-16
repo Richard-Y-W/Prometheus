@@ -1,0 +1,11 @@
+{
+  "$schema": "urn:prometheus:structural-refinement-evidence:0.1.0",
+  "complete": true,
+  "criteria_satisfied": true,
+  "evidence_sha256": [
+    "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  ],
+  "maximum_allowed_change_fraction": 0.02,
+  "medium_to_fine_displacement_change_fraction": 0.01
+}
