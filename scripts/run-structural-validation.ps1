@@ -36,14 +36,14 @@ if ($expectations.'$schema' -ne
 $acceptance = $expectations.acceptance
 $analytic = $expectations.analytic
 $meshCases = $expectations.mesh_cases
+$env:Path = "C:\msys64\ucrt64\bin;$env:Path"
 
-cmake --preset windows-release
+cmake --preset windows-structural-release
 if ($LASTEXITCODE -ne 0) { throw 'Windows Release configuration failed.' }
-cmake --build --preset windows-release --target `
+cmake --build --preset windows-structural-release --target `
   prometheus_export_structural_case prometheus_verify_structural_case
 if ($LASTEXITCODE -ne 0) { throw 'Structural validation tools build failed.' }
 
-$env:Path = "C:\msys64\ucrt64\bin;$env:Path"
 $gmsh = (Get-Command -Name 'gmsh' -CommandType Application `
   -ErrorAction Stop).Source
 $solver = (Get-Command -Name 'ccx' -CommandType Application `
@@ -62,9 +62,9 @@ if ($LASTEXITCODE -ne 0 -or
 $solverVersion = ($solverVersionOutput -replace '[\r\n]+', ' | ').Trim()
 
 $exporter = Join-Path $repo `
-  'out/build/windows-release/desktop/structural/prometheus_export_structural_case.exe'
+  'out/build/windows-structural-release/desktop/structural/prometheus_export_structural_case.exe'
 $verifier = Join-Path $repo `
-  'out/build/windows-release/desktop/structural/prometheus_verify_structural_case.exe'
+  'out/build/windows-structural-release/desktop/structural/prometheus_verify_structural_case.exe'
 $exporterHash = Get-PrefixedSha256 $exporter
 $verifierHash = Get-PrefixedSha256 $verifier
 $job = 'prometheus_structural_case'

@@ -1,0 +1,39 @@
+name: structural validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analytic-tension-bar:
+    name: Windows analytic tension bar
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Keep repository evidence bytes on LF
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install the bounded UCRT64 solver toolchain
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          location: C:\msys64
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-calculix-ccx
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gmsh
+            mingw-w64-ucrt-x86_64-ninja
+      - name: Run the predeclared structural gate
+        run: .\scripts\run-structural-validation.ps1
+      - name: Retain exact solver evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: structural-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/validation/structural/tension-bar
+          if-no-files-found: warn
+          retention-days: 14

@@ -197,6 +197,11 @@ Run the real gate on the reviewed Windows environment:
 .\scripts\run-structural-validation.ps1
 ```
 
+For release checkpoints, `.github/workflows/structural-validation.yml` exposes
+the same command as an explicit manual Windows job. It installs only the UCRT64
+C++/Gmsh/CalculiX dependencies and uploads the bounded evidence directory even
+when the gate fails; it is not part of every-push CI.
+
 The runner preserves all three meshes, decks, `.sta`, `.dat`, `.frd`, captured
 streams, backend identities, elapsed times, package manifests, and result
 manifests under `out/validation/structural/tension-bar`. It rejects stale,

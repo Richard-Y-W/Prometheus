@@ -137,6 +137,23 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "windows-structural-release",
+      "inherits": "windows-ucrt-base",
+      "displayName": "Windows UCRT64 Structural Release",
+      "binaryDir": "${sourceDir}/out/build/windows-structural-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PROMETHEUS_BUILD_DESKTOP": "OFF",
+        "PROMETHEUS_BUILD_INTEGRITY": "ON",
+        "PROMETHEUS_BUILD_EXECUTION": "OFF",
+        "PROMETHEUS_BUILD_RUN_STORE": "OFF",
+        "PROMETHEUS_BUILD_REPLAY": "OFF",
+        "PROMETHEUS_BUILD_STRUCTURAL": "ON",
+        "PROMETHEUS_ENABLE_OCCT": "OFF",
+        "PROMETHEUS_ENABLE_MUJOCO": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -259,6 +276,10 @@
     {
       "name": "windows-release",
       "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-structural-release",
+      "configurePreset": "windows-structural-release"
     }
   ],
   "testPresets": [
