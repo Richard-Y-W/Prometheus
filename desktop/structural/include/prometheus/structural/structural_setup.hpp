@@ -75,6 +75,7 @@ struct CompiledStructuralSetup final {
   std::string canonical_setup_evidence;
   std::string calculix_deck;
   std::string identity;
+  StructuralSetup reviewed_setup;
 };
 
 [[nodiscard]] std::vector<ValidationIssue> validate_setup(

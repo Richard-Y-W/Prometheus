@@ -7,6 +7,7 @@
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_benchmarks.hpp"
+#include "prometheus/structural/structural_refinement.hpp"
 #include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
@@ -208,6 +209,14 @@ bool hasResultIssue(const ps::CompiledCalculixResult &result,
                     const std::string_view code) {
   return std::ranges::any_of(result.issues, [&](const auto &value) {
     return value.code == code;
+  });
+}
+
+bool hasRefinementIssue(
+    const ps::StructuralRefinementCompilation &compiled,
+    const std::string_view code) {
+  return std::ranges::any_of(compiled.issues(), [&](const auto &issue) {
+    return issue.code == code;
   });
 }
 
@@ -888,6 +897,148 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                   std::string::npos &&
               completed.standard_error.find("fixture stderr") != std::string::npos,
           "isolated solver captures and compiles complete evidence exactly once");
+
+  auto coarseReviewed =
+      ps::cantilever_benchmark(8, 2, 2).setup.reviewed_setup;
+  auto fineReviewed =
+      ps::cantilever_benchmark(12, 3, 3).setup.reviewed_setup;
+  fineReviewed.analysis_id = coarseReviewed.analysis_id;
+  fineReviewed.component_name = coarseReviewed.component_name;
+  fineReviewed.geometry_sha256 = coarseReviewed.geometry_sha256;
+  const auto coarseSetup = ps::compile_structural_setup(coarseReviewed);
+  const auto fineSetup = ps::compile_structural_setup(fineReviewed);
+  const auto criterion =
+      ps::compile_structural_refinement_criterion(0.10);
+  const ps::SolverRunOptions coarseOptions{
+      fixture, processRoot, "typed_cantilever_coarse",
+      std::chrono::seconds(5)};
+  const ps::SolverRunOptions fineOptions{
+      fixture, processRoot, "typed_cantilever_fine",
+      std::chrono::seconds(5)};
+  const auto coarseRun = ps::run_calculix(coarseOptions, coarseSetup);
+  const auto fineRun = ps::run_calculix(fineOptions, fineSetup);
+  const auto coarseSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, criterion, coarseOptions,
+      coarseSetup, coarseRun);
+  const auto fineSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, fineOptions,
+      fineSetup, fineRun);
+  const auto correspondence =
+      ps::review_structural_boundary_correspondence(
+          coarseSetup, fineSetup, true, true);
+  const auto verified = ps::compile_structural_refinement(
+      coarseSample, fineSample, correspondence);
+  require(verified.complete() &&
+              verified.value()->status() ==
+                  ps::StructuralRefinementStatus::accepted &&
+              verified.value()->coarse().run().validated_result->identity !=
+                  verified.value()->fine().run().validated_result->identity,
+          "two completed ordered samples produce one accepted typed comparison");
+
+  for (const double invalidCriterion :
+       {0.0, -0.1, 1.01, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()}) {
+    requireThrows(
+        [&] {
+          (void)ps::compile_structural_refinement_criterion(
+              invalidCriterion);
+        },
+        "refinement_criterion_invalid",
+        "invalid refinement criteria fail before baseline execution");
+  }
+
+  const auto reusedFineSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, coarseOptions,
+      coarseSetup, coarseRun);
+  const auto reusedMesh = ps::compile_structural_refinement(
+      coarseSample, reusedFineSample,
+      ps::review_structural_boundary_correspondence(
+          coarseSetup, coarseSetup, true, true));
+  require(hasRefinementIssue(reusedMesh,
+                             "refinement_mesh_identity_reused"),
+          "one mesh cannot occupy both refinement roles");
+
+  const auto reversedCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, criterion, fineOptions,
+      fineSetup, fineRun);
+  const auto reversedFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, coarseOptions,
+      coarseSetup, coarseRun);
+  const auto reversed = ps::compile_structural_refinement(
+      reversedCoarse, reversedFine,
+      ps::review_structural_boundary_correspondence(
+          fineSetup, coarseSetup, true, true));
+  require(hasRefinementIssue(reversed, "refinement_mesh_not_finer"),
+          "the fine role requires more elements and a smaller target size");
+
+  const auto requireLineageMismatch =
+      [&](const ps::StructuralSetup &changedFine, const char *message) {
+        const auto changedSetup =
+            ps::compile_structural_setup(changedFine);
+        const auto changedSample =
+            ps::compile_completed_structural_sample(
+                ps::StructuralSampleRole::fine, criterion, fineOptions,
+                changedSetup, fineRun);
+        const auto changedPair = ps::compile_structural_refinement(
+            coarseSample, changedSample,
+            ps::review_structural_boundary_correspondence(
+                coarseSetup, changedSetup, true, true));
+        require(hasRefinementIssue(changedPair,
+                                   "refinement_lineage_mismatch"),
+                message);
+      };
+  auto changedMaterial = fineReviewed;
+  changedMaterial.material.youngs_modulus_pa *= 0.99;
+  requireLineageMismatch(changedMaterial,
+                         "changed material breaks refinement lineage");
+  auto changedForce = fineReviewed;
+  changedForce.load.total_force_n[2] -= 1.0;
+  requireLineageMismatch(changedForce,
+                         "changed force breaks refinement lineage");
+  auto changedRequirement = fineReviewed;
+  *changedRequirement.requirement.displacement_limit_m *= 0.99;
+  requireLineageMismatch(changedRequirement,
+                         "changed requirements break refinement lineage");
+  auto changedScenario = fineReviewed;
+  changedScenario.scenario_description += " changed";
+  requireLineageMismatch(changedScenario,
+                         "changed scenario breaks refinement lineage");
+
+  auto changedBackendRun = fineRun;
+  changedBackendRun.validated_result->backend.version =
+      "CalculiX Version 9.99";
+  const auto changedBackendSample =
+      ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::fine, criterion, fineOptions,
+          fineSetup, changedBackendRun);
+  const auto changedBackend = ps::compile_structural_refinement(
+      coarseSample, changedBackendSample, correspondence);
+  require(hasRefinementIssue(changedBackend,
+                             "refinement_backend_mismatch"),
+          "both samples must use one authoritative backend identity");
+
+  const auto unreviewedBoundary = ps::compile_structural_refinement(
+      coarseSample, fineSample,
+      ps::review_structural_boundary_correspondence(
+          coarseSetup, fineSetup, false, true));
+  require(hasRefinementIssue(unreviewedBoundary,
+                             "refinement_boundary_review_required"),
+          "arbitrary mesh boundaries require explicit correspondence review");
+
+  auto incompleteRun = fineRun;
+  incompleteRun.status = ps::SolverRunStatus::result_invalid;
+  incompleteRun.validated_result->issues.push_back(
+      {"test_incomplete", "synthetic incomplete refinement result"});
+  const auto incompleteSample =
+      ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::fine, criterion, fineOptions,
+          fineSetup, incompleteRun);
+  const auto incompletePair = ps::compile_structural_refinement(
+      coarseSample, incompleteSample, correspondence);
+  require(hasRefinementIssue(incompletePair,
+                             "refinement_result_incomplete"),
+          "an incomplete sample cannot become a verified comparison");
+
   const auto staleOutputs = runFixture("success", std::chrono::seconds(5));
   require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
               !staleOutputs.validated_result,

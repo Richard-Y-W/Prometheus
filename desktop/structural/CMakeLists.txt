@@ -9,6 +9,7 @@ add_library(prometheus_structural STATIC
   src/surface_selection.cpp
   src/structural_request.cpp
   src/structural_findings.cpp
+  src/structural_refinement.cpp
   src/structural_archive.cpp
   src/structural_benchmarks.cpp
   src/structural_setup.cpp

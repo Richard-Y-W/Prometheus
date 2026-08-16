@@ -395,7 +395,8 @@ CompiledStructuralSetup compile_structural_setup(
   return {.request = std::move(request),
           .canonical_setup_evidence = std::move(evidence),
           .calculix_deck = std::move(deck),
-          .identity = integrity::sha256_bytes(identityDocument)};
+          .identity = integrity::sha256_bytes(identityDocument),
+          .reviewed_setup = setup};
 }
 
 } // namespace prometheus::structural
