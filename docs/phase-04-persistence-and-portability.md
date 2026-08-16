@@ -282,10 +282,18 @@ migration/recovery trials remain an external evidence gate.
 
 ## Still required
 
-- complete migration/recovery trials across representative legacy and current
-  real projects;
-- bind non-CAD inventory/evidence dependencies and invalidate only their correct
-  downstream setup, request, or result state when they change or disappear;
+- execute the
+  [clean-machine portability and recovery trial](trials/phase-04-clean-machine-portability.md)
+  across representative legacy/current projects and retain its external
+  evidence;
 - prove relocation on a separate supported clean machine; and
 - refine archive/quarantine policy from additional real-project formats and
   user evidence.
+
+There is intentionally no raw non-CAD invalidation rule yet. The supported
+structural workflow consumes the selected CAD identity and reviewed values
+embedded in its canonical setup; it does not consume a co-located PDF, BOM,
+spreadsheet, or source file. Those files remain accounted for and retained, but
+changing an unbound file cannot stale a run that never used it. Phase 5 adds
+reviewed source/component bindings and must add dependency-specific
+invalidation with each new authoritative consumption path.
