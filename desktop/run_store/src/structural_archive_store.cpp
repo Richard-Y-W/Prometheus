@@ -65,11 +65,12 @@ StoredObjectReference parseReference(const Json &value) {
 }
 
 ObjectToStore object(std::string bytes, std::string mediaType,
-                     std::string schemaId) {
+                     std::string schemaId,
+                     std::string schemaVersion = "1.0.0") {
   bytes = integrity::canonicalize_json_bytes(bytes);
   return {{integrity::object_hash(bytes),
            static_cast<std::uint64_t>(bytes.size()), std::move(mediaType),
-           std::move(schemaId), "1.0.0"},
+           std::move(schemaId), std::move(schemaVersion)},
           std::move(bytes)};
 }
 
@@ -141,8 +142,13 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
           "structural publication requires the exact project assembly identity");
     auto manifestBytes = integrity::verify_canonical_bytes(readFile(manifestPath));
     const auto archive = Json::parse(manifestBytes);
-    if (archive.value("$schema", "") != structural_manifest_schema_id ||
-        archive.value("schema_version", "") != "1.0.0" ||
+    const auto schemaId = archive.value("$schema", "");
+    const auto schemaVersion = archive.value("schema_version", "");
+    const bool version1 = schemaId == structural_manifest_schema_id_v1 &&
+                          schemaVersion == "1.0.0";
+    const bool version2 = schemaId == structural_manifest_schema_id_v2 &&
+                          schemaVersion == "2.0.0";
+    if ((!version1 && !version2) ||
         archive.value("archive_kind", "") != "completed_linear_static_run" ||
         !archive.contains("artifacts") || !archive.at("artifacts").is_object())
       return failure<StructuralArchiveObjects>(
@@ -152,7 +158,7 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
     StructuralArchiveObjects result;
     result.archive_manifest = object(
         manifestBytes, std::string(structural_manifest_media_type),
-        std::string(structural_manifest_schema_id));
+        schemaId, schemaVersion);
     Json storedArtifacts = Json::array();
     for (const auto key : artifactKeys) {
       const auto &declared = archive.at("artifacts").at(std::string(key));

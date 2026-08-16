@@ -68,6 +68,8 @@ struct CalculixResultIssue final {
 struct CalculixArtifactIdentity final {
   std::string sha256;
   std::uintmax_t byte_length{};
+
+  bool operator==(const CalculixArtifactIdentity &) const = default;
 };
 
 struct CalculixArtifactIdentities final {
@@ -101,6 +103,7 @@ struct CompiledCalculixResult final {
   CalculixArtifactIdentities artifacts;
   CalculixBackendIdentity backend;
   std::optional<CalculixConvergenceEvidence> convergence;
+  std::string compiled_setup_identity;
   std::string identity;
 
   [[nodiscard]] bool complete() const {

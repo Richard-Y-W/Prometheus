@@ -449,22 +449,40 @@ validate_structural_manifest(const ObjectToStore &manifest) {
   const auto stored =
       detail::verify_stored_object(manifest.reference, manifest.bytes);
   if (!stored.has_value()) return stored;
+  const bool referenceV1 =
+      manifest.reference.schema_id == structural_manifest_schema_id_v1 &&
+      manifest.reference.schema_version == "1.0.0";
+  const bool referenceV2 =
+      manifest.reference.schema_id == structural_manifest_schema_id_v2 &&
+      manifest.reference.schema_version == "2.0.0";
   if (manifest.reference.media_type != structural_manifest_media_type ||
-      manifest.reference.schema_id != structural_manifest_schema_id ||
-      manifest.reference.schema_version != "1.0.0") {
+      (!referenceV1 && !referenceV2)) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_manifest_reference_invalid",
         "structural manifest reference has the wrong registered contract"));
   }
   try {
     const auto root = Json::parse(manifest.bytes);
-    if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
-                           "analysis_id", "component_name", "geometry_sha256",
-                           "solver_identity", "job_name", "execution",
-                           "artifacts", "metrics", "requirements", "coverage",
-                           "findings", "limitation"}) ||
-        !string_equals(root, "$schema", structural_manifest_schema_id) ||
-        !string_equals(root, "schema_version", "1.0.0") ||
+    const bool documentV1 =
+        referenceV1 &&
+        exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                          "analysis_id", "component_name", "geometry_sha256",
+                          "solver_identity", "job_name", "execution",
+                          "artifacts", "metrics", "requirements", "coverage",
+                          "findings", "limitation"}) &&
+        string_equals(root, "$schema", structural_manifest_schema_id_v1) &&
+        string_equals(root, "schema_version", "1.0.0");
+    const bool documentV2 =
+        referenceV2 &&
+        exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                          "analysis_id", "component_name", "geometry_sha256",
+                          "job_name", "compiled_setup_identity",
+                          "validated_result_identity", "execution", "backend",
+                          "convergence", "artifacts", "metrics", "requirements",
+                          "refinement", "coverage", "findings", "limitation"}) &&
+        string_equals(root, "$schema", structural_manifest_schema_id_v2) &&
+        string_equals(root, "schema_version", "2.0.0");
+    if ((!documentV1 && !documentV2) ||
         !string_equals(root, "archive_kind", "completed_linear_static_run")) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_manifest_contract_invalid",

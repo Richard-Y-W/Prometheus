@@ -37,6 +37,7 @@ struct StructuralFinding final {
 struct StructuralEvaluation final {
   SolverRunStatus execution_status{SolverRunStatus::launch_failed};
   std::vector<StructuralFinding> findings;
+  std::optional<StructuralRefinementEvidence> refinement;
   int declared_obligations{};
   int evaluated_obligations{};
   std::string limitation;

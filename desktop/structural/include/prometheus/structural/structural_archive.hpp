@@ -14,6 +14,8 @@ namespace prometheus::structural {
 struct StructuralArchive final {
   std::filesystem::path manifest_path;
   std::string manifest_sha256;
+  std::string schema_version;
+  std::string validated_result_identity;
 };
 
 struct StructuralArchiveVerification final {
@@ -23,12 +25,13 @@ struct StructuralArchiveVerification final {
   std::optional<CalculixMetrics> metrics;
   int declared_obligations{};
   int evaluated_obligations{};
+  std::string schema_version;
+  std::string validated_result_identity;
 };
 
 [[nodiscard]] StructuralArchive write_structural_archive(
     const std::filesystem::path &working_directory, std::string job_name,
-    std::string solver_identity, std::string reviewed_setup_bytes,
-    const StructuralRequest &request,
+    const CompiledStructuralSetup &setup,
     const SolverRunResult &run, const StructuralEvaluation &evaluation);
 
 [[nodiscard]] StructuralArchiveVerification verify_structural_archive(

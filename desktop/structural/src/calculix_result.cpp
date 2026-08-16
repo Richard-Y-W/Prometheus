@@ -189,8 +189,10 @@ CalculixArtifactIdentity identity(const std::string_view bytes) {
 CompiledCalculixResult compile_result(
     const StructuralRequest &request, const std::string_view expectedDeck,
     const bool requestAlreadyValidated,
+    const std::string_view compiledSetupIdentity,
     const CalculixRunEvidence &evidence) {
   CompiledCalculixResult result;
+  result.compiled_setup_identity = compiledSetupIdentity;
   result.artifacts = {
       .deck = identity(evidence.deck_bytes),
       .sta = identity(evidence.status_bytes),
@@ -326,9 +328,10 @@ CompiledCalculixResult compile_result(
   result.metrics = summarize_calculix_dat(result.normalized);
   const auto identityDocument = integrity::canonicalize_json_bytes(
       Json{{"$schema",
-            "urn:prometheus:schema:compiled-calculix-result:1.0.0"},
-           {"schema_version", "1.0.0"},
-           {"compiler_version", "calculix-evidence-compiler-v1"},
+            "urn:prometheus:schema:compiled-calculix-result:2.0.0"},
+           {"schema_version", "2.0.0"},
+           {"compiler_version", "calculix-evidence-compiler-v2"},
+           {"compiled_setup_identity", result.compiled_setup_identity},
            {"request_geometry_sha256", request.geometry_sha256},
            {"backend",
             {{"executable_sha256", result.backend.executable_sha256},
@@ -473,13 +476,15 @@ CompiledCalculixResult compile_calculix_result(
   std::string expectedDeck;
   if (requestIssues.empty())
     expectedDeck = detail::generate_validated_calculix_deck(request);
-  return compile_result(request, expectedDeck, requestIssues.empty(), evidence);
+  return compile_result(request, expectedDeck, requestIssues.empty(), {},
+                        evidence);
 }
 
 CompiledCalculixResult compile_calculix_result(
     const CompiledStructuralSetup &setup,
     const CalculixRunEvidence &evidence) {
-  return compile_result(setup.request, setup.calculix_deck, true, evidence);
+  return compile_result(setup.request, setup.calculix_deck, true,
+                        setup.identity, evidence);
 }
 
 } // namespace prometheus::structural

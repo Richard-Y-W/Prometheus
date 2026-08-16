@@ -104,6 +104,7 @@ StructuralEvaluation compile_structural_findings(
   if (!resultValid || !refinement ||
       !valid_refinement(*refinement))
     return result;
+  result.refinement = *refinement;
 
   const auto validLimit = [](const std::optional<double> value,
                              const std::string &basis) {

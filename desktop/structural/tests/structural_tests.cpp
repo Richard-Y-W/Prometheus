@@ -3,6 +3,7 @@
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/prepared_mesh.hpp"
+#include "prometheus/structural/structural_archive.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_benchmarks.hpp"
@@ -10,12 +11,16 @@
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
 
+#include <prometheus/integrity/canonical_json.hpp>
+
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -37,6 +42,97 @@ std::string fixtureBytes(const fs::path &path) {
   require(static_cast<bool>(input), "solver evidence fixture opens");
   return {std::istreambuf_iterator<char>(input),
           std::istreambuf_iterator<char>()};
+}
+
+void writeFixtureBytes(const fs::path &path, const std::string_view bytes) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  require(static_cast<bool>(output), "test fixture bytes write exactly");
+}
+
+std::string jsonNumber(const double value) {
+  char buffer[128]{};
+  const auto [end, error] = std::to_chars(
+      std::begin(buffer), std::end(buffer), value,
+      std::chars_format::general, std::numeric_limits<double>::max_digits10);
+  require(error == std::errc{}, "test JSON number formats exactly");
+  return {buffer, end};
+}
+
+fs::path createLegacyV1Archive(
+    const fs::path &root, const ps::StructuralRequest &request,
+    const ps::CalculixRunEvidence &evidence,
+    const ps::CalculixMetrics &metrics) {
+  fs::create_directories(root);
+  const std::string setupName = "reviewed-structural-setup.json";
+  const std::string deckName = "legacy.inp";
+  const std::string datName = "legacy.dat";
+  const std::string frdName = "legacy.frd";
+  const std::string staName = "legacy.sta";
+  const std::string stdoutName = "solver.stdout.txt";
+  const std::string stderrName = "solver.stderr.txt";
+  std::string nodeIds;
+  for (const auto &node : request.nodes) {
+    if (!nodeIds.empty())
+      nodeIds += ',';
+    nodeIds += std::to_string(node.id);
+  }
+  std::string elementIds;
+  for (const auto &element : request.elements) {
+    if (!elementIds.empty())
+      elementIds += ',';
+    elementIds += std::to_string(element.id);
+  }
+  const auto setup = prometheus::integrity::canonicalize_json_bytes(
+      std::string{"{\"$schema\":\"urn:prometheus:schema:reviewed-structural-setup:1.0.0\","}
+      + "\"analysis_id\":\"" + request.analysis_id + "\"," +
+      "\"component_name\":\"" + request.component_name + "\"," +
+      "\"geometry_sha256\":\"" + request.geometry_sha256 + "\"," +
+      "\"mesh\":{\"element_ids\":[" + elementIds +
+      "],\"node_ids\":[" + nodeIds + "]}}" );
+  writeFixtureBytes(root / setupName, setup);
+  writeFixtureBytes(root / deckName, evidence.deck_bytes);
+  writeFixtureBytes(root / datName, evidence.data_bytes);
+  writeFixtureBytes(root / frdName, "legacy frd\n");
+  writeFixtureBytes(root / staName, evidence.status_bytes);
+  writeFixtureBytes(root / stdoutName, evidence.standard_output);
+  writeFixtureBytes(root / stderrName, evidence.standard_error);
+  const auto artifact = [&](const std::string &name) {
+    const auto bytes = fixtureBytes(root / name);
+    return std::string{"{\"byte_length\":"} +
+           std::to_string(bytes.size()) + ",\"file\":\"" + name +
+           "\",\"sha256\":\"" +
+           prometheus::integrity::sha256_bytes(bytes) + "\"}";
+  };
+  const auto manifest = prometheus::integrity::canonicalize_json_bytes(
+      std::string{"{\"$schema\":\"urn:prometheus:schema:structural-run-archive:1.0.0\","}
+      + "\"analysis_id\":\"" + request.analysis_id + "\"," +
+      "\"archive_kind\":\"completed_linear_static_run\"," +
+      "\"artifacts\":{\"dat\":" + artifact(datName) +
+      ",\"deck\":" + artifact(deckName) +
+      ",\"frd\":" + artifact(frdName) +
+      ",\"setup\":" + artifact(setupName) +
+      ",\"sta\":" + artifact(staName) +
+      ",\"stderr\":" + artifact(stderrName) +
+      ",\"stdout\":" + artifact(stdoutName) + "}," +
+      "\"component_name\":\"" + request.component_name + "\"," +
+      "\"coverage\":{\"declared_obligations\":0,\"evaluated_obligations\":0}," +
+      "\"execution\":{\"elapsed_ms\":1,\"exit_code\":0,\"status\":\"completed\"}," +
+      "\"findings\":[],\"geometry_sha256\":\"" +
+      request.geometry_sha256 + "\",\"job_name\":\"legacy\"," +
+      "\"limitation\":\"legacy bounded claim\",\"metrics\":{" +
+      "\"displacement_rows\":" +
+      std::to_string(metrics.displacement_rows) +
+      ",\"maximum_displacement_m\":" +
+      jsonNumber(metrics.maximum_displacement_m) +
+      ",\"maximum_von_mises_pa\":" +
+      jsonNumber(metrics.maximum_von_mises_pa) +
+      ",\"stress_rows\":" + std::to_string(metrics.stress_rows) + "}," +
+      "\"requirements\":{\"displacement_limit_m\":null,\"von_mises_limit_pa\":null}," +
+      "\"schema_version\":\"1.0.0\",\"solver_identity\":\"legacy fixture\"}" );
+  const auto path = root / "prometheus-structural-run.json";
+  writeFixtureBytes(path, manifest);
+  return path;
 }
 
 std::string replaceOnce(std::string source, const std::string_view from,
@@ -783,6 +879,8 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(completed.status == ps::SolverRunStatus::completed &&
               completed.exit_code == 0 && completed.validated_result &&
               completed.validated_result->complete() &&
+              completed.validated_result->compiled_setup_identity ==
+                  compiled.identity &&
               std::abs(completed.validated_result->metrics
                            ->maximum_displacement_m -
                        2.0e-5) < 1e-15 &&
@@ -806,6 +904,9 @@ Synthetic two-group tetrahedron; coordinates are millimetres
       findingRequest, completed.validated_result, acceptedRefinement);
   require(withinLimits.declared_obligations == 2 &&
               withinLimits.evaluated_obligations == 2 &&
+              withinLimits.refinement.has_value() &&
+              withinLimits.refinement->result_sha256 ==
+                  acceptedRefinement.result_sha256 &&
               std::ranges::all_of(withinLimits.findings, [](const auto &finding) {
                 return finding.disposition ==
                     ps::StructuralFindingDisposition::no_violation_detected_within_scope;
@@ -858,6 +959,28 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(invalidEvidence.evaluated_obligations == 0 &&
               invalidEvidence.findings.empty(),
           "invalid solver evidence cannot generate findings");
+  const auto legacyManifest = createLegacyV1Archive(
+      processRoot / "legacy-v1", request, completeEvidence,
+      *compiledResult.metrics);
+  const auto legacyVerification =
+      ps::verify_structural_archive(legacyManifest);
+  require(legacyVerification.valid &&
+              legacyVerification.schema_version == "1.0.0",
+          "legacy v1 archive remains readable under its original claim");
+
+  const auto archive = ps::write_structural_archive(
+      processRoot, "success", compiled, completed, withinLimits);
+  require(archive.schema_version == "2.0.0" &&
+              archive.validated_result_identity ==
+                  completed.validated_result->identity,
+          "new archive reuses the active validated result under v2");
+  const auto archiveVerification =
+      ps::verify_structural_archive(archive.manifest_path);
+  require(archiveVerification.valid &&
+              archiveVerification.schema_version == "2.0.0" &&
+              archiveVerification.validated_result_identity ==
+                  completed.validated_result->identity,
+          "persisted v2 archive replays after crossing the trust boundary");
   const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
   require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
               nonzero.exit_code == 7 && !nonzero.validated_result,
