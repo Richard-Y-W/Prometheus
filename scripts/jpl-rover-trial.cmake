@@ -5,9 +5,10 @@ get_filename_component(repository_root "${script_directory}/.." ABSOLUTE)
 
 set(production_revision "0c4a0d97ba09d028a9ca380ae8e6729ac4b8bef7")
 set(production_license_sha256
-  "112db3cf45a71a2db715c0d46dacfd619b4effac00bda5e4089ff44f3958bb29")
+  "74227c34e68957a55d4d16091aeca5bcd240ec15883e5dee71f4b25139064413")
 set(production_source_repository
   "https://github.com/nasa-jpl/open-source-rover.git")
+set(license_relative_path "LICENSE.txt")
 
 if(NOT DEFINED PROMETHEUS_JPL_MODE)
   set(PROMETHEUS_JPL_MODE verify)
@@ -143,6 +144,7 @@ function(write_source_sidecar path tree_sha256 file_count archive_sha256)
   file(APPEND "${path}"
     "  \"schema\": \"urn:prometheus:jpl-rover-source:1\",\n"
     "  \"revision\": \"${source_revision}\",\n"
+    "  \"license_path\": \"${license_relative_path}\",\n"
     "  \"license_sha256\": \"${expected_license_sha256}\",\n"
     "  \"tree_manifest_sha256\": \"${tree_sha256}\",\n"
     "  \"total_files\": ${file_count},\n"
@@ -158,9 +160,10 @@ function(validate_trial root sidecar output_ok output_reason)
   elseif(NOT EXISTS "${sidecar}" OR IS_DIRECTORY "${sidecar}" OR
          IS_SYMLINK "${sidecar}")
     set(reason "source sidecar is missing or is not regular")
-  elseif(NOT EXISTS "${root}/LICENSE" OR IS_DIRECTORY "${root}/LICENSE" OR
-         IS_SYMLINK "${root}/LICENSE")
-    set(reason "LICENSE is missing or is not a regular file")
+  elseif(NOT EXISTS "${root}/${license_relative_path}" OR
+         IS_DIRECTORY "${root}/${license_relative_path}" OR
+         IS_SYMLINK "${root}/${license_relative_path}")
+    set(reason "${license_relative_path} is missing or is not a regular file")
   else()
     file(READ "${sidecar}" sidecar_json)
     string(JSON sidecar_type ERROR_VARIABLE json_error TYPE "${sidecar_json}")
@@ -168,7 +171,7 @@ function(validate_trial root sidecar output_ok output_reason)
        NOT sidecar_type STREQUAL "OBJECT")
       set(reason "source sidecar is not one valid JSON object")
     else()
-      foreach(field IN ITEMS schema revision license_sha256
+      foreach(field IN ITEMS schema revision license_path license_sha256
                              tree_manifest_sha256 total_files archive_sha256)
         string(JSON field_type ERROR_VARIABLE field_error
           TYPE "${sidecar_json}" "${field}")
@@ -184,10 +187,12 @@ function(validate_trial root sidecar output_ok output_reason)
           set(reason "source sidecar schema is unsupported")
         elseif(NOT sidecar_revision STREQUAL source_revision)
           set(reason "source sidecar revision does not match the pinned revision")
+        elseif(NOT sidecar_license_path STREQUAL license_relative_path)
+          set(reason "source sidecar license path does not match")
         elseif(NOT sidecar_license_sha256 STREQUAL expected_license_sha256)
           set(reason "source sidecar license identity does not match")
         else()
-          file(SHA256 "${root}/LICENSE" actual_license_sha256)
+          file(SHA256 "${root}/${license_relative_path}" actual_license_sha256)
           if(NOT actual_license_sha256 STREQUAL expected_license_sha256)
             set(reason "LICENSE bytes do not match the pinned SHA-256")
           else()
@@ -327,14 +332,15 @@ if(NOT existing_trial OR PROMETHEUS_JPL_REFRESH)
   file(ARCHIVE_EXTRACT INPUT "${archive_staging}"
     DESTINATION "${trial_staging}")
 
-  if(NOT EXISTS "${trial_staging}/LICENSE" OR
-     IS_DIRECTORY "${trial_staging}/LICENSE" OR
-     IS_SYMLINK "${trial_staging}/LICENSE")
+  if(NOT EXISTS "${trial_staging}/${license_relative_path}" OR
+     IS_DIRECTORY "${trial_staging}/${license_relative_path}" OR
+     IS_SYMLINK "${trial_staging}/${license_relative_path}")
     safe_remove("${trial_staging}" "${trials_root}")
     safe_remove("${archive_staging}" "${external_root}")
-    message(FATAL_ERROR "Pinned Rover archive does not contain a regular LICENSE file")
+    message(FATAL_ERROR
+      "Pinned Rover archive does not contain a regular ${license_relative_path} file")
   endif()
-  file(SHA256 "${trial_staging}/LICENSE" staged_license_sha256)
+  file(SHA256 "${trial_staging}/${license_relative_path}" staged_license_sha256)
   if(NOT staged_license_sha256 STREQUAL expected_license_sha256)
     safe_remove("${trial_staging}" "${trials_root}")
     safe_remove("${archive_staging}" "${external_root}")

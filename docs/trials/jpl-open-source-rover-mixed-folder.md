@@ -11,8 +11,8 @@ boundaries, and ambiguous CAD selection.
 
 - Project: [NASA JPL Open Source Rover](https://github.com/nasa-jpl/open-source-rover)
 - Revision: `0c4a0d97ba09d028a9ca380ae8e6729ac4b8bef7`
-- License file SHA-256:
-  `112db3cf45a71a2db715c0d46dacfd619b4effac00bda5e4089ff44f3958bb29`
+- `LICENSE.txt` SHA-256:
+  `74227c34e68957a55d4d16091aeca5bcd240ec15883e5dee71f4b25139064413`
 - Prepared as a clean `git archive` snapshot without repository internals
 
 The repository combines mechanical instructions, DXFs, STL files, electrical

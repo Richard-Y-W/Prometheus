@@ -180,11 +180,11 @@ git commit -m "Add strict project intake summary assertion"
 - [ ] **Step 1: Write an offline preparation failure test**
 
 `JplRoverTrialFixture.cmake` creates a temporary local Git repository containing
-`LICENSE`, `assembly.step`, and one ignored file, commits it, and invokes the
+`LICENSE.txt`, `assembly.step`, and one ignored file, commits it, and invokes the
 same pinned-archive helper with test-only work paths. Register two CTest cases:
 one with a deliberately wrong license SHA that must leave a pre-existing valid
 trial directory and sidecar byte-identical, and one with the correct
-revision/license that must prepare only `LICENSE` and `assembly.step`.
+revision/license that must prepare only `LICENSE.txt` and `assembly.step`.
 
 - [ ] **Step 2: Verify RED**
 
@@ -195,7 +195,8 @@ exist.
 
 The driver resolves repository paths from `CMAKE_CURRENT_LIST_DIR`, pins
 revision `0c4a0d97ba09d028a9ca380ae8e6729ac4b8bef7`, and validates license
-SHA-256 `112db3cf45a71a2db715c0d46dacfd619b4effac00bda5e4089ff44f3958bb29`.
+`LICENSE.txt` SHA-256
+`74227c34e68957a55d4d16091aeca5bcd240ec15883e5dee71f4b25139064413`.
 It must:
 
 1. keep the Git cache under `out/external-demo/open-source-rover`;
