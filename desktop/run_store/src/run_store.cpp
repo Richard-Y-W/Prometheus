@@ -455,8 +455,11 @@ validate_structural_manifest(const ObjectToStore &manifest) {
   const bool referenceV2 =
       manifest.reference.schema_id == structural_manifest_schema_id_v2 &&
       manifest.reference.schema_version == "2.0.0";
+  const bool referenceV3 =
+      manifest.reference.schema_id == structural_manifest_schema_id_v3 &&
+      manifest.reference.schema_version == "3.0.0";
   if (manifest.reference.media_type != structural_manifest_media_type ||
-      (!referenceV1 && !referenceV2)) {
+      (!referenceV1 && !referenceV2 && !referenceV3)) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_manifest_reference_invalid",
         "structural manifest reference has the wrong registered contract"));
@@ -482,41 +485,72 @@ validate_structural_manifest(const ObjectToStore &manifest) {
                           "refinement", "coverage", "findings", "limitation"}) &&
         string_equals(root, "$schema", structural_manifest_schema_id_v2) &&
         string_equals(root, "schema_version", "2.0.0");
-    if ((!documentV1 && !documentV2) ||
-        !string_equals(root, "archive_kind", "completed_linear_static_run")) {
+    const bool documentV3 =
+        referenceV3 &&
+        exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                          "analysis_id", "component_name", "geometry_sha256",
+                          "criterion", "boundary_correspondence", "samples",
+                          "comparison", "coverage", "findings", "limitation"}) &&
+        string_equals(root, "$schema", structural_manifest_schema_id_v3) &&
+        string_equals(root, "schema_version", "3.0.0");
+    if ((!documentV1 && !documentV2 && !documentV3) ||
+        (documentV3
+             ? !string_equals(root, "archive_kind",
+                              "linear_static_refinement_study")
+             : !string_equals(root, "archive_kind",
+                              "completed_linear_static_run"))) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_manifest_contract_invalid",
           "structural manifest is not the closed completed-run archive contract"));
     }
-    const auto &artifacts = root.at("artifacts");
-    if (!exact_keys(artifacts,
-                    {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"})) {
+    std::unordered_set<std::string> filenames;
+    const auto validArtifacts = [&](const Json &artifacts) {
+      if (!exact_keys(artifacts,
+                      {"setup", "deck", "dat", "frd", "sta", "stdout",
+                       "stderr"}))
+        return false;
+      for (const auto key : {"setup", "deck", "dat", "frd", "sta",
+                             "stdout", "stderr"}) {
+        const auto &artifact = artifacts.at(key);
+        if (!exact_keys(artifact, {"file", "byte_length", "sha256"}) ||
+            !artifact.at("file").is_string() ||
+            !artifact.at("byte_length").is_number_unsigned() ||
+            !artifact.at("sha256").is_string())
+          return false;
+        const auto filename = artifact.at("file").get<std::string>();
+        const auto hash = artifact.at("sha256").get<std::string>();
+        if (filename.empty() || filename.size() > 128U ||
+            filename.find('/') != std::string::npos ||
+            filename.find('\\') != std::string::npos ||
+            !filenames.insert(filename).second ||
+            !is_valid_object_hash(hash))
+          return false;
+      }
+      return true;
+    };
+    bool artifactSetValid = false;
+    if (!documentV3) {
+      artifactSetValid = root.contains("artifacts") &&
+                         validArtifacts(root.at("artifacts"));
+    } else if (root.contains("samples") &&
+               exact_keys(root.at("samples"), {"coarse", "fine"})) {
+      artifactSetValid = true;
+      for (const auto role : {"coarse", "fine"}) {
+        const auto &sample = root.at("samples").at(role);
+        artifactSetValid =
+            artifactSetValid &&
+            exact_keys(sample, {"role", "compiled_setup_identity",
+                                "validated_result_identity", "mesh",
+                                "execution", "backend", "convergence",
+                                "artifacts", "metrics"}) &&
+            sample.at("role").is_string() && sample.at("role") == role &&
+            validArtifacts(sample.at("artifacts"));
+      }
+    }
+    if (!artifactSetValid)
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_manifest_contract_invalid",
-          "structural manifest artifact set is incomplete"));
-    }
-    std::unordered_set<std::string> filenames;
-    for (const auto key : {"setup", "deck", "dat", "frd", "sta", "stdout", "stderr"}) {
-      const auto &artifact = artifacts.at(key);
-      if (!exact_keys(artifact, {"file", "byte_length", "sha256"}) ||
-          !artifact.at("file").is_string() ||
-          !artifact.at("byte_length").is_number_unsigned() ||
-          !artifact.at("sha256").is_string()) {
-        return Result<detail::Unit>::failure(detail::store_diagnostic(
-            "structural_manifest_contract_invalid",
-            "structural artifact reference is invalid"));
-      }
-      const auto filename = artifact.at("file").get<std::string>();
-      const auto hash = artifact.at("sha256").get<std::string>();
-      if (filename.empty() || filename.size() > 128U ||
-          filename.find('/') != std::string::npos ||
-          filename.find('\\') != std::string::npos ||
-          !filenames.insert(filename).second || !is_valid_object_hash(hash)) {
-        return Result<detail::Unit>::failure(detail::store_diagnostic(
-            "structural_manifest_contract_invalid",
-            "structural artifact identity is unsafe or duplicated"));
-      }
-    }
+          "structural manifest artifact set is incomplete or unsafe"));
     return Result<detail::Unit>::success(detail::Unit{});
   } catch (const std::exception &failure) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
@@ -532,25 +566,44 @@ Result<detail::Unit> validate_embedded_structural_graph(
   const auto projectValid = detail::verify_stored_object(
       objects.project_manifest.reference, objects.project_manifest.bytes);
   if (!projectValid.has_value()) return projectValid;
+  const bool projectReferenceV1 =
+      objects.project_manifest.reference.schema_id ==
+          structural_project_run_schema_id_v1 &&
+      objects.project_manifest.reference.schema_version == "1.0.0";
+  const bool projectReferenceV2 =
+      objects.project_manifest.reference.schema_id ==
+          structural_project_run_schema_id_v2 &&
+      objects.project_manifest.reference.schema_version == "2.0.0";
   if (objects.project_manifest.reference.media_type !=
           structural_project_run_media_type ||
-      objects.project_manifest.reference.schema_id !=
-          structural_project_run_schema_id)
+      (!projectReferenceV1 && !projectReferenceV2))
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_project_manifest_reference_invalid",
         "embedded structural manifest reference has the wrong contract"));
   try {
     const auto projectManifest = Json::parse(objects.project_manifest.bytes);
+    const bool archiveV3 =
+        objects.archive_manifest.reference.schema_id ==
+            structural_manifest_schema_id_v3 &&
+        objects.archive_manifest.reference.schema_version == "3.0.0";
+    const auto expectedProjectSchema =
+        projectReferenceV2 ? structural_project_run_schema_id_v2
+                           : structural_project_run_schema_id_v1;
+    const auto expectedProjectVersion =
+        projectReferenceV2 ? "2.0.0" : "1.0.0";
+    const std::size_t expectedArtifactCount = projectReferenceV2 ? 14U : 7U;
     if (!exact_keys(projectManifest,
                     {"$schema", "schema_version", "manifest_kind",
                      "assembly_artifact_hash", "archive_manifest", "artifacts"}) ||
         !string_equals(projectManifest, "$schema",
-                       structural_project_run_schema_id) ||
-        !string_equals(projectManifest, "schema_version", "1.0.0") ||
+                       expectedProjectSchema) ||
+        !string_equals(projectManifest, "schema_version",
+                       expectedProjectVersion) ||
         !string_equals(projectManifest, "manifest_kind",
                        "embedded_structural_run") ||
         !projectManifest.at("artifacts").is_array() ||
-        projectManifest.at("artifacts").size() != 7U)
+        projectManifest.at("artifacts").size() != expectedArtifactCount ||
+        projectReferenceV2 != archiveV3)
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_project_manifest_invalid",
           "embedded structural project manifest is invalid"));
@@ -588,9 +641,33 @@ Result<detail::Unit> validate_embedded_structural_graph(
             "structural_chunk_set_invalid",
             "structural chunk contract or identity is invalid"));
     }
+    std::vector<std::string> expectedRoles;
+    for (const auto sample : projectReferenceV2
+                                 ? std::initializer_list<const char *>{
+                                       "coarse", "fine"}
+                                 : std::initializer_list<const char *>{""})
+      for (const auto key : {"setup", "deck", "dat", "frd", "sta",
+                             "stdout", "stderr"})
+        expectedRoles.push_back(
+            *sample == '\0' ? std::string(key)
+                             : std::string(sample) + "/" + key);
+    const auto &declaredForRole = [&](const std::string &role) -> const Json & {
+      if (!projectReferenceV2)
+        return archive.at("artifacts").at(role);
+      const auto separator = role.find('/');
+      return archive.at("samples")
+          .at(role.substr(0U, separator))
+          .at("artifacts")
+          .at(role.substr(separator + 1U));
+    };
+
     std::unordered_set<std::string> referencedChunks;
     std::unordered_set<std::string> roles;
-    for (const auto &artifact : projectManifest.at("artifacts")) {
+    for (std::size_t artifactIndex = 0U;
+         artifactIndex < projectManifest.at("artifacts").size();
+         ++artifactIndex) {
+      const auto &artifact =
+          projectManifest.at("artifacts").at(artifactIndex);
       if (!exact_keys(artifact,
                       {"role", "file", "byte_length", "sha256", "chunks"}) ||
           !artifact.at("role").is_string() || !artifact.at("file").is_string() ||
@@ -601,11 +678,12 @@ Result<detail::Unit> validate_embedded_structural_graph(
             "structural_project_manifest_invalid",
             "embedded structural artifact entry is invalid"));
       const auto role = artifact.at("role").get<std::string>();
-      if (!roles.insert(role).second || !archive.at("artifacts").contains(role))
+      if (role != expectedRoles.at(artifactIndex) ||
+          !roles.insert(role).second)
         return Result<detail::Unit>::failure(detail::store_diagnostic(
             "structural_project_manifest_invalid",
             "embedded structural artifact role is invalid"));
-      const auto &declared = archive.at("artifacts").at(role);
+      const auto &declared = declaredForRole(role);
       if (artifact.at("file") != declared.at("file") ||
           artifact.at("byte_length") != declared.at("byte_length") ||
           artifact.at("sha256") != declared.at("sha256"))
@@ -619,12 +697,12 @@ Result<detail::Unit> validate_embedded_structural_graph(
           artifact.at("byte_length").get<std::size_t>());
       for (const auto &referenceJson : artifact.at("chunks")) {
         const auto reference = reference_from_json(referenceJson);
-        if (!reference || !referencedChunks.insert(reference->object_hash).second ||
-            !suppliedChunks.contains(reference->object_hash) ||
+        if (!reference || !suppliedChunks.contains(reference->object_hash) ||
             suppliedChunks.at(reference->object_hash)->reference != *reference)
           return Result<detail::Unit>::failure(detail::store_diagnostic(
               "structural_chunk_reference_mismatch",
-              "structural chunk reference is missing, duplicated, or changed"));
+              "structural chunk reference is missing or changed"));
+        referencedChunks.insert(reference->object_hash);
         const auto chunk =
             Json::parse(suppliedChunks.at(reference->object_hash)->bytes);
         if (!exact_keys(chunk,

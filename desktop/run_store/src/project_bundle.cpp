@@ -106,7 +106,8 @@ Result<std::unordered_map<std::string, StoredObjectReference>> reachableObjects(
       if (reference.schema_id == "urn:prometheus:schema:run-manifest:1.0.0") {
         for (const auto member : {"package", "scenario", "request", "result"})
           pending.push(parseReference(document.at(member)));
-      } else if (reference.schema_id == structural_project_run_schema_id) {
+      } else if (reference.schema_id == structural_project_run_schema_id_v1 ||
+                 reference.schema_id == structural_project_run_schema_id_v2) {
         pending.push(parseReference(document.at("archive_manifest")));
         for (const auto &artifact : document.at("artifacts"))
           for (const auto &chunk : artifact.at("chunks"))

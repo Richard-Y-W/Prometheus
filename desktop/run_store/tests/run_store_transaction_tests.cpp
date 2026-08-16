@@ -293,6 +293,81 @@ fs::path create_structural_archive_fixture(
   return archive / "prometheus-structural-run.json";
 }
 
+fs::path create_structural_archive_v3_fixture(
+    const fs::path &root, const std::string &directoryName,
+    const std::string &geometrySha256 =
+        "sha256:377302b669b12b89e2c020dc4c29e1c63c4920587920eb8f02ff54ca73bf977d") {
+  const auto archive = root / directoryName;
+  require(fs::create_directory(archive),
+          "create structural archive v3 fixture");
+  constexpr std::array<std::string_view, 7> artifactKeys{
+      "setup", "deck", "dat", "frd", "sta", "stdout", "stderr"};
+  const auto filename = [](const std::string_view role,
+                           const std::string_view key) {
+    const auto extension =
+        key == "setup" ? ".setup.json"
+        : key == "deck" ? ".inp"
+        : key == "stdout" ? ".stdout.txt"
+        : key == "stderr" ? ".stderr.txt"
+        : "." + std::string(key);
+    return std::string(role) + extension;
+  };
+  for (const auto role : {"coarse", "fine"})
+    for (const auto key : artifactKeys) {
+      auto bytes = std::string(role) + "/" + std::string(key) + "\n";
+      if (std::string_view(role) == "coarse" && key == "dat")
+        bytes.assign(run_store::structural_artifact_chunk_bytes + 17U, 'D');
+      write_file(archive / filename(role, key), bytes);
+    }
+  const auto artifact = [&](const std::string_view role,
+                            const std::string_view key) {
+    const auto name = filename(role, key);
+    const auto bytes = read_file(archive / name);
+    return nlohmann::json{
+        {"file", name},
+        {"byte_length", bytes.size()},
+        {"sha256", integrity::sha256_bytes(bytes)}};
+  };
+  const auto sample = [&](const std::string_view role,
+                          const char setupIdentity,
+                          const char resultIdentity) {
+    nlohmann::json artifacts = nlohmann::json::object();
+    for (const auto key : artifactKeys)
+      artifacts[std::string(key)] = artifact(role, key);
+    return nlohmann::json{
+        {"role", role},
+        {"compiled_setup_identity",
+         "sha256:" + std::string(64U, setupIdentity)},
+        {"validated_result_identity",
+         "sha256:" + std::string(64U, resultIdentity)},
+        {"mesh", nlohmann::json::object()},
+        {"execution", nlohmann::json::object()},
+        {"backend", nlohmann::json::object()},
+        {"convergence", nlohmann::json::object()},
+        {"artifacts", std::move(artifacts)},
+        {"metrics", nlohmann::json::object()}};
+  };
+  const auto document = nlohmann::json{
+      {"$schema", run_store::structural_manifest_schema_id_v3},
+      {"schema_version", "3.0.0"},
+      {"archive_kind", "linear_static_refinement_study"},
+      {"analysis_id", "embedded-refinement-analysis"},
+      {"component_name", "component"},
+      {"geometry_sha256", geometrySha256},
+      {"criterion", nlohmann::json::object()},
+      {"boundary_correspondence", nlohmann::json::object()},
+      {"samples",
+       {{"coarse", sample("coarse", 'a', 'b')},
+        {"fine", sample("fine", 'c', 'd')}}},
+      {"comparison", nlohmann::json::object()},
+      {"coverage", nlohmann::json::object()},
+      {"findings", nlohmann::json::array()},
+      {"limitation", "bounded"}};
+  write_file(archive / "prometheus-structural-run.json",
+             integrity::canonicalize_json_bytes(document.dump()));
+  return archive / "prometheus-structural-run.json";
+}
+
 run_store::ObjectToStore motor_b_package() {
   return object_fixture(
       "fixtures/contracts/execution-component-v2.motor-b.jcs",
@@ -1005,6 +1080,203 @@ void test_embedded_structural_archive_round_trip() {
           "assembly mismatch cannot enter structural project history");
 }
 
+void test_embedded_structural_archive_v3_round_trip() {
+  TemporaryRoot root;
+  const auto cadPath = root.path() / "embedded-refinement.step";
+  write_file(cadPath, "embedded refinement CAD source bytes\n");
+  const auto geometryHash = integrity::sha256_file(cadPath);
+  auto project = initial_project();
+  project.cad_source = cadPath.string();
+  project.assembly_artifact_hash = geometryHash;
+  const auto sourceManifest = create_structural_archive_v3_fixture(
+      root.path(), "structural-archive-v3", geometryHash);
+  auto packed = require_success(
+      run_store::build_structural_archive_objects(
+          sourceManifest, geometryHash),
+      "pack structural v3 archive");
+  require(packed.archive_manifest.reference.schema_id ==
+                  run_store::structural_manifest_schema_id_v3 &&
+              packed.archive_manifest.reference.schema_version == "3.0.0" &&
+              packed.project_manifest.reference.schema_id ==
+                  run_store::structural_project_run_schema_id_v2,
+          "v3 archives use the two-sample embedded graph contract");
+  require(packed.chunks.size() >= 14U,
+          "every v3 artifact is represented in the object graph");
+
+  const auto projectPath = root.path() / "embedded-v3.prometheus";
+  require_success(run_store::create_project_v2(projectPath, project),
+                  "create embedded structural v3 project");
+  const auto published = require_success(
+      run_store::publish_structural_archive(projectPath, packed),
+      "publish embedded structural v3 archive");
+  require(!published.already_committed &&
+              published.project.execution.committed_runs.front() ==
+                  packed.project_manifest.reference,
+          "v3 publication commits the two-sample graph root");
+  const auto repeated = require_success(
+      run_store::publish_structural_archive(projectPath, packed),
+      "repeat embedded structural v3 publication");
+  require(repeated.already_committed &&
+              repeated.project.execution.committed_runs.size() == 2U,
+          "v3 structural publication is idempotent");
+
+  const auto destination = root.path() / "reconstructed-v3";
+  const auto reconstructed = run_store::reconstruct_structural_archive(
+      projectPath, packed.project_manifest.reference, destination);
+  require(reconstructed.has_value(),
+          "embedded structural v3 archive reconstructs");
+  std::size_t reconstructedFiles = 0U;
+  for (const auto &entry : fs::directory_iterator(sourceManifest.parent_path())) {
+    ++reconstructedFiles;
+    require(read_file(entry.path()) ==
+                read_file(destination / entry.path().filename()),
+            "reconstructed structural v3 file is byte-identical");
+  }
+  require(reconstructedFiles == 15U,
+          "v3 reconstruction retains fourteen artifacts and one manifest");
+
+  const auto bundleDirectory = root.path() / "embedded-v3-bundle";
+  const auto bundle = run_store::export_project_bundle(
+      projectPath, bundleDirectory);
+  if (!bundle.has_value())
+    require(false, "v3 structural project exports as a portable bundle: " +
+                       bundle.diagnostic().code + ": " +
+                       bundle.diagnostic().message);
+  const auto restoredBundleDirectory = root.path() / "restored-v3-bundle";
+  const auto restored = run_store::restore_project_bundle(
+      bundleDirectory, restoredBundleDirectory);
+  require(restored.has_value(),
+          "v3 structural project bundle restores on a clean path");
+  const auto restoredArchive = run_store::reconstruct_structural_archive(
+      restored.value().project_path, packed.project_manifest.reference,
+      root.path() / "restored-v3-archive");
+  require(restoredArchive.has_value(),
+          "restored v3 bundle retains the complete structural object graph");
+
+  const auto modifiedSource =
+      [&](const std::string &directoryName, const auto &modify) {
+        const auto manifest = create_structural_archive_v3_fixture(
+            root.path(), directoryName);
+        auto document = nlohmann::json::parse(read_file(manifest));
+        modify(document);
+        write_file(manifest,
+                   integrity::canonicalize_json_bytes(document.dump()));
+        return manifest;
+      };
+  const auto unknownRole = modifiedSource(
+      "structural-v3-unknown-role", [](auto &document) {
+        document["samples"]["coarse"]["role"] = "middle";
+      });
+  require_failure(
+      run_store::build_structural_archive_objects(
+          unknownRole, initial_project().assembly_artifact_hash),
+      "structural_manifest_contract_invalid",
+      "v3 archive with an unknown sample role");
+  const auto duplicateFilename = modifiedSource(
+      "structural-v3-duplicate-filename", [](auto &document) {
+        document["samples"]["fine"]["artifacts"]["setup"]["file"] =
+            document["samples"]["coarse"]["artifacts"]["setup"]["file"];
+      });
+  require_failure(
+      run_store::build_structural_archive_objects(
+          duplicateFilename, initial_project().assembly_artifact_hash),
+      "structural_manifest_contract_invalid",
+      "v3 archive with a filename reused across sample roles");
+  const auto missingFineArtifact = modifiedSource(
+      "structural-v3-missing-fine", [](auto &document) {
+        document["samples"]["fine"]["artifacts"].erase("sta");
+      });
+  require_failure(
+      run_store::build_structural_archive_objects(
+          missingFineArtifact, initial_project().assembly_artifact_hash),
+      "structural_manifest_contract_invalid",
+      "v3 archive missing one fine artifact");
+  const auto wrongGeometry = modifiedSource(
+      "structural-v3-wrong-geometry", [](auto &document) {
+        document["geometry_sha256"] =
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+      });
+  require_failure(
+      run_store::build_structural_archive_objects(
+          wrongGeometry, initial_project().assembly_artifact_hash),
+      "structural_geometry_binding_mismatch",
+      "v3 archive bound to another geometry identity");
+
+  auto missingProjectArtifact = packed;
+  auto missingProjectDocument =
+      nlohmann::json::parse(missingProjectArtifact.project_manifest.bytes);
+  missingProjectDocument["artifacts"].erase(
+      missingProjectDocument["artifacts"].end() - 1);
+  missingProjectArtifact.project_manifest.bytes =
+      integrity::canonicalize_json_bytes(missingProjectDocument.dump());
+  missingProjectArtifact.project_manifest.reference = reference_for(
+      missingProjectArtifact.project_manifest.bytes,
+      std::string(run_store::structural_project_run_media_type),
+      std::string(run_store::structural_project_run_schema_id_v2), "2.0.0");
+  require_failure(
+      run_store::publish_structural_archive(projectPath,
+                                            missingProjectArtifact),
+      "structural_project_manifest_invalid",
+      "v3 project graph with fewer than fourteen artifacts");
+
+  auto forged = packed;
+  auto forgedArchive =
+      nlohmann::json::parse(forged.archive_manifest.bytes);
+  forgedArchive["geometry_sha256"] =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  forged.archive_manifest.bytes =
+      integrity::canonicalize_json_bytes(forgedArchive.dump());
+  forged.archive_manifest.reference = reference_for(
+      forged.archive_manifest.bytes,
+      std::string(run_store::structural_manifest_media_type),
+      std::string(run_store::structural_manifest_schema_id_v3), "3.0.0");
+  auto forgedProject =
+      nlohmann::json::parse(forged.project_manifest.bytes);
+  forgedProject["archive_manifest"] = {
+      {"object_hash", forged.archive_manifest.reference.object_hash},
+      {"byte_length", forged.archive_manifest.reference.byte_length},
+      {"media_type", forged.archive_manifest.reference.media_type},
+      {"schema_id", forged.archive_manifest.reference.schema_id},
+      {"schema_version", forged.archive_manifest.reference.schema_version}};
+  forged.project_manifest.bytes =
+      integrity::canonicalize_json_bytes(forgedProject.dump());
+  forged.project_manifest.reference = reference_for(
+      forged.project_manifest.bytes,
+      std::string(run_store::structural_project_run_media_type),
+      std::string(run_store::structural_project_run_schema_id_v2), "2.0.0");
+  const auto forgedProjectPath = root.path() / "forged-v3.prometheus";
+  auto forgedProjectIndex = initial_project();
+  require_success(run_store::create_project_v2(forgedProjectPath,
+                                                forgedProjectIndex),
+                  "create forged structural v3 project fixture");
+  for (const auto *stored : {&forged.archive_manifest,
+                             &forged.project_manifest})
+    require(run_store::install_object(forgedProjectPath, stored->reference,
+                                      stored->bytes)
+                .has_value(),
+            "install forged structural v3 manifest fixture");
+  for (const auto &chunk : forged.chunks)
+    require(run_store::install_object(forgedProjectPath, chunk.reference,
+                                      chunk.bytes)
+                .has_value(),
+            "install forged structural v3 chunk fixture");
+  forgedProjectIndex.execution.committed_runs.push_back(
+      forged.project_manifest.reference);
+  write_file(forgedProjectPath,
+             require_success(run_store::serialize_project_v2(
+                                 forgedProjectIndex),
+                             "serialize forged structural v3 project"));
+  const auto forgedDestination = root.path() / "forged-v3-reconstruction";
+  require_failure(
+      run_store::reconstruct_structural_archive(
+          forgedProjectPath, forged.project_manifest.reference,
+          forgedDestination),
+      "structural_geometry_binding_mismatch",
+      "reconstructed v3 archive detached from its project geometry");
+  require(!fs::exists(forgedDestination),
+          "rejected forged v3 reconstruction leaves no destination");
+}
+
 void test_create_failure_boundaries() {
   for (const auto boundary : project_boundaries) {
     TemporaryRoot root;
@@ -1463,6 +1735,7 @@ int main() {
     test_structural_manifest_anchor();
     test_structural_manifest_v2_anchor();
     test_embedded_structural_archive_round_trip();
+    test_embedded_structural_archive_v3_round_trip();
     test_create_failure_boundaries();
     test_binding_failure_boundaries();
     test_scenario_failure_is_atomic();
