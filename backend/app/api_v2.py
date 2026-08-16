@@ -38,6 +38,11 @@ from .fixture_pipeline_v2 import (
     FixtureDraftError,
     create_fixture_draft,
 )
+from .manual_component_intake_v2 import (
+    ManualComponentDraftError,
+    ManualComponentDraftRequestV2,
+    create_manual_component_draft,
+)
 from .models_v1 import Component, ComponentRevision, Manufacturer
 from .models_v2 import (
     CandidateClaimV2,
@@ -45,6 +50,7 @@ from .models_v2 import (
     ClaimSelectionV2,
     EvidenceRecordV2,
     FixtureIngestionJobV2,
+    ManualComponentDraftJobV2,
     ParameterSlotV2,
 )
 from .object_store import PublishedObjectIntegrityError, load_verified_published_object
@@ -158,6 +164,12 @@ class FixtureIngestionResponseV2(ContractV2):
     id: UuidV4
     state: Literal["succeeded"]
     fixture_id: FixtureIdV2
+    revision: RevisionResponseV2
+
+
+class ManualComponentDraftResponseV2(ContractV2):
+    id: UuidV4
+    state: Literal["succeeded"]
     revision: RevisionResponseV2
 
 
@@ -507,6 +519,61 @@ def get_fixture_ingestion(
     return _ingestion_value(db, job)
 
 
+def _manual_draft_value(
+    db: Session, job: ManualComponentDraftJobV2
+) -> dict[str, object]:
+    if job.status != "succeeded" or job.revision_id is None:
+        raise _error(
+            409,
+            "manual_draft_ingestion_incomplete",
+            "The manual component draft has no completed revision.",
+        )
+    return {
+        "id": job.id,
+        "state": job.status,
+        "revision": _revision_value(db, job.revision_id),
+    }
+
+
+@router.post(
+    "/component-drafts",
+    status_code=201,
+    response_model=ManualComponentDraftResponseV2,
+)
+def create_component_draft(
+    body: ManualComponentDraftRequestV2,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    db: Session = Depends(get_db),
+):
+    key = _validated_key(idempotency_key)
+    try:
+        result = create_manual_component_draft(
+            db, request=body, idempotency_key=key
+        )
+    except ManualComponentDraftError as exc:
+        status = 422 if exc.code in {
+            "invalid_idempotency_key",
+            "unsupported_schema",
+        } else 409
+        raise _error(status, exc.code, str(exc)) from exc
+    return _manual_draft_value(db, result.job)
+
+
+@router.get(
+    "/component-drafts/{draft_id}",
+    response_model=ManualComponentDraftResponseV2,
+)
+def get_component_draft(draft_id: str, db: Session = Depends(get_db)):
+    job = db.get(ManualComponentDraftJobV2, draft_id)
+    if job is None:
+        raise _error(
+            404,
+            "manual_component_draft_not_found",
+            "The manual component draft does not exist.",
+        )
+    return _manual_draft_value(db, job)
+
+
 @router.get("/revisions/{revision_id}", response_model=RevisionResponseV2)
 def get_revision(revision_id: str, db: Session = Depends(get_db)):
     return _revision_value(db, revision_id)
@@ -624,6 +691,7 @@ def export_execution_package(
 __all__ = [
     "FixtureIngestionRequestV2",
     "FixtureIngestionResponseV2",
+    "ManualComponentDraftResponseV2",
     "PublicationHttpRequestV2",
     "RevisionResponseV2",
     "router",

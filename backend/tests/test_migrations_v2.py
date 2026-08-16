@@ -18,7 +18,7 @@ from app.db_types import UtcTimestamp
 
 BACKEND_ROOT = Path(__file__).parents[1]
 PREVIOUS_HEAD = "7b6d91e2a4f0"
-HEAD_REVISION = "a41f0c93e2d7"
+HEAD_REVISION = "f1a9c02e5b6d"
 STAMP = "2026-08-11T00:00:00.000000Z"
 LEGACY_STAMP = "2026-08-11T00:00:00+00:00"
 HASH_A = "sha256:" + "a" * 64
@@ -328,6 +328,7 @@ def test_migration_head_and_v2_table_inventory(v2_engine):
         "capability_gates_v2",
         "published_objects",
         "fixture_ingestion_jobs_v2",
+        "manual_component_draft_jobs_v2",
         "publication_requests",
     }
     assert expected_tables.issubset(sa.inspect(v2_engine).get_table_names())
