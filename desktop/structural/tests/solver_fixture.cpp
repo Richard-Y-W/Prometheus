@@ -41,19 +41,24 @@ std::string read_file(const std::filesystem::path &path) {
 }
 
 void write_valid_data(const std::string &job, const std::vector<int> &nodes,
-                      const std::vector<int> &elements) {
+                      const std::vector<int> &elements,
+                      const double maximumDisplacementX = 0.0,
+                      const double maximumDisplacementZ = -2.0e-5,
+                      const double stress = 1.0e6) {
   std::ofstream output(job + ".dat");
   output << " displacements (vx,vy,vz) for set NALL and time  "
             "0.1000000E+01\n\n";
   for (std::size_t index = 0; index < nodes.size(); ++index) {
-    output << nodes[index] << "  0.000000E+00  0.000000E+00  "
-           << (index == 0U ? "-2.000000E-05" : "0.000000E+00") << '\n';
+    output << nodes[index] << "  "
+           << (index == 0U ? maximumDisplacementX : 0.0)
+           << "  0.000000E+00  "
+           << (index == 0U ? maximumDisplacementZ : 0.0) << '\n';
   }
   output << "\n stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) "
             "for set COMPONENT and time  0.1000000E+01\n\n";
   for (const int element : elements)
-    output << element
-           << "  1  1.000000E+06  0.000000E+00  0.000000E+00  "
+    output << element << "  1  " << stress
+           << "  0.000000E+00  0.000000E+00  "
               "0.000000E+00  0.000000E+00  0.000000E+00\n";
 }
 
@@ -85,7 +90,19 @@ int main(int argc, char **argv) {
            "0.1000000E+01\n\n"
         << nodes.front() << "  malformed\n";
   } else {
-    write_valid_data(job, nodes, elements);
+    const bool axialBenchmark = job.starts_with("prometheus_axial_");
+    const bool cantileverCoarse = job.ends_with("cantilever_coarse");
+    const bool cantileverFine = job.ends_with("cantilever_fine");
+    write_valid_data(
+        job, nodes, elements, axialBenchmark ? 5.0e-7 : 0.0,
+        axialBenchmark ? 0.0
+                       : cantileverCoarse ? -1.8e-4
+                         : cantileverFine ? -1.9e-4
+                                           : -2.0e-5,
+        axialBenchmark ? 1.0e5
+                       : cantileverCoarse ? 5.5e6
+                         : cantileverFine ? 5.8e6
+                                           : 1.0e6);
   }
   std::ofstream(job + ".frd") << "fixture frd\n";
   std::ofstream(job + ".sta") << "1 1 1 1 1.0 1.0 1.0\n";

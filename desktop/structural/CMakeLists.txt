@@ -97,6 +97,26 @@ if(BUILD_TESTING)
     PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
   )
-  add_dependencies(prometheus_structural_tests prometheus_structural_solver_fixture)
+  add_dependencies(
+    prometheus_structural_tests
+    prometheus_export_structural_smoke
+    prometheus_replay_structural_run
+    prometheus_run_calculix_job
+    prometheus_run_structural_benchmark
+    prometheus_run_structural_refinement
+    prometheus_structural_solver_fixture
+  )
   add_test(NAME prometheus_structural_tests COMMAND prometheus_structural_tests)
+  add_test(
+    NAME prometheus_structural_tool_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPORTER=$<TARGET_FILE:prometheus_export_structural_smoke>
+      -DRUNNER=$<TARGET_FILE:prometheus_run_calculix_job>
+      -DBENCHMARK=$<TARGET_FILE:prometheus_run_structural_benchmark>
+      -DREFINEMENT=$<TARGET_FILE:prometheus_run_structural_refinement>
+      -DREPLAY=$<TARGET_FILE:prometheus_replay_structural_run>
+      -DSOLVER=$<TARGET_FILE:prometheus_structural_solver_fixture>
+      -DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/structural-tool-fixture
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/structural_tool_fixture.cmake
+  )
 endif()

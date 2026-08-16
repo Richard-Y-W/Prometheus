@@ -1,4 +1,5 @@
 #include "prometheus/structural/calculix_runner.hpp"
+#include "prometheus/structural/structural_archive.hpp"
 #include "prometheus/structural/structural_benchmarks.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 
@@ -26,6 +27,12 @@ void clear_job_artifacts(const fs::path &root, const std::string &job) {
                                "rout", "stm"}) {
     std::error_code ignored;
     fs::remove(root / (job + "." + extension), ignored);
+  }
+  for (const auto name : {"prometheus-structural-run.json",
+                          "reviewed-structural-setup.json",
+                          "solver.stdout.txt", "solver.stderr.txt"}) {
+    std::error_code ignored;
+    fs::remove(root / name, ignored);
   }
 }
 
@@ -98,7 +105,12 @@ int main(int argc, char **argv) {
       std::cerr << "benchmark validation gate failed\n";
       return 5;
     }
-    std::cout << "benchmark=passed\n";
+    const auto archive = ps::write_structural_archive(
+        output / "fine", "prometheus_" + benchmark + "_fine",
+        fineReference.setup, fine.run, findings);
+    std::cout << "benchmark=passed\n"
+              << "archive_manifest=" << archive.manifest_path.string() << '\n'
+              << "archive_sha256=" << archive.manifest_sha256 << '\n';
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

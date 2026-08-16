@@ -26,10 +26,14 @@ primitive, not the Phase 4 exit gate.
 
 The project execution index now accepts a second, explicitly registered
 committed-run contract for structural archives. It does not relabel structural
-evidence as the older motor-analysis manifest. Before anchoring, the desktop
-re-verifies the complete local archive and the transaction store independently
-verifies the canonical manifest object, closed root and artifact set, safe
-unique filenames, declared hashes, and registered media/schema identity.
+evidence as the older motor-analysis manifest. For an active run, the desktop
+binds publication to the manifest SHA-256 returned by the archive writer,
+checks the current manifest bytes and declared artifact identities while
+packaging them, and lets the transaction store independently validate the
+canonical manifest object, closed root and artifact set, safe unique filenames,
+declared hashes, and registered media/schema identity. It does not replay DAT,
+recompile the setup or findings, or rerun the solver merely because the user
+saves the run.
 
 Anchoring installs the immutable manifest in the content-addressed sidecar,
 appends its exact reference and a `structural_run_anchored` event under the
@@ -94,8 +98,9 @@ addition to exact face/node identities. After reconstructing an embedded run,
 the desktop rebuilds the volume boundary and deterministic patches at that
 angle, proves the stored load and restraint faces map completely back to those
 patches, restores every reviewed material, force, restraint, requirement, mesh,
-scenario, and provenance field, recompiles the authoritative request, and
-repopulates the form, findings, extrema, limitations, and result view.
+scenario, and provenance field from the verifier's single typed snapshot, and
+repopulates the form, findings, extrema, limitations, and result view without a
+second setup compilation.
 
 The restored workflow is runnable only if the ordinary current validators still
 accept it. Missing or changed selections cannot silently become defaults. The
