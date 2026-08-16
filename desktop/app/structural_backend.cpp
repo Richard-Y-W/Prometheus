@@ -25,32 +25,6 @@ public:
     return ps::compile_structural_setup(setup);
   }
 
-  DesktopStructuralRun execute(
-      const ps::SolverRunOptions &options,
-      const ps::CompiledStructuralSetup &setup) const override {
-    DesktopStructuralRun result;
-    result.run = ps::run_calculix(options, setup);
-    result.evaluation = ps::compile_structural_findings(
-        setup.request, result.run.validated_result, std::nullopt);
-    if (result.run.status == ps::SolverRunStatus::completed &&
-        result.evaluation.refinement &&
-        result.evaluation.evaluated_obligations ==
-            result.evaluation.declared_obligations) {
-      try {
-        result.archive = ps::write_structural_archive(
-            options.working_directory, options.job_name, setup, result.run,
-            result.evaluation);
-      } catch (const std::exception &error) {
-        result.archive_error = error.what();
-      }
-    } else if (result.run.status == ps::SolverRunStatus::completed) {
-      result.archive_error =
-          "A trusted mesh-refinement comparison is required before findings "
-          "or a completed archive can be issued.";
-    }
-    return result;
-  }
-
   DesktopStructuralSampleResult executeSample(
       ps::SolverRunOptions options,
       ps::CompiledStructuralSetup setup,

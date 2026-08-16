@@ -59,7 +59,7 @@ if(NOT refinement_result EQUAL 0 OR
 endif()
 
 set(manifest
-  "${OUTPUT_ROOT}/benchmark/fine/prometheus-structural-run.json")
+  "${OUTPUT_ROOT}/benchmark/prometheus-structural-run.json")
 if(NOT EXISTS "${manifest}")
   message(FATAL_ERROR "structural benchmark did not write its archive")
 endif()

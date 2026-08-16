@@ -15,14 +15,6 @@ enum class StructuralFindingDisposition {
   violated
 };
 
-struct StructuralRefinementEvidence final {
-  bool complete{};
-  bool criteria_satisfied{};
-  double coarse_to_fine_change_fraction{};
-  double maximum_allowed_change_fraction{};
-  std::vector<std::string> result_sha256;
-};
-
 struct StructuralRefinementSummary final {
   StructuralRefinementStatus status{
       StructuralRefinementStatus::indeterminate};
@@ -50,7 +42,6 @@ struct StructuralEvaluation final {
   SolverRunStatus execution_status{SolverRunStatus::launch_failed};
   std::vector<StructuralFinding> findings;
   std::optional<StructuralRefinementSummary> comparison;
-  std::optional<StructuralRefinementEvidence> refinement;
   int declared_obligations{};
   int evaluated_obligations{};
   std::string limitation;
@@ -58,12 +49,5 @@ struct StructuralEvaluation final {
 
 [[nodiscard]] StructuralEvaluation compile_structural_findings(
     const VerifiedStructuralRefinement &refinement);
-
-// Legacy-read/migration-only overload. New production findings must consume a
-// VerifiedStructuralRefinement and this entry point is removed in Task 8.
-[[nodiscard]] StructuralEvaluation compile_structural_findings(
-    const StructuralRequest &request,
-    const std::optional<CompiledCalculixResult> &validated_result,
-    const std::optional<StructuralRefinementEvidence> &refinement);
 
 } // namespace prometheus::structural

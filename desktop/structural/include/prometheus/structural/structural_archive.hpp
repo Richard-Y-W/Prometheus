@@ -39,12 +39,6 @@ struct StructuralArchiveVerification final {
     const VerifiedStructuralRefinement &refinement,
     const StructuralEvaluation &evaluation);
 
-// Legacy v2 writer retained until active callers migrate to v3 in Task 8.
-[[nodiscard]] StructuralArchive write_structural_archive(
-    const std::filesystem::path &working_directory, std::string job_name,
-    const CompiledStructuralSetup &setup,
-    const SolverRunResult &run, const StructuralEvaluation &evaluation);
-
 [[nodiscard]] StructuralArchiveVerification verify_structural_archive(
     const std::filesystem::path &manifest_path) noexcept;
 

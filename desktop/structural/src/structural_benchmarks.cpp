@@ -180,11 +180,6 @@ CompiledStructuralSetup compile_benchmark_setup(
   return compile_structural_setup(setup);
 }
 
-double relative_change(const double coarse, const double fine) {
-  const double scale = std::max(std::abs(coarse), std::abs(fine));
-  return scale == 0.0 ? 0.0 : std::abs(fine - coarse) / scale;
-}
-
 } // namespace
 
 BenchmarkReference axial_tension_bar_benchmark(
@@ -196,8 +191,7 @@ BenchmarkReference axial_tension_bar_benchmark(
   constexpr double areaM2 = widthM * heightM;
   constexpr double youngsModulusPa = 2.0e11;
   auto setup = compile_benchmark_setup(
-      "analytic-axial-tension-bar-v1-" + std::to_string(nx) + "x" +
-          std::to_string(ny) + "x" + std::to_string(nz),
+      "analytic-axial-tension-bar-refinement-v1",
       "1m x 0.1m x 0.1m analytic tension bar",
       "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       block_mesh(nx, ny, nz, lengthM, widthM, 0.0, heightM), 0.0,
@@ -214,8 +208,7 @@ BenchmarkReference cantilever_benchmark(const int nx, const int ny,
   constexpr double force = 1000.0;
   constexpr double youngsModulus = 2.0e11;
   auto setup = compile_benchmark_setup(
-      "analytic-cantilever-v1-" + std::to_string(nx) + "x" +
-          std::to_string(ny) + "x" + std::to_string(nz),
+      "analytic-cantilever-refinement-v1",
       "1m x 0.1m x 0.1m analytic cantilever",
       "sha256:2222222222222222222222222222222222222222222222222222222222222222",
       block_mesh(nx, ny, nz, length, width, -height / 2.0, height / 2.0),
@@ -253,31 +246,6 @@ BenchmarkComparison compare_benchmark(const BenchmarkReference &reference,
   return {displacementError, stressError,
           displacementError <= reference.displacement_relative_tolerance,
           stressError <= reference.stress_relative_tolerance};
-}
-
-StructuralRefinementEvidence compile_structural_refinement_evidence(
-    const CompiledCalculixResult &coarse,
-    const CompiledCalculixResult &fine,
-    const double maximumAllowedChangeFraction) {
-  StructuralRefinementEvidence result{
-      .maximum_allowed_change_fraction = maximumAllowedChangeFraction,
-      .result_sha256 = {coarse.identity, fine.identity}};
-  if (!coarse.complete() || !fine.complete() || !coarse.metrics ||
-      !fine.metrics || coarse.identity == fine.identity ||
-      !std::isfinite(maximumAllowedChangeFraction) ||
-      maximumAllowedChangeFraction <= 0.0 ||
-      maximumAllowedChangeFraction > 1.0)
-    return result;
-  result.coarse_to_fine_change_fraction = std::max(
-      relative_change(coarse.metrics->maximum_displacement_m,
-                      fine.metrics->maximum_displacement_m),
-      relative_change(coarse.metrics->maximum_von_mises_pa,
-                      fine.metrics->maximum_von_mises_pa));
-  result.complete = std::isfinite(result.coarse_to_fine_change_fraction);
-  result.criteria_satisfied =
-      result.complete && result.coarse_to_fine_change_fraction <=
-                             result.maximum_allowed_change_fraction;
-  return result;
 }
 
 } // namespace prometheus::structural

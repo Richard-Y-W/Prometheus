@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <set>
 
 namespace prometheus::structural {
 namespace {
@@ -40,25 +39,6 @@ bool valid_result(const CompiledCalculixResult &result) {
          result.artifacts.frd.byte_length > 0U &&
          strict_sha256(result.artifacts.standard_output.sha256) &&
          strict_sha256(result.artifacts.standard_error.sha256);
-}
-
-bool valid_refinement(const StructuralRefinementEvidence &refinement) {
-  if (!refinement.complete || !refinement.criteria_satisfied ||
-      !std::isfinite(refinement.coarse_to_fine_change_fraction) ||
-      refinement.coarse_to_fine_change_fraction < 0.0 ||
-      !std::isfinite(refinement.maximum_allowed_change_fraction) ||
-      refinement.maximum_allowed_change_fraction <= 0.0 ||
-      refinement.maximum_allowed_change_fraction > 1.0 ||
-      refinement.coarse_to_fine_change_fraction >
-          refinement.maximum_allowed_change_fraction ||
-      refinement.result_sha256.size() < 2U ||
-      refinement.result_sha256.size() > 16U)
-    return false;
-  std::set<std::string> identities;
-  for (const auto &identity : refinement.result_sha256)
-    if (!strict_sha256(identity) || !identities.insert(identity).second)
-      return false;
-  return true;
 }
 
 StructuralFinding finding(std::string obligation, const double measured,
@@ -149,58 +129,6 @@ StructuralEvaluation compile_structural_findings(
   if (request.von_mises_limit_pa)
     result.findings.push_back(finding(
         "maximum_von_mises_stress",
-        validatedResult->metrics->maximum_von_mises_pa,
-        *request.von_mises_limit_pa, "Pa", std::move(evidence)));
-  result.evaluated_obligations = static_cast<int>(result.findings.size());
-  return result;
-}
-
-StructuralEvaluation compile_structural_findings(
-    const StructuralRequest &request,
-    const std::optional<CompiledCalculixResult> &validatedResult,
-    const std::optional<StructuralRefinementEvidence> &refinement) {
-  StructuralEvaluation result;
-  result.declared_obligations =
-      static_cast<int>(request.displacement_limit_m.has_value()) +
-      static_cast<int>(request.von_mises_limit_pa.has_value());
-  result.limitation =
-      "These findings do not establish safety, fatigue life, buckling, contact, "
-      "fastener adequacy, nonlinear behavior, or project-wide correctness.";
-  const bool resultValid =
-      validatedResult && valid_result(*validatedResult);
-  if (resultValid)
-    result.execution_status = SolverRunStatus::completed;
-  else if (validatedResult)
-    result.execution_status = SolverRunStatus::result_invalid;
-  if (!resultValid || !refinement || !valid_refinement(*refinement) ||
-      std::ranges::find(refinement->result_sha256,
-                        validatedResult->identity) ==
-          refinement->result_sha256.end())
-    return result;
-  result.refinement = *refinement;
-
-  const auto validLimit = [](const std::optional<double> value,
-                             const std::string &basis) {
-    return !value || (std::isfinite(*value) && *value > 0.0 &&
-                      !basis.empty());
-  };
-  if (!request.requirements_reviewed || !request.scenario_confirmed ||
-      !validLimit(request.displacement_limit_m,
-                  request.displacement_limit_basis) ||
-      !validLimit(request.von_mises_limit_pa,
-                  request.von_mises_limit_basis))
-    return result;
-
-  auto evidence = refinement->result_sha256;
-  evidence.push_back(validatedResult->identity);
-  std::ranges::sort(evidence);
-  evidence.erase(std::unique(evidence.begin(), evidence.end()), evidence.end());
-  if (request.displacement_limit_m)
-    result.findings.push_back(finding("maximum_displacement",
-        validatedResult->metrics->maximum_displacement_m,
-        *request.displacement_limit_m, "m", evidence));
-  if (request.von_mises_limit_pa)
-    result.findings.push_back(finding("maximum_von_mises_stress",
         validatedResult->metrics->maximum_von_mises_pa,
         *request.von_mises_limit_pa, "Pa", std::move(evidence)));
   result.evaluated_obligations = static_cast<int>(result.findings.size());

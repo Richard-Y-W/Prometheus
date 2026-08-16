@@ -29,7 +29,6 @@ struct StageCounts final {
   int prepare_mesh{};
   int group_patches{};
   int compile_setup{};
-  int execute{};
   int execute_sample{};
   int finalize_refinement{};
 };
@@ -58,13 +57,6 @@ public:
     auto compiled = delegate_->compileSetup(setup);
     last_setup_ = compiled;
     return compiled;
-  }
-
-  DesktopStructuralRun execute(
-      const ps::SolverRunOptions &options,
-      const ps::CompiledStructuralSetup &setup) const override {
-    ++execute_;
-    return delegate_->execute(options, setup);
   }
 
   DesktopStructuralSampleResult executeSample(
@@ -97,8 +89,8 @@ public:
   }
 
   [[nodiscard]] StageCounts counts() const {
-    return {prepare_mesh_, group_patches_, compile_setup_, execute_,
-            execute_sample_, finalize_refinement_};
+    return {prepare_mesh_, group_patches_, compile_setup_, execute_sample_,
+            finalize_refinement_};
   }
 
   [[nodiscard]] ps::CompiledStructuralSetup lastSetup() const {
@@ -110,7 +102,6 @@ private:
   mutable std::atomic<int> prepare_mesh_{};
   mutable std::atomic<int> group_patches_{};
   mutable std::atomic<int> compile_setup_{};
-  mutable std::atomic<int> execute_{};
   mutable std::atomic<int> execute_sample_{};
   mutable std::atomic<int> finalize_refinement_{};
   mutable std::atomic<bool> fail_fine_once_{};
@@ -426,7 +417,6 @@ int main(int argc, char **argv) {
   require(countingBackend->counts().prepare_mesh == 1 &&
               countingBackend->counts().group_patches == 1 &&
               countingBackend->counts().compile_setup == 1 &&
-              countingBackend->counts().execute == 0 &&
               countingBackend->counts().execute_sample == 1 &&
               countingBackend->counts().finalize_refinement == 0,
           "the production controller executes one coarse sample exactly once");
@@ -507,7 +497,6 @@ int main(int argc, char **argv) {
   require(countingBackend->counts().prepare_mesh == 2 &&
               countingBackend->counts().group_patches == 2 &&
               countingBackend->counts().compile_setup == 2 &&
-              countingBackend->counts().execute == 0 &&
               countingBackend->counts().execute_sample == 2 &&
               countingBackend->counts().finalize_refinement == 1,
           "reads, export, and publication never repeat structural calculation");
@@ -561,7 +550,6 @@ int main(int argc, char **argv) {
   require(restoreCountingBackend->counts().prepare_mesh == 0 &&
               restoreCountingBackend->counts().group_patches == 1 &&
               restoreCountingBackend->counts().compile_setup == 0 &&
-              restoreCountingBackend->counts().execute == 0 &&
               restoreCountingBackend->counts().execute_sample == 0 &&
               restoreCountingBackend->counts().finalize_refinement == 0,
           "restore verifies once, regroups once, and does not recompile or execute");

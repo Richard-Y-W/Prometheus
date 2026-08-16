@@ -39,10 +39,4 @@ struct BenchmarkComparison final {
 [[nodiscard]] BenchmarkComparison compare_benchmark(
     const BenchmarkReference &reference, const CalculixMetrics &actual);
 
-[[nodiscard]] StructuralRefinementEvidence
-compile_structural_refinement_evidence(
-    const CompiledCalculixResult &coarse,
-    const CompiledCalculixResult &fine,
-    double maximum_allowed_change_fraction);
-
 } // namespace prometheus::structural

@@ -176,7 +176,15 @@ Json requirements_json(const StructuralRequest &request) {
           {"von_mises_limit_basis", request.von_mises_limit_basis}};
 }
 
-Json refinement_json(const StructuralRefinementEvidence &refinement) {
+struct LegacyV2RefinementRecord final {
+  bool complete{};
+  bool criteria_satisfied{};
+  double coarse_to_fine_change_fraction{};
+  double maximum_allowed_change_fraction{};
+  std::vector<std::string> result_sha256;
+};
+
+Json legacy_v2_refinement_json(const LegacyV2RefinementRecord &refinement) {
   return {{"complete", refinement.complete},
           {"criteria_satisfied", refinement.criteria_satisfied},
           {"coarse_to_fine_change_fraction",
@@ -685,14 +693,14 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
   return setup;
 }
 
-StructuralRefinementEvidence refinement_from_json(const Json &value) {
+LegacyV2RefinementRecord legacy_v2_refinement_from_json(const Json &value) {
   if (!exact_keys(value, {"complete", "criteria_satisfied",
                           "coarse_to_fine_change_fraction",
                           "maximum_allowed_change_fraction",
                           "result_sha256"}) ||
       !value.at("result_sha256").is_array())
     reject("archive_contract_invalid", "refinement evidence is invalid");
-  StructuralRefinementEvidence result{
+  LegacyV2RefinementRecord result{
       .complete = json_bool(value, "complete"),
       .criteria_satisfied = json_bool(value, "criteria_satisfied"),
       .coarse_to_fine_change_fraction =
@@ -837,6 +845,90 @@ StructuralEvaluation replay_legacy_v1_findings(
   return result;
 }
 
+std::optional<StructuralEvaluation> replay_legacy_v2_findings(
+    const StructuralRequest &request,
+    const CompiledCalculixResult &validatedResult,
+    const LegacyV2RefinementRecord &refinement) {
+  if (!validatedResult.complete() || !validatedResult.metrics ||
+      !refinement.complete || !refinement.criteria_satisfied ||
+      !std::isfinite(refinement.coarse_to_fine_change_fraction) ||
+      refinement.coarse_to_fine_change_fraction < 0.0 ||
+      !std::isfinite(refinement.maximum_allowed_change_fraction) ||
+      refinement.maximum_allowed_change_fraction <= 0.0 ||
+      refinement.maximum_allowed_change_fraction > 1.0 ||
+      refinement.coarse_to_fine_change_fraction >
+          refinement.maximum_allowed_change_fraction ||
+      refinement.result_sha256.size() < 2U ||
+      refinement.result_sha256.size() > 16U)
+    return std::nullopt;
+
+  std::set<std::string> identities;
+  for (const auto &identity : refinement.result_sha256)
+    if (!strict_sha256(identity) || !identities.insert(identity).second)
+      return std::nullopt;
+  if (!identities.contains(validatedResult.identity))
+    return std::nullopt;
+
+  const auto validLimit = [](const std::optional<double> value,
+                             const std::string &basis) {
+    return !value || (std::isfinite(*value) && *value > 0.0 &&
+                      !basis.empty());
+  };
+  if (!request.requirements_reviewed || !request.scenario_confirmed ||
+      !validLimit(request.displacement_limit_m,
+                  request.displacement_limit_basis) ||
+      !validLimit(request.von_mises_limit_pa,
+                  request.von_mises_limit_basis))
+    return std::nullopt;
+
+  StructuralEvaluation result;
+  result.execution_status = SolverRunStatus::completed;
+  result.declared_obligations =
+      static_cast<int>(request.displacement_limit_m.has_value()) +
+      static_cast<int>(request.von_mises_limit_pa.has_value());
+  result.limitation =
+      "These findings do not establish safety, fatigue life, buckling, contact, "
+      "fastener adequacy, nonlinear behavior, or project-wide correctness.";
+  auto evidence = refinement.result_sha256;
+  evidence.push_back(validatedResult.identity);
+  std::ranges::sort(evidence);
+  evidence.erase(std::unique(evidence.begin(), evidence.end()), evidence.end());
+  const auto append = [&](std::string obligation, const double measured,
+                          const double limit, std::string unit,
+                          std::vector<std::string> findingEvidence) {
+    const auto margin = limit - measured;
+    result.findings.push_back(
+        {.obligation = std::move(obligation),
+         .disposition =
+             margin > 0.0
+                 ? StructuralFindingDisposition::no_violation_detected_within_scope
+                 : StructuralFindingDisposition::violated,
+         .measured_value = measured,
+         .limit_value = limit,
+         .margin_to_limit = margin,
+         .unit = std::move(unit),
+         .scope =
+             "isotropic linear-elastic C3D4 model under the confirmed scenario "
+             "with accepted mesh-refinement evidence",
+         .evidence_sha256 = std::move(findingEvidence),
+         .assumptions =
+             {"small-deformation linear static response",
+              "isotropic linear-elastic material behavior",
+              "reviewed loads and fully fixed restraints represent the scenario",
+              "reported extrema are bounded by the submitted mesh and solver output"}});
+  };
+  if (request.displacement_limit_m)
+    append("maximum_displacement",
+           validatedResult.metrics->maximum_displacement_m,
+           *request.displacement_limit_m, "m", evidence);
+  if (request.von_mises_limit_pa)
+    append("maximum_von_mises_stress",
+           validatedResult.metrics->maximum_von_mises_pa,
+           *request.von_mises_limit_pa, "Pa", std::move(evidence));
+  result.evaluated_obligations = static_cast<int>(result.findings.size());
+  return result;
+}
+
 } // namespace
 
 StructuralArchive write_structural_refinement_archive(
@@ -944,126 +1036,6 @@ StructuralArchive write_structural_refinement_archive(
           "3.0.0",
           fine.run().validated_result->identity,
           coarse.run().validated_result->identity};
-}
-
-StructuralArchive write_structural_archive(
-    const std::filesystem::path &workingDirectory, std::string jobName,
-    const CompiledStructuralSetup &setup,
-    const SolverRunResult &run, const StructuralEvaluation &evaluation) {
-  if (run.status != SolverRunStatus::completed || !run.validated_result ||
-      !run.validated_result->complete() || !run.validated_result->metrics ||
-      !run.validated_result->convergence)
-    throw std::invalid_argument("only a completed structural run can be archived");
-  if (!std::filesystem::is_directory(workingDirectory) ||
-      !safe_job_name(jobName))
-    throw std::invalid_argument("archive directory and safe job name are required");
-  const auto &validated = *run.validated_result;
-  const auto &request = setup.request;
-  if (!strict_sha256(setup.identity) ||
-      validated.compiled_setup_identity != setup.identity ||
-      validated.artifacts.deck.sha256 !=
-          integrity::sha256_bytes(setup.calculix_deck) ||
-      validated.artifacts.deck.byte_length != setup.calculix_deck.size())
-    throw std::invalid_argument("validated result is not bound to this compiled setup");
-  const auto verifiedSetup = integrity::verify_canonical_bytes(
-      setup.canonical_setup_evidence,
-      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U, 100000U,
-                        4U * 1024U * 1024U});
-  const auto setupJson = Json::parse(verifiedSetup);
-  if (!setupJson.is_object() ||
-      setupJson.value("$schema", "") != setupSchemaV2 ||
-      setupJson.value("schema_version", "") != "2.0.0" ||
-      setupJson.value("analysis_id", "") != request.analysis_id ||
-      setupJson.value("component_name", "") != request.component_name ||
-      setupJson.value("geometry_sha256", "") != request.geometry_sha256)
-    throw std::invalid_argument("reviewed setup evidence binding is invalid");
-  const auto declaredObligations =
-      static_cast<int>(request.displacement_limit_m.has_value()) +
-      static_cast<int>(request.von_mises_limit_pa.has_value());
-  if (evaluation.execution_status != SolverRunStatus::completed ||
-      !evaluation.refinement ||
-      evaluation.declared_obligations != declaredObligations ||
-      evaluation.evaluated_obligations != declaredObligations ||
-      evaluation.findings.size() !=
-          static_cast<std::size_t>(declaredObligations) ||
-      evaluation.limitation.empty())
-    throw std::invalid_argument(
-        "completed archive requires accepted refinement and complete findings");
-  const auto deckName = jobName + ".inp";
-  const auto datName = jobName + ".dat";
-  const auto frdName = jobName + ".frd";
-  const auto staName = jobName + ".sta";
-  const std::string stdoutName = "solver.stdout.txt";
-  const std::string stderrName = "solver.stderr.txt";
-  const std::string setupName = "reviewed-structural-setup.json";
-  const auto manifestPath = workingDirectory / archiveName;
-  if (std::filesystem::exists(manifestPath) ||
-      std::filesystem::exists(workingDirectory / setupName) ||
-      std::filesystem::exists(workingDirectory / stdoutName) ||
-      std::filesystem::exists(workingDirectory / stderrName))
-    throw std::runtime_error("structural archive output already exists");
-  const auto matchesFile = [&](const std::string &name,
-                               const CalculixArtifactIdentity &identity) {
-    std::error_code error;
-    const auto length = std::filesystem::file_size(workingDirectory / name,
-                                                   error);
-    return !error &&
-           std::filesystem::is_regular_file(workingDirectory / name) &&
-           length == identity.byte_length && strict_sha256(identity.sha256) &&
-           integrity::sha256_file(workingDirectory / name) == identity.sha256;
-  };
-  if (!matchesFile(deckName, validated.artifacts.deck) ||
-      !matchesFile(datName, validated.artifacts.dat) ||
-      !matchesFile(frdName, validated.artifacts.frd) ||
-      !matchesFile(staName, validated.artifacts.sta) ||
-      validated.artifacts.standard_output !=
-          CalculixArtifactIdentity{integrity::sha256_bytes(run.standard_output),
-                                   run.standard_output.size()} ||
-      validated.artifacts.standard_error !=
-          CalculixArtifactIdentity{integrity::sha256_bytes(run.standard_error),
-                                   run.standard_error.size()})
-    throw std::runtime_error("active solver artifacts changed before archiving");
-  write(workingDirectory / setupName, verifiedSetup);
-  write(workingDirectory / stdoutName, run.standard_output);
-  write(workingDirectory / stderrName, run.standard_error);
-
-  const CalculixArtifactIdentity setupIdentity{
-      integrity::sha256_bytes(verifiedSetup), verifiedSetup.size()};
-  const Json document{
-      {"$schema", archiveSchemaV2}, {"schema_version", "2.0.0"},
-      {"archive_kind", "completed_linear_static_run"},
-      {"analysis_id", request.analysis_id},
-      {"component_name", request.component_name},
-      {"geometry_sha256", request.geometry_sha256},
-      {"compiled_setup_identity", setup.identity},
-      {"validated_result_identity", validated.identity},
-      {"job_name", std::move(jobName)},
-      {"execution", {{"exit_code", run.exit_code},
-                       {"elapsed_ms", run.elapsed.count()},
-                       {"status", "completed"}}},
-      {"backend", {{"executable_sha256", validated.backend.executable_sha256},
-                    {"version", validated.backend.version}}},
-      {"convergence", convergence_json(*validated.convergence)},
-      {"artifacts", {{"setup", artifact_json(setupName, setupIdentity)},
-                      {"deck", artifact_json(deckName, validated.artifacts.deck)},
-                      {"dat", artifact_json(datName, validated.artifacts.dat)},
-                      {"frd", artifact_json(frdName, validated.artifacts.frd)},
-                      {"sta", artifact_json(staName, validated.artifacts.sta)},
-                      {"stdout", artifact_json(stdoutName,
-                                               validated.artifacts.standard_output)},
-                      {"stderr", artifact_json(stderrName,
-                                               validated.artifacts.standard_error)}}},
-      {"metrics", metrics_json(*validated.metrics)},
-      {"requirements", requirements_json(request)},
-      {"refinement", refinement_json(*evaluation.refinement)},
-      {"coverage", {{"declared_obligations", evaluation.declared_obligations},
-                     {"evaluated_obligations", evaluation.evaluated_obligations}}},
-      {"findings", findings_json(evaluation)},
-      {"limitation", evaluation.limitation}};
-  const auto canonical = integrity::canonicalize_json_bytes(document.dump());
-  write(manifestPath, canonical);
-  return {manifestPath, integrity::sha256_bytes(canonical), "2.0.0",
-          validated.identity};
 }
 
 namespace {
@@ -1401,34 +1373,36 @@ StructuralArchiveVerification verify_v2_archive(
     return failure("replay_result_mismatch",
                    "persisted solver evidence differs from archived result fields");
 
-  const auto refinement = refinement_from_json(root.at("refinement"));
-  const std::optional<CompiledCalculixResult> validatedResult{
-      std::move(replayedResult)};
-  auto evaluation = compile_structural_findings(
-      compiledSetup.request, validatedResult, refinement);
+  const auto refinement =
+      legacy_v2_refinement_from_json(root.at("refinement"));
+  auto evaluation = replay_legacy_v2_findings(
+      compiledSetup.request, replayedResult, refinement);
+  if (!evaluation)
+    return failure(
+        "replay_finding_mismatch",
+        "legacy v2 refinement claim is invalid or detached from its result");
   const Json expectedCoverage{
-      {"declared_obligations", evaluation.declared_obligations},
-      {"evaluated_obligations", evaluation.evaluated_obligations}};
-  if (evaluation.execution_status != SolverRunStatus::completed ||
-      !evaluation.refinement || root.at("refinement") !=
-                                  refinement_json(*evaluation.refinement) ||
+      {"declared_obligations", evaluation->declared_obligations},
+      {"evaluated_obligations", evaluation->evaluated_obligations}};
+  if (evaluation->execution_status != SolverRunStatus::completed ||
+      root.at("refinement") != legacy_v2_refinement_json(refinement) ||
       root.at("coverage") != expectedCoverage ||
-      root.at("findings") != findings_json(evaluation) ||
-      json_string(root, "limitation") != evaluation.limitation)
+      root.at("findings") != findings_json(*evaluation) ||
+      json_string(root, "limitation") != evaluation->limitation)
     return failure("replay_finding_mismatch",
                    "persisted evidence produces different scoped findings");
   return {true,
           "verified",
           "v2 artifact identities, setup, solver evidence, and findings replay verified",
-          validatedResult->metrics,
-          evaluation.declared_obligations,
-          evaluation.evaluated_obligations,
+          replayedResult.metrics,
+          evaluation->declared_obligations,
+          evaluation->evaluated_obligations,
           "2.0.0",
-          validatedResult->identity,
-          validatedResult->normalized,
+          replayedResult.identity,
+          std::move(replayedResult.normalized),
           std::move(deserializedSetup),
           std::move(compiledSetup),
-          std::move(evaluation)};
+          std::move(*evaluation)};
 }
 
 } // namespace

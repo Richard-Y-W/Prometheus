@@ -14,13 +14,6 @@
 #include <string_view>
 #include <vector>
 
-struct DesktopStructuralRun final {
-  prometheus::structural::SolverRunResult run;
-  prometheus::structural::StructuralEvaluation evaluation;
-  std::optional<prometheus::structural::StructuralArchive> archive;
-  std::string archive_error;
-};
-
 struct DesktopStructuralSampleResult final {
   prometheus::structural::CompletedStructuralSamplePtr sample;
   std::optional<prometheus::structural::SolverRunResult> failed_run;
@@ -52,10 +45,6 @@ public:
 
   [[nodiscard]] virtual prometheus::structural::CompiledStructuralSetup
   compileSetup(const prometheus::structural::StructuralSetup &setup) const = 0;
-
-  [[nodiscard]] virtual DesktopStructuralRun execute(
-      const prometheus::structural::SolverRunOptions &options,
-      const prometheus::structural::CompiledStructuralSetup &setup) const = 0;
 
   [[nodiscard]] virtual DesktopStructuralSampleResult executeSample(
       prometheus::structural::SolverRunOptions options,
