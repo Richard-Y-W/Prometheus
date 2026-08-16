@@ -82,6 +82,13 @@ if(BUILD_TESTING)
     prometheus_jpl_rover_failed_promotion_fixture
     PROPERTIES TIMEOUT 60
   )
+  if(WIN32)
+    add_test(
+      NAME prometheus_outside_user_bundle_fixture
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File ${PROJECT_SOURCE_DIR}/scripts/tests/outside-user-bundle-fixture.ps1
+    )
+  endif()
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp

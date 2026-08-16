@@ -327,7 +327,7 @@ git commit -m "Record reproducible JPL Rover intake evidence"
 - Create: `scripts/tests/outside-user-bundle-fixture.ps1`
 - Modify: `docs/program/01-trust-kernel/01d-multi-project-evidence.md`
 
-- [ ] **Step 1: Write the participant task before packaging**
+- [x] **Step 1: Write the participant task before packaging**
 
 The one-page task sheet asks the participant, without telling them how:
 
@@ -340,7 +340,7 @@ The one-page task sheet asks the participant, without telling them how:
 
 Do not include developer vocabulary, expected counts, filter names, or answers.
 
-- [ ] **Step 2: Define the factual observation record**
+- [x] **Step 2: Define the factual observation record**
 
 The blank form records participant eligibility, machine state, package hash,
 start/end times, time to inventory, time to candidate, interpretation answers,

@@ -70,6 +70,15 @@ inputs and keep the analysis blocked until they are reviewed.
 
 ## Remaining exit evidence
 
+The repository now contains a neutral [participant task](../../trials/outside-user-screening-task-sheet.md),
+blank [factual observation form](../../trials/outside-user-screening-observation-form.md),
+[nonintervention protocol](../../trials/outside-user-screening-facilitator-protocol.md),
+and Windows-first packaging and manifest-verification scripts. The package
+intentionally embeds only the hash of the reviewed Rover expectation, not its
+counts or answer-bearing JSON. Its PowerShell tamper fixture and deployable ZIP
+still require execution on Windows, followed by a clean-account/VM package
+check.
+
 One person outside the core development work must run at least one trial
 without live developer intervention. Give them only the normal application and
 the selected trial folder, then record:
