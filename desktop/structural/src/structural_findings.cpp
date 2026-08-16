@@ -85,6 +85,77 @@ StructuralFinding finding(std::string obligation, const double measured,
 } // namespace
 
 StructuralEvaluation compile_structural_findings(
+    const VerifiedStructuralRefinement &refinement) {
+  StructuralEvaluation result;
+  const auto &fineSample = refinement.fine();
+  const auto &request = fineSample.setup().request;
+  const auto &validatedResult = fineSample.run().validated_result;
+  result.declared_obligations =
+      static_cast<int>(request.displacement_limit_m.has_value()) +
+      static_cast<int>(request.von_mises_limit_pa.has_value());
+  result.limitation =
+      "These findings do not establish safety, fatigue life, buckling, contact, "
+      "fastener adequacy, nonlinear behavior, or project-wide correctness.";
+  result.comparison = StructuralRefinementSummary{
+      .status = refinement.status(),
+      .displacement_change_fraction =
+          refinement.displacement_change_fraction(),
+      .stress_change_fraction = refinement.stress_change_fraction(),
+      .maximum_change_fraction = refinement.maximum_change_fraction(),
+      .maximum_allowed_change_fraction =
+          fineSample.criterion().maximum_change_fraction(),
+      .setup_sha256 = {refinement.coarse().setup().identity,
+                       fineSample.setup().identity},
+      .result_sha256 = {
+          refinement.coarse().run().validated_result->identity,
+          validatedResult->identity}};
+
+  const bool resultValid = validatedResult && valid_result(*validatedResult);
+  if (resultValid)
+    result.execution_status = SolverRunStatus::completed;
+  else if (validatedResult)
+    result.execution_status = SolverRunStatus::result_invalid;
+  if (refinement.status() == StructuralRefinementStatus::indeterminate ||
+      !resultValid)
+    return result;
+
+  const auto validLimit = [](const std::optional<double> value,
+                             const std::string &basis) {
+    return !value || (std::isfinite(*value) && *value > 0.0 &&
+                      !basis.empty());
+  };
+  if (!request.requirements_reviewed || !request.scenario_confirmed ||
+      !validLimit(request.displacement_limit_m,
+                  request.displacement_limit_basis) ||
+      !validLimit(request.von_mises_limit_pa,
+                  request.von_mises_limit_basis))
+    return result;
+
+  std::vector<std::string> evidence{
+      refinement.coarse().setup().identity,
+      fineSample.setup().identity,
+      refinement.coarse().run().validated_result->identity,
+      validatedResult->identity};
+  std::ranges::sort(evidence);
+  evidence.erase(std::unique(evidence.begin(), evidence.end()),
+                 evidence.end());
+  if (evidence.size() != 4U)
+    return result;
+  if (request.displacement_limit_m)
+    result.findings.push_back(finding(
+        "maximum_displacement",
+        validatedResult->metrics->maximum_displacement_m,
+        *request.displacement_limit_m, "m", evidence));
+  if (request.von_mises_limit_pa)
+    result.findings.push_back(finding(
+        "maximum_von_mises_stress",
+        validatedResult->metrics->maximum_von_mises_pa,
+        *request.von_mises_limit_pa, "Pa", std::move(evidence)));
+  result.evaluated_obligations = static_cast<int>(result.findings.size());
+  return result;
+}
+
+StructuralEvaluation compile_structural_findings(
     const StructuralRequest &request,
     const std::optional<CompiledCalculixResult> &validatedResult,
     const std::optional<StructuralRefinementEvidence> &refinement) {

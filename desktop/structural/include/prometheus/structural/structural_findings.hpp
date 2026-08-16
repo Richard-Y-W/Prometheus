@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prometheus/structural/calculix_runner.hpp"
+#include "prometheus/structural/structural_refinement.hpp"
 #include "prometheus/structural/types.hpp"
 
 #include <optional>
@@ -22,6 +23,17 @@ struct StructuralRefinementEvidence final {
   std::vector<std::string> result_sha256;
 };
 
+struct StructuralRefinementSummary final {
+  StructuralRefinementStatus status{
+      StructuralRefinementStatus::indeterminate};
+  double displacement_change_fraction{};
+  double stress_change_fraction{};
+  double maximum_change_fraction{};
+  double maximum_allowed_change_fraction{};
+  std::vector<std::string> setup_sha256;
+  std::vector<std::string> result_sha256;
+};
+
 struct StructuralFinding final {
   std::string obligation;
   StructuralFindingDisposition disposition{};
@@ -37,12 +49,18 @@ struct StructuralFinding final {
 struct StructuralEvaluation final {
   SolverRunStatus execution_status{SolverRunStatus::launch_failed};
   std::vector<StructuralFinding> findings;
+  std::optional<StructuralRefinementSummary> comparison;
   std::optional<StructuralRefinementEvidence> refinement;
   int declared_obligations{};
   int evaluated_obligations{};
   std::string limitation;
 };
 
+[[nodiscard]] StructuralEvaluation compile_structural_findings(
+    const VerifiedStructuralRefinement &refinement);
+
+// Legacy-read/migration-only overload. New production findings must consume a
+// VerifiedStructuralRefinement and this entry point is removed in Task 8.
 [[nodiscard]] StructuralEvaluation compile_structural_findings(
     const StructuralRequest &request,
     const std::optional<CompiledCalculixResult> &validated_result,

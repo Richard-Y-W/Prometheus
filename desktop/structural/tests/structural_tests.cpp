@@ -935,6 +935,69 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                   verified.value()->fine().run().validated_result->identity,
           "two completed ordered samples produce one accepted typed comparison");
 
+  const auto acceptedEvaluation =
+      ps::compile_structural_findings(*verified.value());
+  require(acceptedEvaluation.declared_obligations == 2 &&
+              acceptedEvaluation.evaluated_obligations == 2 &&
+              acceptedEvaluation.comparison.has_value() &&
+              acceptedEvaluation.comparison->status ==
+                  ps::StructuralRefinementStatus::accepted,
+          "an accepted verified pair evaluates the fine obligations");
+  require(std::ranges::all_of(
+              acceptedEvaluation.findings, [](const auto &finding) {
+                return finding.evidence_sha256.size() == 4U;
+              }),
+          "each finding binds both setup and both result identities");
+
+  const auto strictCriterion =
+      ps::compile_structural_refinement_criterion(0.01);
+  const auto strictCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, strictCriterion, coarseOptions,
+      coarseSetup, coarseRun);
+  const auto strictFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, strictCriterion, fineOptions,
+      fineSetup, fineRun);
+  const auto unresolvedPair = ps::compile_structural_refinement(
+      strictCoarse, strictFine, correspondence);
+  const auto unresolvedEvaluation =
+      ps::compile_structural_findings(*unresolvedPair.value());
+  require(unresolvedPair.complete() &&
+              unresolvedPair.value()->status() ==
+                  ps::StructuralRefinementStatus::indeterminate &&
+              unresolvedEvaluation.declared_obligations == 2 &&
+              unresolvedEvaluation.evaluated_obligations == 0 &&
+              unresolvedEvaluation.findings.empty(),
+          "a valid pair above its criterion remains honestly indeterminate");
+
+  auto equalityCoarseRun = coarseRun;
+  auto equalityFineRun = fineRun;
+  const double equalityLimit =
+      *fineSetup.request.displacement_limit_m;
+  equalityCoarseRun.validated_result->metrics->maximum_displacement_m =
+      equalityLimit * 0.99;
+  equalityFineRun.validated_result->metrics->maximum_displacement_m =
+      equalityLimit;
+  equalityCoarseRun.validated_result->identity =
+      "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+  equalityFineRun.validated_result->identity =
+      "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+  const auto equalityCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, criterion, coarseOptions,
+      coarseSetup, equalityCoarseRun);
+  const auto equalityFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, fineOptions,
+      fineSetup, equalityFineRun);
+  const auto equalityPair = ps::compile_structural_refinement(
+      equalityCoarse, equalityFine, correspondence);
+  const auto equalityEvaluation =
+      ps::compile_structural_findings(*equalityPair.value());
+  require(equalityPair.complete() &&
+              !equalityEvaluation.findings.empty() &&
+              equalityEvaluation.findings.front().disposition ==
+                  ps::StructuralFindingDisposition::violated &&
+              equalityEvaluation.findings.front().margin_to_limit == 0.0,
+          "a fine result equal to its reviewed limit is a violation");
+
   for (const double invalidCriterion :
        {0.0, -0.1, 1.01, std::numeric_limits<double>::infinity(),
         std::numeric_limits<double>::quiet_NaN()}) {
