@@ -4,6 +4,8 @@
 #include <prometheus/run_store/structural_archive_store.hpp>
 #include <prometheus/run_store/project_bundle.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -380,19 +382,42 @@ void test_normal_operations_and_idempotency() {
   const auto &published = require_success(
       run_store::publish_completed_run(project_path, run), "normal publish");
   require(!published.already_committed &&
-              published.project.execution.committed_runs.size() == 1U &&
+              published.project.execution.committed_runs.size() == 2U &&
               published.project.execution.committed_runs.front() ==
-                  run.manifest.reference,
-          "first publication commits one manifest reference");
+                  run.manifest.reference &&
+              published.project.execution.committed_runs.back().schema_id ==
+                  run_store::execution_project_snapshot_schema_id,
+          "first publication commits its manifest and pre-execution snapshot");
   require_complete_run_objects(project_path, run);
+  const auto snapshotReference =
+      published.project.execution.committed_runs.back();
+  const auto snapshotBytes = require_success(
+      run_store::read_object(project_path, snapshotReference),
+      "read motor execution project snapshot");
+  const auto snapshot = nlohmann::json::parse(snapshotBytes);
+  require(snapshot.at("execution_kind") == "motor_analysis" &&
+              snapshot.at("pending_manifest_hash") ==
+                  run.manifest.reference.object_hash &&
+              integrity::sha256_bytes(
+                  snapshot.at("project_index").get<std::string>()) ==
+                  snapshot.at("project_index_sha256").get<std::string>(),
+          "execution snapshot closes over its intended run and exact project bytes");
+  const auto preExecution = run_store::parse_project_v2(
+      snapshot.at("project_index").get<std::string>());
+  require(preExecution.has_value() &&
+              preExecution.value().execution.committed_runs.empty() &&
+              preExecution.value().execution.package_bindings.size() == 1U &&
+              preExecution.value().execution.current_scenario ==
+                  run.scenario.reference,
+          "execution snapshot is the complete project state before publication");
 
   const auto &repeated = require_success(
       run_store::publish_completed_run(project_path, run),
       "idempotent publish");
   require(repeated.already_committed &&
-              repeated.project.execution.committed_runs.size() == 1U,
+              repeated.project.execution.committed_runs.size() == 2U,
           "idempotent publish does not duplicate a manifest");
-  require(repeated.project.execution.events.size() == 2U &&
+  require(repeated.project.execution.events.size() == 3U &&
               repeated.project.execution.events.back().event_kind ==
                   "run_invoked" &&
               repeated.project.execution.events.back().status ==
@@ -401,7 +426,7 @@ void test_normal_operations_and_idempotency() {
 
   const auto reopened = run_store::open_read_only(project_path);
   require(reopened.has_value() &&
-              reopened.value().execution.committed_runs.size() == 1U,
+              reopened.value().execution.committed_runs.size() == 2U,
           "read-only reopen retains the committed run");
 
   const auto package_b = motor_b_package();
@@ -412,13 +437,13 @@ void test_normal_operations_and_idempotency() {
   require(rebound.execution.package_bindings.size() == 2U &&
               rebound.execution.package_bindings.back()
                       .supersedes_binding_revision == 1U &&
-              rebound.execution.committed_runs.size() == 1U,
+              rebound.execution.committed_runs.size() == 2U,
           "new package supersedes the active binding without altering history");
   const auto historical_retry = require_success(
       run_store::publish_completed_run(project_path, run),
       "historical idempotent publish after package switch");
   require(historical_retry.already_committed &&
-              historical_retry.project.execution.committed_runs.size() == 1U,
+              historical_retry.project.execution.committed_runs.size() == 2U,
           "already-committed manifest remains idempotent after binding changes");
 }
 
@@ -492,12 +517,14 @@ void test_embedded_structural_archive_round_trip() {
       run_store::publish_structural_archive(projectPath, packed.value()),
       "publish embedded structural archive");
   require(!published.already_committed &&
-              published.project.execution.committed_runs.size() == 1U &&
+              published.project.execution.committed_runs.size() == 2U &&
               published.project.execution.committed_runs.front() ==
                   packed.value().project_manifest.reference &&
+              published.project.execution.committed_runs.back().schema_id ==
+                  run_store::execution_project_snapshot_schema_id &&
               published.project.execution.events.back().event_kind ==
                   "structural_run_published",
-          "embedded structural graph commits only its closed project manifest");
+          "embedded structural graph commits its manifest and pre-execution snapshot");
   for (const auto *object : {&packed.value().archive_manifest,
                              &packed.value().project_manifest}) {
     const auto retained = run_store::read_object(projectPath, object->reference);
@@ -522,7 +549,7 @@ void test_embedded_structural_archive_round_trip() {
       run_store::publish_structural_archive(projectPath, packed.value()),
       "repeat embedded structural publication");
   require(repeated.already_committed &&
-              repeated.project.execution.committed_runs.size() == 1U,
+              repeated.project.execution.committed_runs.size() == 2U,
           "embedded structural publication is idempotent");
 
   auto forged = packed.value();
@@ -555,7 +582,7 @@ void test_embedded_structural_archive_round_trip() {
                   "missing structural chunk graph");
   require(run_store::open_read_only(projectPath)
               .value()
-              .execution.committed_runs.size() == 1U,
+              .execution.committed_runs.size() == 2U,
           "rejected embedded graph does not alter committed history");
 
   const auto cadPath = root.path() / "portable-bracket.step";
@@ -581,8 +608,13 @@ void test_embedded_structural_archive_round_trip() {
   const auto bundleDirectory = root.path() / "portable-bundle";
   const auto bundle = run_store::export_project_bundle(
       portableProjectPath, bundleDirectory);
-  require(bundle.has_value() && bundle.value().object_count ==
-                                    portableObjects.value().chunks.size() + 3U,
+  require(bundle.has_value(),
+          "portable bundle exports: " +
+              (bundle.has_value() ? std::string{} :
+                                    bundle.diagnostic().code + " " +
+                                        bundle.diagnostic().message));
+  require(bundle.value().object_count ==
+              portableObjects.value().chunks.size() + 4U,
           "portable bundle contains exactly the reachable structural object graph");
   const auto movedBundle = root.path() / "moved-clean-machine-bundle";
   fs::rename(bundleDirectory, movedBundle);
@@ -591,7 +623,7 @@ void test_embedded_structural_archive_round_trip() {
   const auto movedProject = run_store::open_read_only(moved.value().project_path);
   require(movedProject.has_value() &&
               movedProject.value().cad_source == "sources/portable-bracket.step" &&
-              movedProject.value().execution.committed_runs.size() == 2U,
+              movedProject.value().execution.committed_runs.size() == 3U,
           "relocated bundle opens with relative CAD and structural history");
   require(run_store::read_object(moved.value().project_path, inventory.reference)
               .value() == inventory.bytes,
@@ -637,7 +669,7 @@ void test_embedded_structural_archive_round_trip() {
   const auto retry = run_store::publish_structural_archive(
       interruptedPath, packed.value());
   require(retry.has_value() &&
-              retry.value().project.execution.committed_runs.size() == 1U,
+              retry.value().project.execution.committed_runs.size() == 2U,
           "structural publication recovers by retrying retained immutable objects");
 
   const auto changedAssemblyPath = root.path() / "changed-assembly.prometheus";
@@ -745,7 +777,8 @@ void test_publication_failure_is_atomic() {
                     "publication failure boundary");
     const auto reopened = require_success(
         run_store::open_read_only(project_path), "reopen failed publication");
-    require(reopened.execution.committed_runs.size() <= 1U,
+    require(reopened.execution.committed_runs.empty() ||
+                reopened.execution.committed_runs.size() == 2U,
             "failed publication leaves old or complete new run history");
     if (!reopened.execution.committed_runs.empty()) {
       require(reopened.execution.committed_runs.front() ==
@@ -855,9 +888,9 @@ void test_event_log_trims_only_display_metadata() {
       "publish with full display event log");
   require(published.project.execution.events.size() ==
                   run_store::maximum_events &&
-              published.project.execution.events.front().sequence == 2U &&
-              published.project.execution.events.back().sequence == 257U &&
-              published.project.execution.committed_runs.size() == 1U,
+              published.project.execution.events.front().sequence == 3U &&
+              published.project.execution.events.back().sequence == 258U &&
+              published.project.execution.committed_runs.size() == 2U,
           "event append trims only the oldest display event, not run history");
 }
 

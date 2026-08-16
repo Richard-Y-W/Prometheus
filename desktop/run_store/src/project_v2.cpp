@@ -237,6 +237,9 @@ bool reference_matches(const StoredObjectReference &reference,
            reference.schema_version == "1.0.0";
   case ReferenceKind::committed_manifest:
     return reference_matches(reference, ReferenceKind::manifest) ||
+           (reference.media_type == execution_project_snapshot_media_type &&
+            reference.schema_id == execution_project_snapshot_schema_id &&
+            reference.schema_version == "1.0.0") ||
            (reference.media_type == project_inventory_media_type &&
             reference.schema_id == project_inventory_schema_id &&
             reference.schema_version == "1.0.0") ||

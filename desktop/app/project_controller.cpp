@@ -316,7 +316,9 @@ int ProjectController::committedRunCount() const {
   return static_cast<int>(std::count_if(
       project_->execution.committed_runs.cbegin(),
       project_->execution.committed_runs.cend(), [](const auto &reference) {
-        return reference.schema_id != run_store::project_inventory_schema_id;
+        return reference.schema_id != run_store::project_inventory_schema_id &&
+               reference.schema_id !=
+                   run_store::execution_project_snapshot_schema_id;
       }));
 }
 

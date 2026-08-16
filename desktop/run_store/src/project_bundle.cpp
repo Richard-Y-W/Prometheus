@@ -110,6 +110,49 @@ Result<std::unordered_map<std::string, StoredObjectReference>> reachableObjects(
         for (const auto &artifact : document.at("artifacts"))
           for (const auto &chunk : artifact.at("chunks"))
             pending.push(parseReference(chunk));
+      } else if (reference.schema_id == execution_project_snapshot_schema_id) {
+        if (document.size() != 7U ||
+            document.value("$schema", "") !=
+                execution_project_snapshot_schema_id ||
+            document.value("schema_version", "") != "1.0.0" ||
+            document.value("snapshot_kind", "") !=
+                "pre_execution_project" ||
+            !document.contains("project_index") ||
+            !document.at("project_index").is_string() ||
+            !document.contains("pending_manifest_hash") ||
+            !document.at("pending_manifest_hash").is_string())
+          return failure<std::unordered_map<std::string, StoredObjectReference>>(
+              "execution_snapshot_invalid",
+              "execution project snapshot contract is invalid");
+        const auto nestedBytes =
+            document.at("project_index").get<std::string>();
+        if (integrity::sha256_bytes(nestedBytes) !=
+            document.value("project_index_sha256", ""))
+          return failure<std::unordered_map<std::string, StoredObjectReference>>(
+              "execution_snapshot_changed",
+              "execution project snapshot identity differs");
+        const auto nested = parse_project_v2(nestedBytes);
+        if (!nested.has_value())
+          return Result<std::unordered_map<std::string, StoredObjectReference>>::failure(
+              nested.diagnostic());
+        const auto pendingHash =
+            document.at("pending_manifest_hash").get<std::string>();
+        if (!std::ranges::any_of(
+                project.execution.committed_runs, [&](const auto &candidate) {
+                  return candidate.object_hash == pendingHash &&
+                         candidate.schema_id !=
+                             execution_project_snapshot_schema_id;
+                }))
+          return failure<std::unordered_map<std::string, StoredObjectReference>>(
+              "execution_snapshot_orphaned",
+              "execution snapshot does not bind a committed run");
+        for (const auto &binding : nested.value().execution.package_bindings)
+          pending.push(binding.package);
+        if (nested.value().execution.current_scenario)
+          pending.push(*nested.value().execution.current_scenario);
+        for (const auto &nestedReference :
+             nested.value().execution.committed_runs)
+          pending.push(nestedReference);
       }
     }
     return Result<std::unordered_map<std::string, StoredObjectReference>>::success(

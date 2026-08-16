@@ -90,6 +90,9 @@ if(BUILD_TESTING)
     tests/run_store_transaction_tests.cpp
   )
   target_compile_features(prometheus_run_store_transaction_tests PRIVATE cxx_std_20)
+  target_include_directories(prometheus_run_store_transaction_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
   target_compile_definitions(prometheus_run_store_transaction_tests PRIVATE
     PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_RUN_STORE_CONTENTION_HELPER="$<TARGET_FILE:prometheus_run_store_contention_helper>"

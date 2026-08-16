@@ -854,7 +854,7 @@ void replayOutcomeStatesRemainDistinct() {
 
   const auto baseOpened = run_store::open_read_only(nativePath(projectPath));
   require(baseOpened.has_value() &&
-              baseOpened.value().execution.committed_runs.size() == 1,
+              baseOpened.value().execution.committed_runs.size() == 2,
           "replay-state baseline run is committed");
   const auto baseProject = baseOpened.value();
   const auto baseManifestReference =

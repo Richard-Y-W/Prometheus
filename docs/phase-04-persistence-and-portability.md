@@ -184,11 +184,33 @@ counts, while a CAD identity change emits the invalidation boundary and retains
 the last two valid inventory snapshots rather than laundering changed source
 bytes into project history.
 
+## Checkpoint 10: immutable pre-execution project snapshots
+
+Every genuinely new motor or embedded structural publication now stores a
+canonical immutable snapshot of the complete project index immediately before
+the run enters history. The snapshot binds its exact project-index SHA-256,
+execution kind, and pending run-manifest identity. It therefore preserves the
+active component/package bindings, scenario, CAD and geometry state, reviewed
+engineering state, prior inventory roots, and earlier run history that formed
+the execution boundary.
+
+The snapshot and run are committed by the same locked atomic project-index
+replacement. Failure before replacement leaves neither reference in project
+history; a successful retry reuses installed immutable objects. Retrying an
+already committed run adds no second snapshot. Snapshot roots are not presented
+as analysis runs in the desktop, and motor/structural history controllers ignore
+their distinct registered schema.
+
+Portable-bundle verification checks the embedded project bytes and hash, proves
+the pending run is committed, and recursively retains every immutable object
+reachable from the captured pre-execution state. Tests inspect a motor snapshot
+and prove it contains the package binding and scenario but no not-yet-published
+run, while the relocated structural bundle carries its execution snapshot.
+
 ## Still required
 
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct
   downstream setup, request, or result state when they change or disappear;
-- snapshot projects at execution boundaries;
 - embed the exact bytes of retained non-CAD source evidence selected for
   portability, with explicit archive/quarantine policy;
 - prove relocation on a separate supported clean machine; and

@@ -96,6 +96,10 @@ namespace {
 using Json = nlohmann::json;
 constexpr std::uint64_t maximum_safe_integer = 9007199254740991ULL;
 
+Result<detail::Unit> append_event(ProjectV2 &project, std::string event_kind,
+                                  std::string status,
+                                  const std::string &related_hash);
+
 template <typename T> Result<T> failure_from(const Diagnostic &diagnostic) {
   return Result<T>::failure(diagnostic);
 }
@@ -355,6 +359,53 @@ validate_publication_graph(const ProjectV2 &project,
         "publication_graph_invalid",
         "unknown publication-graph verification failure"));
   }
+}
+
+Result<ObjectToStore> build_execution_project_snapshot(
+    const ProjectV2 &project, const std::string_view executionKind,
+    const std::string_view pendingManifestHash) {
+  const auto projectBytes = serialize_project_v2(project);
+  if (!projectBytes.has_value())
+    return failure_from<ObjectToStore>(projectBytes.diagnostic());
+  const Json snapshot{
+      {"$schema", execution_project_snapshot_schema_id},
+      {"schema_version", "1.0.0"},
+      {"snapshot_kind", "pre_execution_project"},
+      {"execution_kind", executionKind},
+      {"pending_manifest_hash", pendingManifestHash},
+      {"project_index_sha256", integrity::sha256_bytes(projectBytes.value())},
+      {"project_index", projectBytes.value()}};
+  auto bytes = integrity::canonicalize_json_bytes(snapshot.dump());
+  StoredObjectReference reference{
+      integrity::sha256_bytes(bytes), bytes.size(),
+      std::string(execution_project_snapshot_media_type),
+      std::string(execution_project_snapshot_schema_id), "1.0.0"};
+  return Result<ObjectToStore>::success({std::move(reference), std::move(bytes)});
+}
+
+Result<detail::Unit> install_execution_project_snapshot(
+    const std::filesystem::path &projectPath, ProjectV2 &project,
+    const std::string_view executionKind,
+    const std::string_view pendingManifestHash,
+    const TransactionOptions &options) {
+  if (project.execution.committed_runs.size() + 2U > maximum_committed_runs)
+    return Result<detail::Unit>::failure(detail::store_diagnostic(
+        "committed_run_limit_exceeded",
+        "project history has no room for a run and its execution snapshot"));
+  const auto snapshot = build_execution_project_snapshot(
+      project, executionKind, pendingManifestHash);
+  if (!snapshot.has_value())
+    return failure_from<detail::Unit>(snapshot.diagnostic());
+  const auto installed = detail::install_object_file(
+      projectPath, snapshot.value().reference, snapshot.value().bytes, options);
+  if (!installed.has_value())
+    return failure_from<detail::Unit>(installed.diagnostic());
+  project.execution.committed_runs.push_back(snapshot.value().reference);
+  const auto event = append_event(project, "execution_project_snapshotted",
+                                  "completed",
+                                  snapshot.value().reference.object_hash);
+  if (!event.has_value()) return event;
+  return Result<detail::Unit>::success({});
 }
 
 std::string decode_base64(const std::string_view text) {
@@ -881,12 +932,15 @@ publish_completed_run(const std::filesystem::path &project_path,
     }
 
     if (!already_committed) {
-      if (project.execution.committed_runs.size() >= maximum_committed_runs) {
-        return Result<Publication>::failure(detail::store_diagnostic(
-            "committed_run_limit_exceeded",
-            "project already has the maximum committed runs"));
-      }
+      const auto snapshotted = install_execution_project_snapshot(
+          project_path, project, "motor_analysis",
+          objects.manifest.reference.object_hash, options);
+      if (!snapshotted.has_value())
+        return failure_from<Publication>(snapshotted.diagnostic());
+      auto snapshotReference = std::move(project.execution.committed_runs.back());
+      project.execution.committed_runs.pop_back();
       project.execution.committed_runs.push_back(objects.manifest.reference);
+      project.execution.committed_runs.push_back(std::move(snapshotReference));
     }
     const auto event = append_event(
         project, already_committed ? "run_invoked" : "run_published",
@@ -1117,11 +1171,15 @@ Result<Publication> publish_structural_archive(
     if (!manifestInstalled.has_value())
       return failure_from<Publication>(manifestInstalled.diagnostic());
     if (!alreadyCommitted) {
-      if (project.execution.committed_runs.size() >= maximum_committed_runs)
-        return Result<Publication>::failure(detail::store_diagnostic(
-            "committed_run_limit_exceeded",
-            "project already has the maximum committed runs"));
+      const auto snapshotted = install_execution_project_snapshot(
+          project_path, project, "structural_linear_static",
+          objects.project_manifest.reference.object_hash, options);
+      if (!snapshotted.has_value())
+        return failure_from<Publication>(snapshotted.diagnostic());
+      auto snapshotReference = std::move(project.execution.committed_runs.back());
+      project.execution.committed_runs.pop_back();
       project.execution.committed_runs.push_back(objects.project_manifest.reference);
+      project.execution.committed_runs.push_back(std::move(snapshotReference));
     }
     const auto event = append_event(
         project,

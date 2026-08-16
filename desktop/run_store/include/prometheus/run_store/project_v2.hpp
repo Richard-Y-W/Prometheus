@@ -18,6 +18,10 @@ inline constexpr std::string_view project_inventory_schema_id =
     "urn:prometheus:schema:project-inventory-snapshot:1.0.0";
 inline constexpr std::string_view project_inventory_media_type =
     "application/vnd.prometheus.project-inventory+json";
+inline constexpr std::string_view execution_project_snapshot_schema_id =
+    "urn:prometheus:schema:execution-project-snapshot:1.0.0";
+inline constexpr std::string_view execution_project_snapshot_media_type =
+    "application/vnd.prometheus.execution-project-snapshot+json";
 inline constexpr std::string_view execution_store_version = "1.0.0";
 inline constexpr std::size_t maximum_project_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
