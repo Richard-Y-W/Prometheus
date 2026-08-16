@@ -7,6 +7,7 @@
 #include <prometheus/run_store/run_store.hpp>
 #include <prometheus/run_store/project_bundle.hpp>
 #include <prometheus/run_store/object_store.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -318,7 +319,9 @@ int ProjectController::committedRunCount() const {
       project_->execution.committed_runs.cend(), [](const auto &reference) {
         return reference.schema_id != run_store::project_inventory_schema_id &&
                reference.schema_id !=
-                   run_store::execution_project_snapshot_schema_id;
+                   run_store::execution_project_snapshot_schema_id &&
+               reference.schema_id !=
+                   run_store::project_evidence_archive_schema_id;
       }));
 }
 
@@ -337,6 +340,25 @@ QString ProjectController::latestInventoryHash() const {
        reference != project_->execution.committed_runs.crend(); ++reference)
     if (reference->schema_id == run_store::project_inventory_schema_id)
       return QString::fromStdString(reference->object_hash);
+  return {};
+}
+
+QString ProjectController::latestEvidenceInventoryHash() const {
+  if (!project_) return {};
+  for (auto reference = project_->execution.committed_runs.crbegin();
+       reference != project_->execution.committed_runs.crend(); ++reference) {
+    if (reference->schema_id != run_store::project_evidence_archive_schema_id)
+      continue;
+    const auto bytes = run_store::read_object(projectPath(), *reference);
+    if (!bytes.has_value()) return {};
+    try {
+      const auto document = nlohmann::json::parse(bytes.value());
+      return QString::fromStdString(
+          document.at("inventory_snapshot").at("object_hash").get<std::string>());
+    } catch (...) {
+      return {};
+    }
+  }
   return {};
 }
 
@@ -464,7 +486,8 @@ bool ProjectController::commitInventorySnapshot(
 
 bool ProjectController::assessInventorySnapshot(
     const run_store::ObjectToStore &snapshot, const QString &cadRelativePath,
-    const bool cadCurrent) {
+    const bool cadCurrent,
+    const run_store::ProjectEvidenceArchiveObjects *archive) {
   inventory_changes_.clear();
   inventory_comparison_status_ = "initial_inventory";
   try {
@@ -542,6 +565,21 @@ bool ProjectController::assessInventorySnapshot(
     return false;
   }
   assembly_artifact_current_ = true;
+  if (archive) {
+    const auto published = run_store::publish_project_inventory_archive(
+        projectPath(), snapshot, *archive);
+    if (!published.has_value()) {
+      setError(QString::fromStdString(published.diagnostic().message),
+               QString::fromStdString(published.diagnostic().code));
+      emit changed();
+      return false;
+    }
+    project_ = published.value().project;
+    clearError();
+    emit changed();
+    emit projectSaved();
+    return true;
+  }
   return commitInventorySnapshot(snapshot);
 }
 

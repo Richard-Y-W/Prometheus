@@ -11,6 +11,7 @@
 namespace prometheus::run_store {
 
 struct StructuralArchiveObjects;
+struct ProjectEvidenceArchiveObjects;
 
 inline constexpr std::chrono::milliseconds maximum_lock_wait{5000};
 
@@ -105,6 +106,12 @@ publish_completed_run(const std::filesystem::path &project_path,
 [[nodiscard]] Result<Publication> commit_project_inventory_snapshot(
     const std::filesystem::path &project_path,
     const ObjectToStore &snapshot,
+    TransactionOptions options = {}) noexcept;
+
+[[nodiscard]] Result<Publication> publish_project_inventory_archive(
+    const std::filesystem::path &project_path,
+    const ObjectToStore &inventory_snapshot,
+    const ProjectEvidenceArchiveObjects &archive,
     TransactionOptions options = {}) noexcept;
 
 // Anchors a verified structural archive manifest in the project history. Raw

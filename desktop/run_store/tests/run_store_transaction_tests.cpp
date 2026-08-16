@@ -3,6 +3,7 @@
 #include <prometheus/run_store/run_store.hpp>
 #include <prometheus/run_store/structural_archive_store.hpp>
 #include <prometheus/run_store/project_bundle.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -164,18 +165,27 @@ run_store::ObjectToStore structural_manifest_fixture() {
           std::move(bytes)};
 }
 
-run_store::ObjectToStore inventory_snapshot_fixture() {
+run_store::ObjectToStore inventory_snapshot_fixture(
+    const std::string &cadHash, const std::uint64_t cadLength,
+    const std::string &documentHash, const std::uint64_t documentLength,
+    const std::string &toolHash, const std::uint64_t toolLength) {
+  nlohmann::json artifacts = nlohmann::json::array({
+      {{"relative_path", "docs/spec.pdf"}, {"byte_length", documentLength},
+       {"sha256", documentHash}, {"category", "document"},
+       {"analysis_state", "not_evaluated"}, {"detail", "Not interpreted"}},
+      {{"relative_path", "portable-bracket.step"}, {"byte_length", cadLength},
+       {"sha256", cadHash}, {"category", "geometry"},
+       {"analysis_state", "ready"}, {"detail", "STEP import ready"}},
+      {{"relative_path", "tools/check.exe"}, {"byte_length", toolLength},
+       {"sha256", toolHash}, {"category", "other"},
+       {"analysis_state", "unsupported"}, {"detail", "Not executable"}}});
   const auto bytes = integrity::canonicalize_json_bytes(
-      std::string{"{\"$schema\":\""} +
-      std::string(run_store::project_inventory_schema_id) +
-      "\",\"artifacts\":[{\"analysis_state\":\"not_evaluated\","
-      "\"byte_length\":8,\"category\":\"document\","
-      "\"detail\":\"Content not interpreted\","
-      "\"relative_path\":\"docs/spec.pdf\",\"sha256\":\"sha256:" +
-      std::string(64U, 'a') +
-      "\"}],\"root_label\":\"portable-source\","
-      "\"schema_version\":\"1.0.0\","
-      "\"snapshot_kind\":\"accounted_project_folder\"}");
+      nlohmann::json{{"$schema", run_store::project_inventory_schema_id},
+                     {"artifacts", std::move(artifacts)},
+                     {"root_label", "portable-source"},
+                     {"schema_version", "1.0.0"},
+                     {"snapshot_kind", "accounted_project_folder"}}
+          .dump());
   return {reference_for(bytes,
                         std::string(run_store::project_inventory_media_type),
                         std::string(run_store::project_inventory_schema_id),
@@ -587,6 +597,12 @@ void test_embedded_structural_archive_round_trip() {
 
   const auto cadPath = root.path() / "portable-bracket.step";
   write_file(cadPath, "portable CAD source bytes\n");
+  const auto documentPath = root.path() / "docs" / "spec.pdf";
+  const auto toolPath = root.path() / "tools" / "check.exe";
+  fs::create_directories(documentPath.parent_path());
+  fs::create_directories(toolPath.parent_path());
+  write_file(documentPath, "portable document evidence\n");
+  write_file(toolPath, "inert untrusted tool bytes\n");
   const auto cadHash = integrity::sha256_file(cadPath);
   auto portableProject = initial_project();
   portableProject.cad_source = cadPath.string();
@@ -601,10 +617,57 @@ void test_embedded_structural_archive_round_trip() {
   require_success(run_store::publish_structural_archive(
                       portableProjectPath, portableObjects.value()),
                   "publish portable structural archive");
-  const auto inventory = inventory_snapshot_fixture();
-  require_success(run_store::commit_project_inventory_snapshot(
-                      portableProjectPath, inventory),
-                  "anchor portable project inventory");
+  const auto inventory = inventory_snapshot_fixture(
+      cadHash, fs::file_size(cadPath), integrity::sha256_file(documentPath),
+      fs::file_size(documentPath), integrity::sha256_file(toolPath),
+      fs::file_size(toolPath));
+  const std::vector<run_store::ProjectEvidenceInput> evidenceInputs{
+      {"docs/spec.pdf", documentPath, fs::file_size(documentPath),
+       integrity::sha256_file(documentPath), "document", "not_evaluated"},
+      {"portable-bracket.step", cadPath, fs::file_size(cadPath), cadHash,
+       "geometry", "ready"},
+      {"tools/check.exe", toolPath, fs::file_size(toolPath),
+       integrity::sha256_file(toolPath), "other", "unsupported"}};
+  const auto evidence = run_store::build_project_evidence_archive(
+      inventory.reference, evidenceInputs);
+  require(evidence.has_value() && evidence.value().chunks.size() == 2U,
+          "bounded evidence retains a document and quarantines unknown bytes");
+  const auto evidenceManifest =
+      nlohmann::json::parse(evidence.value().manifest.bytes);
+  require(evidenceManifest.at("files").at(0).at("disposition") == "retained" &&
+              evidenceManifest.at("files").at(1).at("disposition") ==
+                  "external_only" &&
+              evidenceManifest.at("files").at(2).at("disposition") ==
+                  "quarantined",
+          "evidence policy retains documents, separates CAD, and quarantines unknown content");
+  auto forgedEvidence = evidence.value();
+  forgedEvidence.chunks.front().bytes.push_back(' ');
+  require_failure(run_store::validate_project_evidence_archive(
+                  inventory, forgedEvidence),
+                  "project_evidence_chunk_invalid",
+                  "changed evidence chunk bytes");
+  const auto interruptedEvidenceProject =
+      root.path() / "interrupted-evidence.prometheus";
+  require_success(run_store::create_project_v2(interruptedEvidenceProject,
+                                                portableProject),
+                  "create interrupted evidence project");
+  const auto interruptedEvidence = run_store::publish_project_inventory_archive(
+      interruptedEvidenceProject, inventory, evidence.value(),
+      fail_at(run_store::TransactionBoundary::before_project_replacement));
+  require_failure(interruptedEvidence, "injected_failure",
+                  "evidence publication interruption");
+  require(run_store::open_read_only(interruptedEvidenceProject)
+              .value().execution.committed_runs.empty(),
+          "interrupted evidence publication cites no partial archive");
+  const auto evidenceRetry = run_store::publish_project_inventory_archive(
+      interruptedEvidenceProject, inventory, evidence.value());
+  require(evidenceRetry.has_value() &&
+              evidenceRetry.value().project.execution.committed_runs.size() ==
+                  2U,
+          "evidence publication recovers from retained immutable objects");
+  require_success(run_store::publish_project_inventory_archive(
+                      portableProjectPath, inventory, evidence.value()),
+                  "publish portable project evidence archive");
   const auto bundleDirectory = root.path() / "portable-bundle";
   const auto bundle = run_store::export_project_bundle(
       portableProjectPath, bundleDirectory);
@@ -614,7 +677,7 @@ void test_embedded_structural_archive_round_trip() {
                                     bundle.diagnostic().code + " " +
                                         bundle.diagnostic().message));
   require(bundle.value().object_count ==
-              portableObjects.value().chunks.size() + 4U,
+              portableObjects.value().chunks.size() + 7U,
           "portable bundle contains exactly the reachable structural object graph");
   const auto movedBundle = root.path() / "moved-clean-machine-bundle";
   fs::rename(bundleDirectory, movedBundle);
@@ -623,11 +686,31 @@ void test_embedded_structural_archive_round_trip() {
   const auto movedProject = run_store::open_read_only(moved.value().project_path);
   require(movedProject.has_value() &&
               movedProject.value().cad_source == "sources/portable-bracket.step" &&
-              movedProject.value().execution.committed_runs.size() == 3U,
+              movedProject.value().execution.committed_runs.size() == 4U,
           "relocated bundle opens with relative CAD and structural history");
   require(run_store::read_object(moved.value().project_path, inventory.reference)
               .value() == inventory.bytes,
           "relocated bundle retains exact project inventory snapshot");
+  const auto movedEvidence = std::ranges::find_if(
+      movedProject.value().execution.committed_runs, [](const auto &reference) {
+        return reference.schema_id ==
+               run_store::project_evidence_archive_schema_id;
+      });
+  require(movedEvidence != movedProject.value().execution.committed_runs.end(),
+          "relocated project retains its evidence archive root");
+  const auto reconstructedEvidence =
+      run_store::reconstruct_project_evidence_archive(
+          moved.value().project_path, *movedEvidence,
+          root.path() / "reconstructed-project-evidence");
+  require(reconstructedEvidence.has_value() &&
+              read_file(reconstructedEvidence.value() / "retained" / "docs" /
+                        "spec.pdf") == read_file(documentPath) &&
+              read_file(reconstructedEvidence.value() / "quarantine" / "tools" /
+                        "check.exe.prometheus-quarantined") ==
+                  read_file(toolPath) &&
+              !fs::exists(reconstructedEvidence.value() / "retained" /
+                          "portable-bracket.step"),
+          "relocated evidence reconstructs retained bytes, neutralizes quarantine names, and leaves CAD separate");
   const auto bundleRestored = run_store::reconstruct_structural_archive(
       moved.value().project_path,
       movedProject.value().execution.committed_runs.front(),

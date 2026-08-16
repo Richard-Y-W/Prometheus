@@ -2,6 +2,7 @@
 
 #include <prometheus/run_store/object_store.hpp>
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 #include <prometheus/integrity/canonical_json.hpp>
 
@@ -109,6 +110,15 @@ Result<std::unordered_map<std::string, StoredObjectReference>> reachableObjects(
         pending.push(parseReference(document.at("archive_manifest")));
         for (const auto &artifact : document.at("artifacts"))
           for (const auto &chunk : artifact.at("chunks"))
+            pending.push(parseReference(chunk));
+      } else if (reference.schema_id == project_evidence_archive_schema_id) {
+        const auto verified = verify_project_evidence_archive(projectPath, reference);
+        if (!verified.has_value())
+          return Result<std::unordered_map<std::string, StoredObjectReference>>::failure(
+              verified.diagnostic());
+        pending.push(parseReference(document.at("inventory_snapshot")));
+        for (const auto &file : document.at("files"))
+          for (const auto &chunk : file.at("chunks"))
             pending.push(parseReference(chunk));
       } else if (reference.schema_id == execution_project_snapshot_schema_id) {
         if (document.size() != 7U ||

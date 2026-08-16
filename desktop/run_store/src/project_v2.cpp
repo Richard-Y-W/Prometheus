@@ -1,4 +1,5 @@
 #include <prometheus/run_store/project_v2.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 #include <prometheus/integrity/canonical_json.hpp>
 
@@ -237,6 +238,9 @@ bool reference_matches(const StoredObjectReference &reference,
            reference.schema_version == "1.0.0";
   case ReferenceKind::committed_manifest:
     return reference_matches(reference, ReferenceKind::manifest) ||
+           (reference.media_type == project_evidence_archive_media_type &&
+            reference.schema_id == project_evidence_archive_schema_id &&
+            reference.schema_version == "1.0.0") ||
            (reference.media_type == execution_project_snapshot_media_type &&
             reference.schema_id == execution_project_snapshot_schema_id &&
             reference.schema_version == "1.0.0") ||
@@ -975,6 +979,9 @@ bool is_supported_object_reference(
          reference_matches(reference, ReferenceKind::committed_manifest) ||
          (reference.media_type == structural_artifact_chunk_media_type &&
           reference.schema_id == structural_artifact_chunk_schema_id &&
+          reference.schema_version == "1.0.0") ||
+         (reference.media_type == project_evidence_chunk_media_type &&
+          reference.schema_id == project_evidence_chunk_schema_id &&
           reference.schema_version == "1.0.0");
 }
 

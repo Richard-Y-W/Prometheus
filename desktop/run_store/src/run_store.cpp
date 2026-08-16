@@ -1,5 +1,6 @@
 #include <prometheus/run_store/run_store.hpp>
 #include <prometheus/run_store/structural_archive_store.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 #include "platform_io.hpp"
 
@@ -1124,6 +1125,64 @@ Result<Publication> commit_project_inventory_snapshot(
     return Result<Publication>::failure(detail::store_diagnostic(
         "inventory_snapshot_commit_failed", "unknown inventory commit failure",
         std::nullopt, project_path));
+  }
+}
+
+Result<Publication> publish_project_inventory_archive(
+    const std::filesystem::path &projectPath,
+    const ObjectToStore &inventorySnapshot,
+    const ProjectEvidenceArchiveObjects &archive,
+    TransactionOptions options) noexcept {
+  try {
+    const auto valid = validate_project_evidence_archive(inventorySnapshot, archive);
+    if (!valid.has_value()) return failure_from<Publication>(valid.diagnostic());
+    auto lock = detail::acquire_project_lock(
+        projectPath, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) return failure_from<Publication>(lock.diagnostic());
+    auto loaded = read_locked_project(projectPath);
+    if (!loaded.has_value()) return failure_from<Publication>(loaded.diagnostic());
+    auto project = std::move(loaded.value());
+    const auto contains = [&](const StoredObjectReference &reference) {
+      return std::ranges::find(project.execution.committed_runs, reference) !=
+             project.execution.committed_runs.end();
+    };
+    const bool snapshotPresent = contains(inventorySnapshot.reference);
+    const bool archivePresent = contains(archive.manifest.reference);
+    if (project.execution.committed_runs.size() +
+            (snapshotPresent ? 0U : 1U) + (archivePresent ? 0U : 1U) >
+        maximum_committed_runs)
+      return Result<Publication>::failure(detail::store_diagnostic(
+          "committed_run_limit_exceeded", "project evidence history is full"));
+    for (const auto &chunk : archive.chunks) {
+      const auto installed = detail::install_object_file(
+          projectPath, chunk.reference, chunk.bytes, options);
+      if (!installed.has_value())
+        return failure_from<Publication>(installed.diagnostic());
+    }
+    for (const auto *object : {&inventorySnapshot, &archive.manifest}) {
+      const auto installed = detail::install_object_file(
+          projectPath, object->reference, object->bytes, options);
+      if (!installed.has_value())
+        return failure_from<Publication>(installed.diagnostic());
+    }
+    if (!snapshotPresent)
+      project.execution.committed_runs.push_back(inventorySnapshot.reference);
+    if (!archivePresent)
+      project.execution.committed_runs.push_back(archive.manifest.reference);
+    const auto event = append_event(
+        project, archivePresent ? "project_evidence_archive_reused" :
+                                  "project_evidence_archive_published",
+        archivePresent ? "already_committed" : "completed",
+        archive.manifest.reference.object_hash);
+    if (!event.has_value()) return failure_from<Publication>(event.diagnostic());
+    const auto persisted = persist_project(projectPath, project, true, options);
+    if (!persisted.has_value()) return failure_from<Publication>(persisted.diagnostic());
+    return Result<Publication>::success(
+        {persisted.value(), snapshotPresent && archivePresent});
+  } catch (const std::exception &error) {
+    return Result<Publication>::failure(detail::store_diagnostic(
+        "project_evidence_publication_failed", error.what(), std::nullopt,
+        projectPath));
   }
 }
 

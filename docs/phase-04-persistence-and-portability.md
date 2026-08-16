@@ -207,11 +207,42 @@ reachable from the captured pre-execution state. Tests inspect a motor snapshot
 and prove it contains the package binding and scenario but no not-yet-published
 run, while the relocated structural bundle carries its execution snapshot.
 
+## Checkpoint 11: bounded inert source-evidence archive
+
+Successful project-folder intake now prepares a closed content-addressed archive
+alongside the inventory snapshot. Readable non-CAD files are split into canonical
+700 KiB chunks and independently reconstructed and hashed before publication.
+The current prototype policy retains at most 32 MiB per file and 128 MiB per
+inventory. Files beyond either limit, unreadable/symlinked files, Prometheus's
+own project/sidecar state, and the separately transported selected CAD source
+remain identity-only with an explicit `external_only` reason.
+
+Recognized documents, tables, and structured data are retained as inert portable
+evidence. Unknown formats and source code are retained with a `quarantined`
+disposition: Prometheus never executes or automatically previews them. On
+explicit reconstruction, ordinary retained files are written below `retained/`;
+quarantined files are written below `quarantine/` with the neutral
+`.prometheus-quarantined` suffix.
+
+The inventory snapshot, archive manifest, and chunks publish under one project
+writer lock and one atomic index replacement. The manifest must account for
+every inventory path and exactly reproduce each retained identity; missing,
+extra, reordered, forged, or unreferenced chunks are rejected. Interrupted
+publication leaves the prior index untouched and retry reuses verified immutable
+objects.
+
+Portable bundles recursively include the evidence archive graph. The relocation
+test moves the whole bundle, verifies it, reconstructs the retained PDF
+byte-for-byte, reconstructs unknown executable-shaped bytes only under the
+neutral quarantine name, and confirms the CAD source is not duplicated into the
+generic evidence output.
+
 ## Still required
 
+- add user-facing backup/restore and migration flows beyond the existing atomic
+  interrupted-write recovery primitives;
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct
   downstream setup, request, or result state when they change or disappear;
-- embed the exact bytes of retained non-CAD source evidence selected for
-  portability, with explicit archive/quarantine policy;
 - prove relocation on a separate supported clean machine; and
-- define archive/quarantine behavior from encountered real formats.
+- refine archive/quarantine policy from additional real-project formats and
+  user evidence.

@@ -139,6 +139,17 @@ Item {
             elide: Text.ElideMiddle
             Layout.fillWidth: true
         }
+        Label {
+            visible: root.projectController !== null
+                     && root.projectController.latestInventoryHash !== ""
+                     && root.projectController.latestEvidenceInventoryHash
+                        === root.projectController.latestInventoryHash
+            text: "PORTABLE EVIDENCE ARCHIVE VERIFIED • bounded inert bytes retained"
+            color: "#70c99a"
+            font.bold: true
+            font.pixelSize: 10
+            Layout.fillWidth: true
+        }
 
         RowLayout {
             Layout.fillWidth: true

@@ -23,6 +23,14 @@
 
 namespace {
 
+std::filesystem::path nativePath(const QString &path) {
+#ifdef _WIN32
+  return std::filesystem::path(path.toStdWString());
+#else
+  return std::filesystem::path(path.toStdString());
+#endif
+}
+
 struct Classification final {
   QString category;
   QString state;
@@ -197,6 +205,31 @@ ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
   }
   if (readySteps.size() == 1)
     result.primary_step_path = readySteps.front();
+  result.inventory_snapshot = buildProjectInventorySnapshot(result);
+  std::vector<prometheus::run_store::ProjectEvidenceInput> evidenceInputs;
+  evidenceInputs.reserve(static_cast<std::size_t>(result.artifacts.size()));
+  for (const auto &value : result.artifacts) {
+    const auto artifact = value.toMap();
+    const auto hashText = artifact.value("sha256").toString();
+    evidenceInputs.push_back({
+        artifact.value("relative_path").toString().toStdString(),
+        nativePath(artifact.value("absolute_path").toString()),
+        artifact.value("byte_size").toULongLong(),
+        hashText.isEmpty()
+            ? std::nullopt
+            : std::optional<std::string>(hashText.toStdString()),
+        artifact.value("category").toString().toStdString(),
+        artifact.value("analysis_state").toString().toStdString()});
+  }
+  auto archive = prometheus::run_store::build_project_evidence_archive(
+      result.inventory_snapshot->reference, evidenceInputs);
+  if (!archive.has_value()) {
+    result.ok = false;
+    result.error = QString::fromStdString(archive.diagnostic().message);
+    result.inventory_snapshot.reset();
+  } else {
+    result.evidence_archive = std::move(archive.value());
+  }
   return result;
 }
 

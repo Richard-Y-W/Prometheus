@@ -54,13 +54,19 @@ int main(int argc, char* argv[]) {
         return;
       sourceRelativePath = relative;
     }
-    const auto snapshot = buildProjectInventorySnapshot(intake.result());
+    if (!intake.result().inventory_snapshot ||
+        !intake.result().evidence_archive)
+      return;
+    const auto &snapshot = *intake.result().inventory_snapshot;
     if (project.latestInventoryHash() ==
+            QString::fromStdString(snapshot.reference.object_hash) &&
+        project.latestEvidenceInventoryHash() ==
             QString::fromStdString(snapshot.reference.object_hash) &&
         accountedSourceHash == expected)
       return;
     project.assessInventorySnapshot(snapshot, sourceRelativePath,
-                                    accountedSourceHash == expected);
+                                    accountedSourceHash == expected,
+                                    &*intake.result().evidence_archive);
   };
   QObject::connect(&intake, &ProjectIntakeController::scanFinished, &project,
                    [anchorInventory](const bool success) {

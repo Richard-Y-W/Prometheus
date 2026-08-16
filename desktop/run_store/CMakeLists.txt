@@ -5,6 +5,7 @@ add_library(prometheus_run_store STATIC
   src/run_store.cpp
   src/structural_archive_store.cpp
   src/project_bundle.cpp
+  src/project_evidence_archive.cpp
 )
 if(WIN32)
   target_sources(prometheus_run_store PRIVATE src/platform_io_windows.cpp)

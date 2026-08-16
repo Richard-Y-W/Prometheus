@@ -2,7 +2,10 @@
 
 #include <prometheus/run_store/project_v2.hpp>
 
-namespace prometheus::run_store { struct ObjectToStore; }
+namespace prometheus::run_store {
+struct ObjectToStore;
+struct ProjectEvidenceArchiveObjects;
+}
 
 #include <QObject>
 #include <QString>
@@ -31,6 +34,8 @@ class ProjectController final : public QObject {
   Q_PROPERTY(int committedRunCount READ committedRunCount NOTIFY changed)
   Q_PROPERTY(int inventorySnapshotCount READ inventorySnapshotCount NOTIFY changed)
   Q_PROPERTY(QString latestInventoryHash READ latestInventoryHash NOTIFY changed)
+  Q_PROPERTY(QString latestEvidenceInventoryHash READ latestEvidenceInventoryHash
+                 NOTIFY changed)
   Q_PROPERTY(QVariantList inventoryChanges READ inventoryChanges NOTIFY changed)
   Q_PROPERTY(QString inventoryComparisonStatus READ inventoryComparisonStatus
                  NOTIFY changed)
@@ -55,6 +60,7 @@ public:
   int committedRunCount() const;
   int inventorySnapshotCount() const;
   QString latestInventoryHash() const;
+  QString latestEvidenceInventoryHash() const;
   QVariantList inventoryChanges() const { return inventory_changes_; }
   QString inventoryComparisonStatus() const {
     return inventory_comparison_status_;
@@ -73,7 +79,9 @@ public:
       const prometheus::run_store::ObjectToStore &snapshot);
   bool assessInventorySnapshot(
       const prometheus::run_store::ObjectToStore &snapshot,
-      const QString &cadRelativePath, bool cadCurrent);
+      const QString &cadRelativePath, bool cadCurrent,
+      const prometheus::run_store::ProjectEvidenceArchiveObjects *archive =
+          nullptr);
 
   const std::optional<prometheus::run_store::ProjectV2> &project() const {
     return project_;

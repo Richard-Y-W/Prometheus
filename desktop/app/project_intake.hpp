@@ -6,7 +6,10 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include <optional>
+
 #include <prometheus/run_store/run_store.hpp>
+#include <prometheus/run_store/project_evidence_archive.hpp>
 
 struct ProjectIntakeResult final {
   bool ok{};
@@ -15,6 +18,9 @@ struct ProjectIntakeResult final {
   QVariantList artifacts;
   QVariantList candidate_components;
   QString primary_step_path;
+  std::optional<prometheus::run_store::ObjectToStore> inventory_snapshot;
+  std::optional<prometheus::run_store::ProjectEvidenceArchiveObjects>
+      evidence_archive;
 };
 
 [[nodiscard]] ProjectIntakeResult scanProjectFolder(const QString &rootPath);

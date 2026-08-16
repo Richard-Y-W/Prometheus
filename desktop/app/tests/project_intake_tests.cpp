@@ -137,6 +137,10 @@ void buildsCanonicalImmutableInventorySnapshot() {
   writeFile(temporary.filePath("assembly.step"), "STEP identity\n");
   writeFile(temporary.filePath("notes.pdf"), "evidence identity\n");
   const auto result = scanProjectFolder(temporary.path());
+  require(result.inventory_snapshot.has_value() &&
+              result.evidence_archive.has_value() &&
+              result.evidence_archive->chunks.size() == 1U,
+          "scan prepares one retained non-CAD evidence chunk while CAD stays separate");
   const auto snapshot = buildProjectInventorySnapshot(result);
   require(snapshot.reference.schema_id ==
               prometheus::run_store::project_inventory_schema_id &&
