@@ -39,6 +39,7 @@ namespace {
 constexpr qint64 maximumCandidateBytes = 4 * 1024 * 1024;
 constexpr qint64 maximumMeshBytes = 128 * 1024 * 1024;
 constexpr qint64 maximumGeometryBytes = 512 * 1024 * 1024;
+constexpr qsizetype maximumMaterialCandidates = 4096;
 
 class ControllerFailure final : public std::runtime_error {
 public:
@@ -169,6 +170,36 @@ double required_number(const QJsonObject &object, const QString &key,
   if (!value.isDouble() || !std::isfinite(value.toDouble()))
     reject("candidate_invalid", field + " must be a finite number.");
   return value.toDouble();
+}
+
+QVariantList decode_material_candidates(const QByteArray &bytes) {
+  const auto object = parse_json_object(bytes, "material evidence");
+  const auto candidates = object.value("candidates");
+  if (!candidates.isArray())
+    reject("material_evidence_invalid",
+           "Material evidence requires a bounded nonempty candidates array.");
+  const auto candidateArray = candidates.toArray();
+  if (candidateArray.isEmpty() ||
+      candidateArray.size() > maximumMaterialCandidates)
+    reject("material_evidence_invalid",
+           "Material evidence requires a bounded nonempty candidates array.");
+  QVariantList decoded;
+  decoded.reserve(candidateArray.size());
+  QSet<QString> candidateIds;
+  for (const auto &value : candidateArray) {
+    if (!value.isObject())
+      reject("material_evidence_invalid",
+             "Each material candidate must be an object.");
+    const auto candidate = value.toObject();
+    const auto candidateId = required_string(
+        candidate, "candidate_id", "material candidate identity");
+    if (candidateIds.contains(candidateId))
+      reject("material_evidence_invalid",
+             "Material candidate identities must be unique.");
+    candidateIds.insert(candidateId);
+    decoded.append(candidate.toVariantMap());
+  }
+  return decoded;
 }
 
 QString resolve_relative_artifact(const QString &manifestDirectory,
@@ -410,6 +441,8 @@ void StructuralSetupController::resetCandidateState() {
   material_evidence_sha256_.clear();
   candidate_mesh_target_size_m_ = 0.0;
   coordinate_scale_to_m_ = 0.0;
+  display_center_m_ = {};
+  display_diameter_m_ = 0.0;
   mesh_ = {};
   mesh_geometry_.reset();
   highlight_geometry_.reset();
@@ -518,8 +551,37 @@ bool StructuralSetupController::loadCandidate(const QUrl &manifest) {
       reject("candidate_identity_mismatch",
              "Candidate mesh changed while it was parsed.");
 
+    std::array<double, 3> displayMinimum{
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max()};
+    std::array<double, 3> displayMaximum{
+        std::numeric_limits<double>::lowest(),
+        std::numeric_limits<double>::lowest(),
+        std::numeric_limits<double>::lowest()};
+    for (const auto &node : parsedMesh.nodes)
+      for (std::size_t axis = 0; axis < 3U; ++axis) {
+        displayMinimum[axis] =
+            std::min(displayMinimum[axis], node.position_m[axis]);
+        displayMaximum[axis] =
+            std::max(displayMaximum[axis], node.position_m[axis]);
+      }
+    std::array<double, 3> displayCenter{};
+    std::array<double, 3> displayExtent{};
+    for (std::size_t axis = 0; axis < 3U; ++axis) {
+      displayCenter[axis] =
+          (displayMinimum[axis] + displayMaximum[axis]) * 0.5;
+      displayExtent[axis] = displayMaximum[axis] - displayMinimum[axis];
+    }
+    const auto displayDiameter =
+        std::hypot(displayExtent[0], displayExtent[1], displayExtent[2]);
+    if (!positive_finite(displayDiameter))
+      reject("visualization_failed",
+             "Candidate mesh has no finite nonzero display extent.");
+
     QString materialEvidencePath;
     QString materialEvidenceHash;
+    QVariantList materialCandidates;
     const auto materialEvidence = object.value("material_evidence");
     if (!materialEvidence.isNull()) {
       if (!materialEvidence.isObject())
@@ -537,10 +599,17 @@ bool StructuralSetupController::loadCandidate(const QUrl &manifest) {
           manifestInfo.absolutePath(), required_string(
                                            evidenceObject, "path",
                                            "candidate.material_evidence.path"));
-      if (stable_hash(materialEvidencePath, maximumCandidateBytes) !=
-          materialEvidenceHash)
+      const auto materialHashBefore =
+          stable_hash(materialEvidencePath, maximumCandidateBytes);
+      if (materialHashBefore != materialEvidenceHash)
         reject("candidate_identity_mismatch",
                "Material-evidence bytes do not match the declared identity.");
+      materialCandidates = decode_material_candidates(
+          read_regular_file(materialEvidencePath, maximumCandidateBytes));
+      if (stable_hash(materialEvidencePath, maximumCandidateBytes) !=
+          materialHashBefore)
+        reject("candidate_identity_mismatch",
+               "Material evidence changed while it was parsed.");
     }
 
     std::vector<std::string> groupNames;
@@ -560,8 +629,11 @@ bool StructuralSetupController::loadCandidate(const QUrl &manifest) {
     mesh_sha256_ = meshExpected;
     material_evidence_path_ = materialEvidencePath;
     material_evidence_sha256_ = materialEvidenceHash;
+    material_candidates_ = std::move(materialCandidates);
     candidate_mesh_target_size_m_ = targetSize;
     coordinate_scale_to_m_ = coordinateScale;
+    display_center_m_ = displayCenter;
+    display_diameter_m_ = displayDiameter;
     mesh_ = std::move(parsedMesh);
     mesh_geometry_ = std::move(geometry);
     recompute();
@@ -664,23 +736,18 @@ bool StructuralSetupController::loadMaterialEvidence(const QUrl &source) {
                                     maximumCandidateBytes);
     const auto bytes =
         read_regular_file(information.absoluteFilePath(), maximumCandidateBytes);
-    const auto object = parse_json_object(bytes, "material evidence");
-    const auto candidates = object.value("candidates");
-    if (!candidates.isArray())
-      reject("material_evidence_invalid",
-             "Material evidence requires a candidates array.");
-    QVariantList decoded;
-    for (const auto &value : candidates.toArray()) {
-      if (!value.isObject() ||
-          value.toObject().value("candidate_id").toString().isEmpty())
-        reject("material_evidence_invalid",
-               "Material candidate identity is missing.");
-      decoded.append(value.toObject().toVariantMap());
-    }
+    auto decoded = decode_material_candidates(bytes);
     if (stable_hash(information.absoluteFilePath(), maximumCandidateBytes) !=
         before)
       reject("candidate_identity_mismatch",
              "Material evidence changed while it was parsed.");
+    material_designation_.clear();
+    material_temper_.clear();
+    material_product_form_.clear();
+    material_applicability_.clear();
+    youngs_modulus_pa_ = 0.0;
+    poisson_ratio_ = 0.0;
+    material_reviewed_ = false;
     material_evidence_path_ = information.absoluteFilePath();
     material_evidence_sha256_ = before;
     material_candidates_ = std::move(decoded);

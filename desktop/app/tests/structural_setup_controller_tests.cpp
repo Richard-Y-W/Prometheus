@@ -83,7 +83,11 @@ void candidateLoadAndTamperChecks() {
               controller.geometrySha256() ==
                   "sha256:7dc1037366bd56045a9bc9489d3855ca0da178e8c8ff63d6aafb6f1d1604a3ec" &&
               controller.nodeCount() == 4 && controller.elementCount() == 1 &&
-              controller.minimumMeanRatio() > 0.0,
+              controller.minimumMeanRatio() > 0.0 &&
+              controller.candidateMeshTargetSizeM() == 0.01 &&
+              controller.displayCenterM().size() == 3 &&
+              controller.displayDiameterM() > 0.0 &&
+              controller.materialCandidates().size() == 1,
           "candidate exposes verified identities and mesh diagnostics");
   require(controller.surfaceGroups().size() == 2 &&
               controller.meshGeometry() != nullptr &&
@@ -223,6 +227,26 @@ void reviewCompilationAndExport() {
                   ps::generate_calculix_deck(
                       ps::parse_structural_case(bytes).request),
           "exported canonical case reloads through Qt-free authority");
+
+  QTemporaryDir replacementEvidence;
+  require(replacementEvidence.isValid(),
+          "replacement material evidence directory exists");
+  auto replacementBytes = QByteArray::fromStdString(
+      readBytes(fixture("two-group-tetra.material-evidence.json")));
+  require(replacementBytes.contains("synthetic isotropic material"),
+          "material mutation source exists");
+  replacementBytes.replace("synthetic isotropic material",
+                           "replacement synthetic material");
+  const auto replacementPath =
+      replacementEvidence.path() + "/replacement-evidence.json";
+  writeBytes(replacementPath, replacementBytes);
+  require(controller.loadMaterialEvidence(
+              QUrl::fromLocalFile(replacementPath)),
+          "replacement material evidence loads");
+  controller.confirmScenario(true);
+  require(!controller.readyToExport() &&
+              hasBlocker(controller, "material_inputs_unreviewed"),
+          "changing verified evidence invalidates the prior material review");
 
   QTemporaryDir mutableCandidate;
   require(mutableCandidate.isValid(), "mutable candidate directory exists");

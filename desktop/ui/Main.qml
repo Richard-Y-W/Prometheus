@@ -22,6 +22,8 @@ ApplicationWindow {
     readonly property var projectApi: projectController
     readonly property var intakeApi: projectIntakeController
     readonly property var engineeringApi: engineeringController
+    readonly property var structuralApi: structuralSetupController
+    property int workspaceIndex: String(startupWorkspace) === "structural" ? 1 : 0
     readonly property bool hasSelection: selectedIndex >= 0 && selectedIndex < cadController.parts.length
     readonly property var selectedPart: hasSelection ? cadController.parts[selectedIndex] : null
     readonly property bool hasJointParts: engineeringController.jointConfigured && engineeringController.joint.source_index >= 0 && engineeringController.joint.target_index >= 0 && engineeringController.joint.source_index < cadController.parts.length && engineeringController.joint.target_index < cadController.parts.length
@@ -348,9 +350,44 @@ ApplicationWindow {
                 }
             }
         }
+        Rectangle {
+            width: parent.width
+            height: 34
+            color: "#1d242a"
+            border.color: line
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+                leftPadding: 12
+                spacing: 4
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "WORKSPACE"
+                    color: muted
+                    font.bold: true
+                    font.pixelSize: 10
+                    rightPadding: 8
+                }
+                Button {
+                    objectName: "cadWorkspaceButton"
+                    text: "CAD assembly"
+                    flat: true
+                    highlighted: window.workspaceIndex === 0
+                    onClicked: window.workspaceIndex = 0
+                }
+                Button {
+                    objectName: "structuralWorkspaceButton"
+                    text: "Structural setup"
+                    flat: true
+                    highlighted: window.workspaceIndex === 1
+                    onClicked: window.workspaceIndex = 1
+                }
+            }
+        }
     }
     RowLayout {
+        id: cadWorkspace
         anchors.fill: parent
+        visible: window.workspaceIndex === 0
         spacing: 1
         Rectangle {
             Layout.minimumWidth: 245
@@ -1234,6 +1271,15 @@ ApplicationWindow {
             }
         }
     }
+    StructuralSetupPanel {
+        anchors.fill: parent
+        visible: window.workspaceIndex === 1
+        controller: window.structuralApi
+        panelColor: panel
+        lineColor: line
+        textColor: window.text
+        mutedColor: muted
+    }
     footer: Rectangle {
         height: 25
         color: "#1a2025"
@@ -1243,7 +1289,9 @@ ApplicationWindow {
             anchors.leftMargin: 10
             anchors.rightMargin: 10
             Label {
-                text: hasSelection ? "Selected: " + selectedPart.name : "Selected: none"
+                text: window.workspaceIndex === 1
+                      ? "Structural setup: explicit review required"
+                      : hasSelection ? "Selected: " + selectedPart.name : "Selected: none"
                 color: muted
                 font.pixelSize: 11
             }
@@ -1394,7 +1442,9 @@ ApplicationWindow {
     Rectangle {
         anchors.fill: parent
         color: "#11171dcc"
-        visible: cadController.busy || cadController.sweepBusy || cadController.geometryBusy
+        visible: window.workspaceIndex === 0
+                 && (cadController.busy || cadController.sweepBusy
+                     || cadController.geometryBusy)
         z: 100
         Column {
             anchors.centerIn: parent

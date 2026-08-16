@@ -33,6 +33,10 @@ class StructuralSetupController final : public QObject {
   Q_PROPERTY(int nodeCount READ nodeCount NOTIFY changed)
   Q_PROPERTY(int elementCount READ elementCount NOTIFY changed)
   Q_PROPERTY(double minimumMeanRatio READ minimumMeanRatio NOTIFY changed)
+  Q_PROPERTY(double candidateMeshTargetSizeM READ candidateMeshTargetSizeM
+                 NOTIFY changed)
+  Q_PROPERTY(QVariantList displayCenterM READ displayCenterM NOTIFY changed)
+  Q_PROPERTY(double displayDiameterM READ displayDiameterM NOTIFY changed)
   Q_PROPERTY(QVariantList surfaceGroups READ surfaceGroups NOTIFY changed)
   Q_PROPERTY(QVariantMap activeSurfaceGroup READ activeSurfaceGroup NOTIFY
                  changed)
@@ -46,6 +50,7 @@ class StructuralSetupController final : public QObject {
   Q_PROPERTY(QVariantList blockingIssues READ blockingIssues NOTIFY changed)
   Q_PROPERTY(bool readyToExport READ readyToExport NOTIFY changed)
   Q_PROPERTY(bool scenarioConfirmed READ scenarioConfirmed NOTIFY changed)
+  Q_PROPERTY(bool meshReviewed READ meshReviewed NOTIFY changed)
   Q_PROPERTY(QQuick3DGeometry *meshGeometry READ meshGeometry NOTIFY changed)
   Q_PROPERTY(QQuick3DGeometry *highlightGeometry READ highlightGeometry NOTIFY
                  changed)
@@ -60,6 +65,13 @@ public:
   double minimumMeanRatio() const {
     return mesh_.diagnostics.minimum_mean_ratio;
   }
+  double candidateMeshTargetSizeM() const {
+    return candidate_mesh_target_size_m_;
+  }
+  QVariantList displayCenterM() const {
+    return {display_center_m_[0], display_center_m_[1], display_center_m_[2]};
+  }
+  double displayDiameterM() const { return display_diameter_m_; }
   QVariantList surfaceGroups() const;
   QVariantMap activeSurfaceGroup() const;
   QStringList restraintGroups() const;
@@ -70,6 +82,7 @@ public:
   QVariantList blockingIssues() const { return blocking_issues_; }
   bool readyToExport() const { return ready_to_export_; }
   bool scenarioConfirmed() const { return scenario_confirmed_; }
+  bool meshReviewed() const { return mesh_reviewed_; }
   QQuick3DGeometry *meshGeometry() const { return mesh_geometry_.get(); }
   QQuick3DGeometry *highlightGeometry() const {
     return highlight_geometry_.get();
@@ -113,6 +126,8 @@ private:
   QString material_evidence_sha256_;
   double candidate_mesh_target_size_m_{};
   double coordinate_scale_to_m_{};
+  std::array<double, 3> display_center_m_{};
+  double display_diameter_m_{};
   prometheus::structural::VolumeMesh mesh_;
   std::unique_ptr<StructuralDisplayGeometry> mesh_geometry_;
   std::unique_ptr<StructuralDisplayGeometry> highlight_geometry_;
