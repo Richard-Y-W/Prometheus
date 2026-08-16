@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +16,27 @@ struct Node final {
 struct Tetrahedron final {
   int id{};
   std::array<int, 4> node_ids{};
+};
+
+struct SurfaceTriangle final {
+  int id{};
+  std::array<int, 3> node_ids{};
+};
+
+struct SurfaceGroup final {
+  std::string name;
+  std::vector<SurfaceTriangle> triangles;
+  std::vector<int> node_ids;
+  double area_m2{};
+  std::array<double, 3> centroid_m{};
+  std::array<double, 3> representative_normal{};
+  bool representative_normal_defined{};
+};
+
+struct MeshDiagnostics final {
+  std::size_t connected_components{};
+  double minimum_mean_ratio{};
+  double maximum_mean_ratio{};
 };
 
 struct NodalForce final {

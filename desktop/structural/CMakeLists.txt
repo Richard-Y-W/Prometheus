@@ -2,6 +2,7 @@ add_library(prometheus_structural STATIC
   src/calculix_deck.cpp
   src/calculix_result.cpp
   src/gmsh_mesh.cpp
+  src/mesh_validation.cpp
   src/structural_request.cpp
 )
 target_compile_features(prometheus_structural PUBLIC cxx_std_20)

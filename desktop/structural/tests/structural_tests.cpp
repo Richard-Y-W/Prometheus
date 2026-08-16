@@ -1,13 +1,16 @@
 #include "prometheus/structural/calculix_deck.hpp"
 #include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
+#include "prometheus/structural/mesh_validation.hpp"
 #include "prometheus/structural/structural_request.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 namespace ps = prometheus::structural;
 
@@ -18,6 +21,19 @@ namespace ps = prometheus::structural;
 
 void require(const bool condition, const char *message) {
   if (!condition) fail(message);
+}
+
+void requireThrowsContaining(const std::function<void()> &operation,
+                             const std::string &expected,
+                             const char *message) {
+  try {
+    operation();
+  } catch (const std::exception &error) {
+    require(std::string(error.what()).find(expected) != std::string::npos,
+            message);
+    return;
+  }
+  fail(message);
 }
 
 ps::StructuralRequest validRequest() {
@@ -196,19 +212,115 @@ int main() {
 1, 0, 0, 0
 2, 10, 0, 0
 3, 0, 10, 0
-*ELEMENT, type=CPS3, ELSET=Surface1
-8, 1, 2, 3
+*ELEMENT, type=CPS3, ELSET=FixedFaces
+5, 1, 3, 2
+6, 1, 2, 4
+7, 1, 4, 3
+*ELEMENT, type=CPS3, ELSET=LoadedFace
+8, 2, 3, 4
 *ELEMENT, type=C3D4, ELSET=Volume1
 9, 1, 2, 3, 4
 )";
   const auto mesh = ps::parse_gmsh_abaqus_mesh(rawMesh, 0.001);
   require(mesh.nodes.size() == 4 && mesh.elements.size() == 1 &&
               mesh.nodes.front().position_m[2] == 0.01,
-          "Gmsh mesh parser retains only C3D4 and converts mm to m explicitly");
+          "Gmsh mesh parser retains C3D4 and converts mm to m explicitly");
+  require(mesh.surface_groups.size() == 2,
+          "Gmsh surface ELSETs remain selectable");
+  const auto loaded = std::ranges::find(mesh.surface_groups,
+                                        std::string("LoadedFace"),
+                                        &ps::SurfaceGroup::name);
+  require(loaded != mesh.surface_groups.end() && loaded->area_m2 > 0.0 &&
+              loaded->node_ids == std::vector<int>({2, 3, 4}) &&
+              loaded->representative_normal_defined,
+          "surface groups expose measured SI geometry");
+  require(mesh.diagnostics.connected_components == 1 &&
+              mesh.diagnostics.minimum_mean_ratio > 0.0 &&
+              mesh.diagnostics.maximum_mean_ratio <= 1.0,
+          "mesh diagnostics expose connectivity and tetra quality");
   try {
     (void)ps::parse_gmsh_abaqus_mesh(rawMesh, 0.0);
     fail("invalid mesh scale was accepted");
   } catch (const std::invalid_argument &) {
   }
+
+  const std::vector<ps::Node> directNodes{
+      {1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
+      {3, {0.0, 1.0, 0.0}}, {4, {0.0, 0.0, 1.0}}};
+  const std::vector<ps::SurfaceGroup> completeBoundary{{
+      .name = "boundary",
+      .triangles = {{1, {1, 3, 2}}, {2, {1, 2, 4}},
+                    {3, {1, 4, 3}}, {4, {2, 3, 4}}},
+  }};
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            directNodes, {{1, {1, 3, 2, 4}}}, completeBoundary);
+      },
+      "inverted tetrahedron", "inverted tetrahedra are rejected");
+
+  std::vector<ps::Node> disconnectedNodes = directNodes;
+  disconnectedNodes.insert(disconnectedNodes.end(),
+                           {{5, {10.0, 0.0, 0.0}},
+                            {6, {11.0, 0.0, 0.0}},
+                            {7, {10.0, 1.0, 0.0}},
+                            {8, {10.0, 0.0, 1.0}}});
+  auto disconnectedBoundary = completeBoundary;
+  disconnectedBoundary.front().triangles.insert(
+      disconnectedBoundary.front().triangles.end(),
+      {{5, {5, 7, 6}}, {6, {5, 6, 8}}, {7, {5, 8, 7}},
+       {8, {6, 7, 8}}});
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            disconnectedNodes, {{1, {1, 2, 3, 4}}, {2, {5, 6, 7, 8}}},
+            disconnectedBoundary);
+      },
+      "face-connected volume component",
+      "face-disconnected tetrahedral regions are rejected");
+
+  auto missingBoundary = completeBoundary;
+  missingBoundary.front().triangles.pop_back();
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            directNodes, {{1, {1, 2, 3, 4}}}, missingBoundary);
+      },
+      "not completely represented",
+      "missing boundary triangles are rejected");
+
+  auto duplicateBoundary = completeBoundary;
+  duplicateBoundary.front().triangles.push_back({5, {2, 4, 3}});
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            directNodes, {{1, {1, 2, 3, 4}}}, duplicateBoundary);
+      },
+      "more than once",
+      "duplicate boundary triangles cannot appear in surface groups");
+
+  auto nonBoundary = completeBoundary;
+  nonBoundary.front().triangles.front().node_ids = {1, 2, 2};
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            directNodes, {{1, {1, 2, 3, 4}}}, nonBoundary);
+      },
+      "three distinct nodes", "invalid surface triangles are rejected");
+
+  auto joinedNodes = directNodes;
+  joinedNodes.push_back({5, {0.0, 0.0, -1.0}});
+  const std::vector<ps::SurfaceGroup> interiorFace{{
+      .name = "not-a-boundary",
+      .triangles = {{1, {1, 2, 3}}},
+  }};
+  requireThrowsContaining(
+      [&] {
+        (void)ps::validate_and_measure_mesh(
+            joinedNodes, {{1, {1, 2, 3, 4}}, {2, {1, 3, 2, 5}}},
+            interiorFace);
+      },
+      "not a volume boundary face",
+      "interior tetrahedral faces cannot become selectable surfaces");
   return 0;
 }

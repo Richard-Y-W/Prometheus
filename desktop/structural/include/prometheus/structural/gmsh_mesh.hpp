@@ -9,6 +9,8 @@ namespace prometheus::structural {
 struct VolumeMesh final {
   std::vector<Node> nodes;
   std::vector<Tetrahedron> elements;
+  std::vector<SurfaceGroup> surface_groups;
+  MeshDiagnostics diagnostics;
 };
 
 [[nodiscard]] VolumeMesh parse_gmsh_abaqus_mesh(
