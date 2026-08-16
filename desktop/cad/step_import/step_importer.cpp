@@ -45,7 +45,6 @@ bool read_file_without_automatic_healing(STEPCAFControl_Reader& reader,const std
   return true;
 }
 struct LeafShape { std::string id;TopoDS_Shape shape;Bnd_Box bounds; };
-void apply_placements(std::vector<LeafShape>& leaves,const std::vector<PartPlacement>& placements){constexpr double pi=3.14159265358979323846;for(auto& leaf:leaves){const auto placement=std::find_if(placements.begin(),placements.end(),[&](const auto& value){return value.persistent_id==leaf.id;});if(placement==placements.end())continue;Standard_Real x1,y1,z1,x2,y2,z2;leaf.bounds.Get(x1,y1,z1,x2,y2,z2);const gp_Pnt center((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);for(const auto [angle,axis]:{std::pair{placement->rotation_x_deg,gp_Dir(1,0,0)},std::pair{placement->rotation_y_deg,gp_Dir(0,1,0)},std::pair{placement->rotation_z_deg,gp_Dir(0,0,1)}}){if(angle==0)continue;gp_Trsf rotation;rotation.SetRotation(gp_Ax1(center,axis),angle*pi/180.0);leaf.shape=BRepBuilderAPI_Transform(leaf.shape,rotation,true).Shape();}gp_Trsf translation;translation.SetTranslation(gp_Vec(placement->translation_x_m*1000,placement->translation_y_m*1000,placement->translation_z_m*1000));leaf.shape=BRepBuilderAPI_Transform(leaf.shape,translation,true).Shape();leaf.bounds.SetVoid();BRepBndLib::Add(leaf.shape,leaf.bounds);}}
 std::string label_id(const TDF_Label& label) { TCollection_AsciiString id; TDF_Tool::Entry(label,id); return id.ToCString(); }
 std::string label_name(const TDF_Label& label,const std::string& fallback) {
   Handle(TDataStd_Name) attr;
@@ -99,15 +98,46 @@ bool finite_mesh_bounds(const DisplayMesh& mesh,BoundingBox& bounds) {
 }
 bool broad_phase_bounds(const BoundingBox& metres,double deflection_m,Bnd_Box& box) {
   if(!ordered_finite(metres)||!std::isfinite(deflection_m))return false;
+  const std::array<double,6> millimetres{metres.min_x*1000.0,metres.min_y*1000.0,metres.min_z*1000.0,
+                                        metres.max_x*1000.0,metres.max_y*1000.0,metres.max_z*1000.0};
+  const double enlargement_mm=std::max(0.0,deflection_m)*1000.0;
+  if(!std::ranges::all_of(millimetres,[](const double value){return std::isfinite(value);})||!std::isfinite(enlargement_mm))return false;
   box.SetVoid();
-  box.Update(metres.min_x*1000.0,metres.min_y*1000.0,metres.min_z*1000.0,
-             metres.max_x*1000.0,metres.max_y*1000.0,metres.max_z*1000.0);
-  box.Enlarge(std::max(0.0,deflection_m)*1000.0);
+  box.Update(millimetres[0],millimetres[1],millimetres[2],millimetres[3],millimetres[4],millimetres[5]);
+  box.Enlarge(enlargement_mm);
   return !box.IsVoid()&&!box.IsOpen();
 }
-bool add_bounds(const TopoDS_Shape& shape,Bnd_Box& box) {
+bool finite_shape_broad_phase(const TopoDS_Shape& shape,double deflection_m,Bnd_Box& box) {
   BoundingBox metres;
-  return closed_brep_bounds(shape,metres)&&broad_phase_bounds(metres,0.0,box);
+  if(!closed_brep_bounds(shape,metres)){
+    try{
+      const auto mesh=tessellate(shape,deflection_m*1000.0);
+      if(!finite_mesh_bounds(mesh,metres))return false;
+    }catch(const Standard_Failure&){return false;}
+  }
+  return broad_phase_bounds(metres,deflection_m,box);
+}
+bool finite_placement(const PartPlacement& placement) {
+  const std::array<double,6> values{placement.translation_x_m,placement.translation_y_m,placement.translation_z_m,
+                                    placement.rotation_x_deg,placement.rotation_y_deg,placement.rotation_z_deg};
+  return std::ranges::all_of(values,[](const double value){return std::isfinite(value);});
+}
+void validate_placements(const std::vector<PartPlacement>& placements) {
+  if(!std::ranges::all_of(placements,finite_placement))throw std::invalid_argument("placement values must be finite");
+}
+void apply_placements(std::vector<LeafShape>& leaves,const std::vector<PartPlacement>& placements) {
+  validate_placements(placements);
+  constexpr double pi=3.14159265358979323846;
+  constexpr double transformed_deflection_m=0.0005;
+  for(auto& leaf:leaves){
+    const auto placement=std::find_if(placements.begin(),placements.end(),[&](const auto& value){return value.persistent_id==leaf.id;});
+    if(placement==placements.end())continue;
+    Standard_Real x1,y1,z1,x2,y2,z2;leaf.bounds.Get(x1,y1,z1,x2,y2,z2);
+    const gp_Pnt center((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);
+    for(const auto [angle,axis]:{std::pair{placement->rotation_x_deg,gp_Dir(1,0,0)},std::pair{placement->rotation_y_deg,gp_Dir(0,1,0)},std::pair{placement->rotation_z_deg,gp_Dir(0,0,1)}}){if(angle==0)continue;gp_Trsf rotation;rotation.SetRotation(gp_Ax1(center,axis),angle*pi/180.0);leaf.shape=BRepBuilderAPI_Transform(leaf.shape,rotation,true).Shape();}
+    gp_Trsf translation;translation.SetTranslation(gp_Vec(placement->translation_x_m*1000,placement->translation_y_m*1000,placement->translation_z_m*1000));leaf.shape=BRepBuilderAPI_Transform(leaf.shape,translation,true).Shape();
+    if(!finite_shape_broad_phase(leaf.shape,transformed_deflection_m,leaf.bounds))throw std::runtime_error("transformed STEP shape could not be bounded");
+  }
 }
 bool populate_geometry(AssemblyNode& node,const TopoDS_Shape& shape,double deflection) {
   if(shape.IsNull())return false;
@@ -130,8 +160,8 @@ AssemblyNode read_node(const TDF_Label& label,const Handle(XCAFDoc_ShapeTool)& t
     std::vector<TopoDS_Shape> solids;for(TopExp_Explorer ex(shape,TopAbs_SOLID);ex.More();ex.Next())solids.push_back(ex.Current());
     if(solids.size()>1){
       node.mesh={};
-      for(std::size_t i=0;i<solids.size();++i){AssemblyNode detail;detail.persistent_id=node.persistent_id+"/solid/"+std::to_string(i+1);detail.name="Solid "+std::to_string(i+1);detail.transform=matrix(solids[i].Location());Bnd_Box bounds;if(populate_geometry(detail,solids[i],deflection)&&add_bounds(solids[i],bounds))leaves.push_back({detail.persistent_id,solids[i],bounds});else ++skipped_geometry;node.children.push_back(std::move(detail));}
-    }else{Bnd_Box bounds;if(node_geometry_ok&&add_bounds(shape,bounds))leaves.push_back({node.persistent_id,shape,bounds});}
+      for(std::size_t i=0;i<solids.size();++i){AssemblyNode detail;detail.persistent_id=node.persistent_id+"/solid/"+std::to_string(i+1);detail.name="Solid "+std::to_string(i+1);detail.transform=matrix(solids[i].Location());Bnd_Box bounds;if(populate_geometry(detail,solids[i],deflection)&&broad_phase_bounds(detail.bounds,deflection,bounds))leaves.push_back({detail.persistent_id,solids[i],bounds});else ++skipped_geometry;node.children.push_back(std::move(detail));}
+    }else if(node_geometry_ok){Bnd_Box bounds;if(broad_phase_bounds(node.bounds,deflection,bounds))leaves.push_back({node.persistent_id,shape,bounds});else ++skipped_geometry;}
   }
   return node;
 }
@@ -156,10 +186,13 @@ std::vector<StaticInterference> StepImporter::static_interferences(const std::fi
 }
 
 std::vector<SweepInterference> StepImporter::sweep_revolute(const std::filesystem::path& path,const std::string& moving_id,const std::string& excluded_id,const std::array<double,3>& pivot_m,const std::array<double,3>& axis,double minimum_deg,double maximum_deg,int samples,const std::vector<PartPlacement>& placements)const{
-  if(samples<2||maximum_deg<minimum_deg)throw std::invalid_argument("invalid joint sweep range");
+  const std::array<double,8> sweep_values{pivot_m[0],pivot_m[1],pivot_m[2],axis[0],axis[1],axis[2],minimum_deg,maximum_deg};
+  const double axis_magnitude_squared=axis[0]*axis[0]+axis[1]*axis[1]+axis[2]*axis[2];
+  if(samples<2||maximum_deg<minimum_deg||!std::ranges::all_of(sweep_values,[](const double value){return std::isfinite(value);})||!std::isfinite(axis_magnitude_squared)||axis_magnitude_squared<=0)throw std::invalid_argument("invalid joint sweep range");
+  validate_placements(placements);
   STEPCAFControl_Reader reader;reader.SetNameMode(true);if(!read_file_without_automatic_healing(reader,path))throw std::runtime_error("STEP parser rejected the file");Handle(TDocStd_Document) doc;XCAFApp_Application::GetApplication()->NewDocument("BinXCAF",doc);if(!reader.Transfer(doc))throw std::runtime_error("STEP transfer failed");const auto tool=XCAFDoc_DocumentTool::ShapeTool(doc->Main());TDF_LabelSequence roots;tool->GetFreeShapes(roots);std::vector<LeafShape> leaves;int skipped_geometry=0;for(Standard_Integer i=1;i<=roots.Length();++i)(void)read_node(roots.Value(i),tool,0.0005,leaves,skipped_geometry);apply_placements(leaves,placements);
   const auto moving=std::find_if(leaves.begin(),leaves.end(),[&](const auto& leaf){return leaf.id==moving_id;});if(moving==leaves.end())throw std::invalid_argument("moving joint entity not found");const gp_Dir direction(axis[0],axis[1],axis[2]);const gp_Ax1 rotation_axis(gp_Pnt(pivot_m[0]*1000,pivot_m[1]*1000,pivot_m[2]*1000),direction);std::map<std::string,SweepInterference> hits;constexpr double pi=3.14159265358979323846;
-  for(int sample=0;sample<samples;++sample){const double angle=minimum_deg+(maximum_deg-minimum_deg)*sample/(samples-1.0);gp_Trsf rotation;rotation.SetRotation(rotation_axis,angle*pi/180.0);const auto moved=BRepBuilderAPI_Transform(moving->shape,rotation,true).Shape();Bnd_Box moved_bounds;BRepBndLib::Add(moved,moved_bounds);for(const auto& other:leaves){if(other.id==moving_id||other.id==excluded_id||moved_bounds.IsOut(other.bounds))continue;BRepAlgoAPI_Common common(moved,other.shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume<=1e-12)continue;auto [it,inserted]=hits.try_emplace(other.id,SweepInterference{moving_id,other.id,angle,volume,samples});if(!inserted)it->second.maximum_volume_m3=std::max(it->second.maximum_volume_m3,volume);}}
+  for(int sample=0;sample<samples;++sample){const double angle=minimum_deg+(maximum_deg-minimum_deg)*sample/(samples-1.0);gp_Trsf rotation;rotation.SetRotation(rotation_axis,angle*pi/180.0);const auto moved=BRepBuilderAPI_Transform(moving->shape,rotation,true).Shape();Bnd_Box moved_bounds;if(!finite_shape_broad_phase(moved,0.0005,moved_bounds))throw std::runtime_error("swept STEP shape could not be bounded");for(const auto& other:leaves){if(other.id==moving_id||other.id==excluded_id||moved_bounds.IsOut(other.bounds))continue;BRepAlgoAPI_Common common(moved,other.shape);common.Build();if(!common.IsDone()||common.Shape().IsNull())continue;GProp_GProps props;BRepGProp::VolumeProperties(common.Shape(),props);const double volume=props.Mass()/1e9;if(volume<=1e-12)continue;auto [it,inserted]=hits.try_emplace(other.id,SweepInterference{moving_id,other.id,angle,volume,samples});if(!inserted)it->second.maximum_volume_m3=std::max(it->second.maximum_volume_m3,volume);}}
   std::vector<SweepInterference> result;for(auto& [id,hit]:hits)result.push_back(std::move(hit));return result;
 }
 }
