@@ -227,7 +227,7 @@ The initial research values are candidates, not yet approved inputs:
 | Candidate | Elastic data | Applicability limit |
 | --- | --- | --- |
 | Kaiser 2024 T4/T351 sheet, coil, and plate | Typical `E = 73.1 GPa` | Producer-typical data; it does not identify YUBI stock or temper. |
-| MIL-HDBK-5J bare 2024 sheet/plate, thickness at least 0.250 in | `E_t = 10.7 Msi` (`73.8 GPa`), `nu = 0.33` | Public canceled handbook data; product form, thickness, direction, and basis must match. |
+| MIL-HDBK-5J bare 2024 sheet/plate, all tempers, thickness at least 0.250 in | tensile modulus `E = 10.7 Msi` (`73.8 GPa`), `nu = 0.33` | Public canceled handbook data; product form, temper, thickness, and basis must match. Table 3.2.3.0(d) does not state a material direction for `E`. |
 | Toyota YUBI BOM | No elastic values | Establishes only `A2024`; temper and product form are absent. |
 
 Source records:

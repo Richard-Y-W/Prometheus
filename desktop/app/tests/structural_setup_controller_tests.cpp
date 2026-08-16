@@ -35,6 +35,11 @@ QString fixture(const QString &name) {
          "/fixtures/structural/ui/" + name;
 }
 
+QString evidenceFixture(const QString &name) {
+  return QStringLiteral(PROMETHEUS_REPOSITORY_ROOT) +
+         "/fixtures/evidence/" + name;
+}
+
 bool hasBlocker(const StructuralSetupController &controller,
                 const QString &code) {
   for (const auto &value : controller.blockingIssues())
@@ -48,6 +53,16 @@ QVariantMap group(const StructuralSetupController &controller,
   for (const auto &value : controller.surfaceGroups()) {
     const auto candidate = value.toMap();
     if (candidate.value("name").toString() == name)
+      return candidate;
+  }
+  return {};
+}
+
+QVariantMap materialCandidate(const StructuralSetupController &controller,
+                              const QString &candidateId) {
+  for (const auto &value : controller.materialCandidates()) {
+    const auto candidate = value.toMap();
+    if (candidate.value("candidate_id").toString() == candidateId)
       return candidate;
   }
   return {};
@@ -151,6 +166,76 @@ void candidateLoadAndTamperChecks() {
               temporary.path() + "/traversal.candidate.json")) &&
               hasBlocker(traversal, "candidate_path_rejected"),
           "candidate artifact traversal cannot escape the manifest directory");
+}
+
+void materialCandidateEvidenceChecks() {
+  StructuralSetupController controller;
+  require(controller.loadCandidate(
+              QUrl::fromLocalFile(fixture("two-group-tetra.candidate.json"))),
+          "material evidence check has a verified mesh candidate");
+  require(controller.loadMaterialEvidence(QUrl::fromLocalFile(evidenceFixture(
+              "aluminum-2024-candidates-v1.json"))),
+          "bounded 2024 aluminum evidence loads");
+  require(controller.materialCandidates().size() == 3,
+          "material evidence exposes three distinct claims");
+
+  const auto toyota = materialCandidate(
+      controller, "toyota-yubi-bom-a2024-designation");
+  require(toyota.value("designation").toString() == "A2024" &&
+              toyota.contains("temper") && toyota.value("temper").isNull() &&
+              toyota.contains("product_form") &&
+              toyota.value("product_form").isNull() &&
+              toyota.contains("youngs_modulus_pa") &&
+              toyota.value("youngs_modulus_pa").isNull() &&
+              toyota.contains("poisson_ratio") &&
+              toyota.value("poisson_ratio").isNull(),
+          "Toyota BOM evidence is designation-only");
+
+  const auto kaiser = materialCandidate(
+      controller, "kaiser-2024-t4-t351-sheet-coil-plate");
+  require(kaiser.value("property_basis").toString() ==
+                  "producer-typical" &&
+              std::abs(kaiser.value("youngs_modulus_pa").toDouble() -
+                       73.1e9) < 0.5,
+          "Kaiser candidate preserves its producer-typical modulus");
+
+  const auto handbook = materialCandidate(
+      controller, "mil-hdbk-5j-bare-2024-sheet-plate-ge-0p250in");
+  require(handbook.value("property_basis").toString() ==
+                  "canceled-handbook/reference-data" &&
+              handbook.value("temper").toString() == "T351" &&
+              handbook.value("source_temper_scope").toString() ==
+                  "all tempers" &&
+              handbook.value("product_form").toString() == "bare plate" &&
+              handbook.value("thickness_applicability").toString() ==
+                  ">= 0.250 in" &&
+              handbook.value("youngs_modulus_source_value").toDouble() ==
+                  10.7 &&
+              handbook.value("youngs_modulus_source_unit").toString() ==
+                  "10^3 ksi (Msi)" &&
+              std::abs(handbook.value("youngs_modulus_pa").toDouble() -
+                       73.7739030369e9) < 0.5 &&
+              handbook.value("poisson_ratio").toDouble() == 0.33,
+          "handbook candidate preserves value, derivation, and applicability");
+
+  for (const auto &value : controller.materialCandidates()) {
+    const auto candidate = value.toMap();
+    require(!candidate.contains("yield_strength_pa") &&
+                !candidate.contains("allowable_stress_pa") &&
+                !candidate.contains("von_mises_limit_pa"),
+            "material evidence cannot supply an implicit stress requirement");
+  }
+
+  controller.selectMaterialCandidate(
+      "kaiser-2024-t4-t351-sheet-coil-plate", "");
+  require(!controller.readyToExport() &&
+              hasBlocker(controller, "material_applicability_unreviewed"),
+          "Kaiser numeric candidate remains blocked without applicability");
+  controller.selectMaterialCandidate(
+      "mil-hdbk-5j-bare-2024-sheet-plate-ge-0p250in", "");
+  require(!controller.readyToExport() &&
+              hasBlocker(controller, "material_applicability_unreviewed"),
+          "handbook numeric candidate remains blocked without applicability");
 }
 
 void reviewCompilationAndExport() {
@@ -294,6 +379,7 @@ void reviewCompilationAndExport() {
 int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   candidateLoadAndTamperChecks();
+  materialCandidateEvidenceChecks();
   reviewCompilationAndExport();
   return 0;
 }

@@ -1,0 +1,98 @@
+{
+  "$schema": "urn:prometheus:material-candidate-evidence:0.1.0",
+  "candidates": [
+    {
+      "candidate_id": "toyota-yubi-bom-a2024-designation",
+      "designation": "A2024",
+      "limitation": "The YUBI BOM identifies only an alloy designation. It does not identify temper, product form, thickness, elastic constants, strength allowables, heat lot, or the supplied bracket material certificate.",
+      "poisson_ratio": null,
+      "product_form": null,
+      "property_basis": "project-BOM/designation-only",
+      "source_id": "toyota-yubi-bom-pinned",
+      "source_locator": "CSV physical line 37; BOM item 34 BRACKET_GRIPPER; MATERIAL column",
+      "temper": null,
+      "thickness_applicability": null,
+      "youngs_modulus_pa": null,
+      "youngs_modulus_source_unit": null,
+      "youngs_modulus_source_value": null
+    },
+    {
+      "candidate_id": "kaiser-2024-t4-t351-sheet-coil-plate",
+      "designation": "2024 aluminum",
+      "limitation": "Producer-typical data for the datasheet scope. The source does not identify the YUBI bracket, its delivered temper or form, its thickness, or a Poisson ratio.",
+      "poisson_ratio": null,
+      "product_form": "sheet, coil, or plate",
+      "property_basis": "producer-typical",
+      "source_id": "kaiser-2024-sheet-coil-plate-rev-05-06",
+      "source_locator": "page 1 of 2, Typical Mechanical Properties table, T4/T351 row, Modulus of Elasticity columns",
+      "temper": "T4/T351",
+      "thickness_applicability": null,
+      "youngs_modulus_pa": 73100000000,
+      "youngs_modulus_source_unit": "GPa",
+      "youngs_modulus_source_value": 73.1
+    },
+    {
+      "candidate_id": "mil-hdbk-5j-bare-2024-sheet-plate-ge-0p250in",
+      "designation": "2024 aluminum",
+      "direction_applicability": null,
+      "limitation": "Reference data from a canceled handbook. The modulus table covers bare 2024 sheet and plate, all tempers, at the stated thickness; the candidate narrows that scope to T351 plate. Neither table identifies the YUBI bracket or its delivered material. Table 3.2.3.0(d) labels E as tensile modulus and does not state a material direction.",
+      "poisson_ratio": 0.33,
+      "product_form": "bare plate",
+      "property_basis": "canceled-handbook/reference-data",
+      "source_id": "mil-hdbk-5j-revision-j",
+      "source_locator": "Table 3.2.3.0(d), printed page 3-74 (PDF page 376), supported by T351 plate scope in Table 3.2.3.0(b1), printed page 3-71",
+      "source_temper_scope": "all tempers",
+      "temper": "T351",
+      "thickness_applicability": ">= 0.250 in",
+      "youngs_modulus_derivation": "10.7 * 1000000 psi * 6894.757293168 Pa/psi = 73773903036.8976 Pa; stored rounded to 0.1 Pa",
+      "youngs_modulus_display": "73.8 GPa",
+      "youngs_modulus_pa": 73773903036.9,
+      "youngs_modulus_source_unit": "10^3 ksi (Msi)",
+      "youngs_modulus_source_value": 10.7
+    }
+  ],
+  "sources": [
+    {
+      "artifact_path": "docs/BOM/YUBI Gripper_DYNAMIXEL_BOM.csv",
+      "artifact_sha256": "sha256:a16691d0f83c5dac275fd89f0336842f131f4ea441a12004bd08cb0977e28562",
+      "artifact_sha256_basis": "Exact LF bytes of the Git blob at the pinned commit",
+      "git_blob_id": "18ce2e51d939f298f359569a30a398e551d9652e",
+      "publisher": "Toyota Motor Corporation yubi-hw repository",
+      "source_commit": "e8334ff04945ccf56c0576a56f6fab74b63daaa2",
+      "source_id": "toyota-yubi-bom-pinned",
+      "title": "YUBI Gripper_DYNAMIXEL_BOM.csv",
+      "trial_checkout_sha256": "sha256:5251dad9b3f3c3deb26aeb0d7b887c6418c90593389f95b12df73ab694c7922b",
+      "trial_checkout_sha256_basis": "CRLF working-tree representation previously pinned by the Windows-first trial",
+      "url": "https://raw.githubusercontent.com/Toyota/yubi-hw/e8334ff04945ccf56c0576a56f6fab74b63daaa2/docs/BOM/YUBI%20Gripper_DYNAMIXEL_BOM.csv"
+    },
+    {
+      "document_revision": "Rev. 05/06",
+      "publisher": "Kaiser Aluminum",
+      "source_id": "kaiser-2024-sheet-coil-plate-rev-05-06",
+      "title": "Sheet Coil & Plate Alloy 2024: Technical Data",
+      "url": "https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1012/Kaiser_Aluminum_2024_Sheet_Coil_and_Plate.pdf"
+    },
+    {
+      "cancellation_date": "2006-03-24",
+      "document_date": "2003-01-31",
+      "document_revision": "J",
+      "official_record_url": "https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=53876",
+      "publisher": "United States Department of Defense",
+      "retrieval_artifact_sha256": "sha256:c581072c5638c97e0e2cc1ce7d17cb04886478a9890cbac63ced7b6c9c0789e7",
+      "retrieval_url": "https://www.abbottaerospace.com/downloads/mil-hdbk-5j-metallic-materials-and-elements-for-aerospace-vehicle-structures/",
+      "source_id": "mil-hdbk-5j-revision-j",
+      "status": "canceled; Notice 2 identifies MMPDS as replacement information",
+      "title": "MIL-HDBK-5J, Metallic Materials and Elements for Aerospace Vehicle Structures"
+    },
+    {
+      "conversion_factor": "1 psi = 6894.757293168 Pa",
+      "derivation": "4.4482216152605 N/lbf divided by (0.0254 m/in)^2",
+      "exact_force_basis_url": "https://www.nist.gov/pml/special-publication-811/nist-guide-si-footnotes",
+      "high_precision_check_url": "https://pages.nist.gov/fipy/en/4.0/generated/fipy.tools.dimensions.physicalField.html",
+      "publisher": "National Institute of Standards and Technology",
+      "source_id": "nist-sp-811-pressure-conversion",
+      "title": "NIST Guide to the SI, Appendix B.9: Factors for units listed by kind of quantity or field of science",
+      "url": "https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b9"
+    }
+  ]
+}

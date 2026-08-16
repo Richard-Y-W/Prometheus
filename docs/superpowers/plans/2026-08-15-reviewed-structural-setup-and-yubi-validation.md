@@ -345,9 +345,11 @@ publisher, table/page locator, units, property basis, temper, product form,
 thickness applicability, and limitation text. Record:
 
 - Kaiser typical modulus `73.1 GPa` for its stated 2024 T4/T351 product scope;
-- MIL-HDBK-5J 2024-T351 plate transverse modulus `10.7 Msi`, converted using
-  exact pounds-force/inch² to `73.7739030369 GPa` and displayed as `73.8 GPa`,
-  with Poisson ratio `0.33`;
+- MIL-HDBK-5J tensile modulus `E = 10.7 Msi` and Poisson ratio `0.33` for
+  bare 2024 sheet/plate, all tempers, at thickness `>= 0.250 in`, narrowed by
+  the candidate to T351 plate, converted using exact pounds-force/inch² to
+  `73.7739030369 GPa` and displayed as `73.8 GPa`; the table does not label
+  this value as transverse;
 - Toyota only as `A2024`, with unresolved temper and product form.
 
 Do not add yield strength as a default requirement. In the evidence document,
