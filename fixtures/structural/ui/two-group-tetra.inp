@@ -1,0 +1,15 @@
+*HEADING
+Synthetic two-group tetrahedron; coordinates are millimetres
+*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+*ELEMENT, TYPE=CPS3, ELSET=FixedFaces
+1, 1, 3, 2
+*ELEMENT, TYPE=CPS3, ELSET=LoadedFaces
+2, 1, 2, 4
+3, 1, 4, 3
+4, 2, 3, 4
+*ELEMENT, TYPE=C3D4, ELSET=Volume
+5, 1, 2, 3, 4

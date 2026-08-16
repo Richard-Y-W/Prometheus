@@ -4,12 +4,16 @@ add_library(prometheus_structural STATIC
   src/gmsh_mesh.cpp
   src/mesh_validation.cpp
   src/smoke_case.cpp
+  src/structural_case.cpp
   src/structural_request.cpp
   src/surface_setup.cpp
 )
 target_compile_features(prometheus_structural PUBLIC cxx_std_20)
 target_include_directories(prometheus_structural PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_include_directories(prometheus_structural PRIVATE
+  ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
 )
 target_link_libraries(prometheus_structural PRIVATE prometheus_integrity)
 if(MSVC)

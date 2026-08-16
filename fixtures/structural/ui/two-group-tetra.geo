@@ -1,0 +1,24 @@
+// Synthetic 10 mm tetrahedron for structural setup UI verification.
+Point(1) = {0, 0, 0, 10};
+Point(2) = {10, 0, 0, 10};
+Point(3) = {0, 10, 0, 10};
+Point(4) = {0, 0, 10, 10};
+Line(1) = {1, 2};
+Line(2) = {2, 3};
+Line(3) = {3, 1};
+Line(4) = {1, 4};
+Line(5) = {2, 4};
+Line(6) = {3, 4};
+Curve Loop(1) = {3, 1, 2};
+Plane Surface(1) = {1};
+Curve Loop(2) = {1, 5, -4};
+Plane Surface(2) = {2};
+Curve Loop(3) = {4, -6, 3};
+Plane Surface(3) = {3};
+Curve Loop(4) = {2, 6, -5};
+Plane Surface(4) = {4};
+Surface Loop(1) = {1, 2, 3, 4};
+Volume(1) = {1};
+Physical Surface("FixedFaces") = {1};
+Physical Surface("LoadedFaces") = {2, 3, 4};
+Physical Volume("Volume") = {1};

@@ -79,6 +79,7 @@ struct StructuralRequest final {
   std::string displacement_limit_basis;
   std::string von_mises_limit_basis;
   bool mesh_reviewed{};
+  double mesh_coordinate_scale_to_m{1.0};
 };
 
 struct ValidationIssue final {

@@ -115,6 +115,10 @@ validate_request(const StructuralRequest &request) {
   if (!finite(request.mesh_target_size_m) || request.mesh_target_size_m <= 0.0)
     issue(issues, "invalid_mesh_target_size",
           "Mesh target size must be finite and positive.");
+  if (!finite(request.mesh_coordinate_scale_to_m) ||
+      request.mesh_coordinate_scale_to_m <= 0.0)
+    issue(issues, "invalid_mesh_coordinate_scale",
+          "Source mesh coordinate scale to metres must be finite and positive.");
   if (!finite(request.minimum_mean_ratio_threshold) ||
       request.minimum_mean_ratio_threshold <= 0.0 ||
       request.minimum_mean_ratio_threshold > 1.0)

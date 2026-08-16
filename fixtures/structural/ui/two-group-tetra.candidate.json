@@ -1,0 +1,19 @@
+{
+  "$schema": "urn:prometheus:structural-candidate:0.1.0",
+  "analysis_id": "synthetic-two-group-tetra-ui-v1",
+  "component_name": "synthetic two-group tetrahedron",
+  "geometry": {
+    "path": "two-group-tetra.geo",
+    "sha256": "sha256:7dc1037366bd56045a9bc9489d3855ca0da178e8c8ff63d6aafb6f1d1604a3ec"
+  },
+  "material_evidence": {
+    "path": "two-group-tetra.material-evidence.json",
+    "sha256": "sha256:08c3b87fca7875c81a7ede9b2f6deb7e4d0f835a886f693eb58810ad54dba104"
+  },
+  "mesh": {
+    "coordinate_scale_to_m": 0.001,
+    "path": "two-group-tetra.inp",
+    "sha256": "sha256:d62c53613505b13223da558f665679e5dcffb1d9adce8413c0f7cbe6fc7a98cf",
+    "target_size_m": 0.01
+  }
+}

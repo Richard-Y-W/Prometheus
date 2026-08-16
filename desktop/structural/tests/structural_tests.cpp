@@ -2,6 +2,7 @@
 #include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/mesh_validation.hpp"
+#include "prometheus/structural/structural_case.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/surface_setup.hpp"
 
@@ -76,6 +77,7 @@ ps::StructuralRequest validRequest() {
       .displacement_limit_basis = "reviewed test displacement requirement",
       .von_mises_limit_basis = "reviewed test stress requirement",
       .mesh_reviewed = true,
+      .mesh_coordinate_scale_to_m = 0.001,
   };
 }
 
@@ -133,6 +135,63 @@ int main() {
               deck.find("*STATIC, SOLVER=SPOOLES") != std::string::npos &&
               deck.find("4, 3, -1.0000000000e+02") != std::string::npos,
           "deck pins the solver and contains bounded tetra and reviewed force");
+
+  const auto structuralCase = ps::build_structural_case(request);
+  const auto rebuiltCase = ps::build_structural_case(request);
+  require(structuralCase.bytes == rebuiltCase.bytes &&
+              structuralCase.object_hash == rebuiltCase.object_hash &&
+              structuralCase.object_hash.starts_with("sha256:"),
+          "reviewed structural case bytes and identity are deterministic");
+  const auto parsedCase = ps::parse_structural_case(structuralCase.bytes);
+  require(parsedCase.bytes == structuralCase.bytes &&
+              parsedCase.object_hash == structuralCase.object_hash &&
+              parsedCase.request.mesh_coordinate_scale_to_m == 0.001 &&
+              ps::generate_calculix_deck(parsedCase.request) == deck,
+          "canonical structural case retains mesh units and regenerates identical deck bytes");
+
+  const auto unknownCase = replaceOnce(
+      structuralCase.bytes, "{\"$schema\":", "{\"!\":0,\"$schema\":");
+  requireThrowsContaining(
+      [&] { (void)ps::parse_structural_case(unknownCase); }, "unknown",
+      "unknown structural case members are rejected");
+  const auto duplicateCase = replaceOnce(
+      structuralCase.bytes, "{\"$schema\":",
+      "{\"$schema\":\"duplicate\",\"$schema\":");
+  requireThrowsContaining(
+      [&] { (void)ps::parse_structural_case(duplicateCase); }, "duplicate",
+      "duplicate structural case members are rejected");
+  requireThrowsContaining(
+      [&] { (void)ps::parse_structural_case(structuralCase.bytes + "\n"); },
+      "canonical", "noncanonical stored structural case bytes are rejected");
+  auto missingCaseProvenance = request;
+  missingCaseProvenance.mesh_sha256.clear();
+  requireThrowsContaining(
+      [&] { (void)ps::build_structural_case(missingCaseProvenance); },
+      "invalid_mesh_identity",
+      "reviewed structural case requires exact mesh provenance");
+  missingCaseProvenance = request;
+  missingCaseProvenance.material_evidence_sha256.clear();
+  requireThrowsContaining(
+      [&] { (void)ps::build_structural_case(missingCaseProvenance); },
+      "invalid_material_evidence_identity",
+      "reviewed structural case requires exact material provenance");
+  auto oversizedCaseText = request;
+  oversizedCaseText.component_name = std::string(4097U, 'x');
+  requireThrowsContaining(
+      [&] { (void)ps::build_structural_case(oversizedCaseText); },
+      "text_too_long",
+      "case builder enforces the same text bound as its strict decoder");
+
+  auto widerThanDefaultIntegrityLimits = request;
+  widerThanDefaultIntegrityLimits.restraint_surface_groups.clear();
+  for (int index = 0; index < 10'001; ++index)
+    widerThanDefaultIntegrityLimits.restraint_surface_groups.push_back(
+        "SurfaceFixed" + std::to_string(index));
+  const auto wideCase =
+      ps::build_structural_case(widerThanDefaultIntegrityLimits);
+  require(ps::parse_structural_case(wideCase.bytes)
+                  .request.restraint_surface_groups.size() == 10'001U,
+          "case identity uses the structural contract limits");
 
   auto blocked = request;
   blocked.material_reviewed = false;
@@ -193,6 +252,12 @@ int main() {
   require(hasIssue(ps::validate_request(weakMesh),
                    "mesh_quality_below_limit"),
           "a mesh below its predeclared quality floor stays blocked");
+
+  auto invalidMeshScale = request;
+  invalidMeshScale.mesh_coordinate_scale_to_m = 0.0;
+  require(hasIssue(ps::validate_request(invalidMeshScale),
+                   "invalid_mesh_coordinate_scale"),
+          "a reviewed case cannot lose the source mesh unit scale");
 
   auto mismatchedResultant = request;
   mismatchedResultant.reviewed_force_magnitude_n = 101.0;

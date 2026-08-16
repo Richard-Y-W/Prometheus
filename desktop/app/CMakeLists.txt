@@ -1,8 +1,8 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp)
+add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_setup_controller.cpp structural_setup_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store)
+target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store prometheus_structural)
 qt_add_executable(prometheus_desktop main.cpp)
 set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 set_source_files_properties(../ui/ComponentPackagePanel.qml PROPERTIES QT_RESOURCE_ALIAS ComponentPackagePanel.qml)
@@ -57,6 +57,26 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_engineering_controller
     COMMAND prometheus_engineering_controller_tests
+  )
+
+  add_executable(prometheus_structural_setup_controller_tests
+    tests/structural_setup_controller_tests.cpp
+  )
+  target_compile_definitions(prometheus_structural_setup_controller_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
+  )
+  target_link_libraries(prometheus_structural_setup_controller_tests PRIVATE
+    Qt6::Gui
+    Qt6::Quick3D
+    prometheus_desktop_support
+    prometheus_structural
+  )
+  add_test(
+    NAME prometheus_structural_setup_controller
+    COMMAND prometheus_structural_setup_controller_tests
+  )
+  set_tests_properties(prometheus_structural_setup_controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   )
 
   add_executable(prometheus_review_payload_tests tests/review_payload_tests.cpp review_payload.cpp review_payload.hpp)

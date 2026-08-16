@@ -37,9 +37,9 @@ if(PROMETHEUS_ENABLE_OCCT)
 endif()
 if(PROMETHEUS_BUILD_DESKTOP)
   if(NOT PROMETHEUS_BUILD_RUN_STORE OR NOT PROMETHEUS_BUILD_EXECUTION OR
-     NOT PROMETHEUS_BUILD_REPLAY)
+     NOT PROMETHEUS_BUILD_REPLAY OR NOT PROMETHEUS_BUILD_STRUCTURAL)
     message(FATAL_ERROR
-      "Desktop execution requires execution, run-store, and replay support"
+      "Desktop requires execution, run-store, replay, and structural support"
     )
   endif()
   find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2 Quick3D Concurrent Network)

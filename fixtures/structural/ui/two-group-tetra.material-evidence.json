@@ -1,0 +1,20 @@
+{
+  "$schema": "urn:prometheus:material-candidate-evidence:0.1.0",
+  "candidates": [
+    {
+      "candidate_id": "synthetic-linear-elastic-v1",
+      "designation": "synthetic isotropic material",
+      "limitation": "UI and contract regression fixture only; not real material evidence.",
+      "poisson_ratio": 0.33,
+      "product_form": "analytic fixture",
+      "temper": "not applicable",
+      "youngs_modulus_pa": 70000000000
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "synthetic-fixture",
+      "title": "Prometheus synthetic structural UI fixture"
+    }
+  ]
+}
