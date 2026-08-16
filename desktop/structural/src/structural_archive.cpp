@@ -57,6 +57,33 @@ StructuralArchiveVerification failure(std::string code, std::string detail) {
   return {false, std::move(code), std::move(detail), std::nullopt, 0, 0};
 }
 
+std::optional<std::string> legacy_v1_binding_issue(
+    const StructuralRequest &request, const CalculixDat &result) {
+  std::set<int> expectedNodes;
+  for (const auto &node : request.nodes)
+    expectedNodes.insert(node.id);
+  std::set<int> actualNodes;
+  for (const auto &row : result.displacements)
+    if (!actualNodes.insert(row.node_id).second)
+      return "duplicate_displacement_node";
+  if (actualNodes != expectedNodes)
+    return "displacement_mesh_mismatch";
+
+  std::set<int> expectedElements;
+  for (const auto &element : request.elements)
+    expectedElements.insert(element.id);
+  std::set<int> actualElements;
+  std::set<std::pair<int, int>> integrationPoints;
+  for (const auto &row : result.stresses) {
+    actualElements.insert(row.element_id);
+    if (!integrationPoints.emplace(row.element_id, row.integration_point).second)
+      return "duplicate_stress_integration_point";
+  }
+  if (actualElements != expectedElements)
+    return "stress_mesh_mismatch";
+  return std::nullopt;
+}
+
 } // namespace
 
 StructuralArchive write_structural_archive(
@@ -169,13 +196,18 @@ StructuralArchiveVerification verify_structural_archive(
     }
     const auto parsed = parse_calculix_dat(read(directory /
         artifacts.at("dat").at("file").get<std::string>()));
+    const auto parsedMetrics = summarize_calculix_dat(parsed);
     const auto &metrics = root.at("metrics");
     if (!exact_keys(metrics, {"maximum_displacement_m", "maximum_von_mises_pa",
                               "displacement_rows", "stress_rows"}) ||
-        parsed.maximum_displacement_m != metrics.at("maximum_displacement_m").get<double>() ||
-        parsed.maximum_von_mises_pa != metrics.at("maximum_von_mises_pa").get<double>() ||
-        parsed.displacement_rows != metrics.at("displacement_rows").get<std::size_t>() ||
-        parsed.stress_rows != metrics.at("stress_rows").get<std::size_t>())
+        parsedMetrics.maximum_displacement_m !=
+            metrics.at("maximum_displacement_m").get<double>() ||
+        parsedMetrics.maximum_von_mises_pa !=
+            metrics.at("maximum_von_mises_pa").get<double>() ||
+        parsedMetrics.displacement_rows !=
+            metrics.at("displacement_rows").get<std::size_t>() ||
+        parsedMetrics.stress_rows !=
+            metrics.at("stress_rows").get<std::size_t>())
       return failure("replay_metric_mismatch", "raw DAT replay differs from archived metrics");
     const auto setupBytes = read(directory /
         artifacts.at("setup").at("file").get<std::string>());
@@ -210,10 +242,10 @@ StructuralArchiveVerification verify_structural_archive(
           return failure("setup_contract_invalid", "reviewed setup element identity is invalid");
         replayRequest.elements.push_back({id.get<int>(), {}});
       }
-      if (const auto binding = validate_calculix_result_binding(replayRequest, parsed);
-          !binding.empty())
+      if (const auto binding = legacy_v1_binding_issue(replayRequest, parsed);
+          binding.has_value())
         return failure("replay_mesh_binding_mismatch",
-                       binding.front().code + ": " + binding.front().message);
+                       *binding);
     }
     if (!requirements.at("displacement_limit_m").is_null())
       replayRequest.displacement_limit_m = requirements.at("displacement_limit_m").get<double>();
@@ -221,7 +253,7 @@ StructuralArchiveVerification verify_structural_archive(
       replayRequest.von_mises_limit_pa = requirements.at("von_mises_limit_pa").get<double>();
     SolverRunResult replayRun;
     replayRun.status = SolverRunStatus::completed;
-    replayRun.metrics = parsed;
+    replayRun.metrics = parsedMetrics;
     const auto replayEvaluation = compile_structural_findings(replayRequest, replayRun);
     if (replayEvaluation.declared_obligations !=
             root.at("coverage").at("declared_obligations").get<int>() ||
@@ -245,7 +277,7 @@ StructuralArchiveVerification verify_structural_archive(
         return failure("replay_finding_mismatch", "replayed finding bytes differ from archive");
     }
     return {true, "verified", "exact artifact identities and DAT replay verified",
-            parsed, coverage.at("declared_obligations").get<int>(),
+            parsedMetrics, coverage.at("declared_obligations").get<int>(),
             coverage.at("evaluated_obligations").get<int>()};
   } catch (const integrity::CanonicalJsonError &error) {
     return failure(error.code(), error.what());

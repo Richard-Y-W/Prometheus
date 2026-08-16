@@ -32,6 +32,21 @@ void require(const bool condition, const char *message) {
   if (!condition) fail(message);
 }
 
+std::string fixtureBytes(const fs::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  require(static_cast<bool>(input), "solver evidence fixture opens");
+  return {std::istreambuf_iterator<char>(input),
+          std::istreambuf_iterator<char>()};
+}
+
+std::string replaceOnce(std::string source, const std::string_view from,
+                        const std::string_view to) {
+  const auto position = source.find(from);
+  require(position != std::string::npos, "test replacement source exists");
+  source.replace(position, from.size(), to);
+  return source;
+}
+
 template <typename Function>
 void requireThrows(Function &&function, const std::string_view expected,
                    const char *message) {
@@ -91,6 +106,33 @@ bool hasIssue(const std::vector<ps::ValidationIssue> &issues,
   return std::ranges::any_of(issues, [&](const auto &value) {
     return value.code == code;
   });
+}
+
+bool hasResultIssue(const ps::CompiledCalculixResult &result,
+                    const std::string_view code) {
+  return std::ranges::any_of(result.issues, [&](const auto &value) {
+    return value.code == code;
+  });
+}
+
+ps::CalculixRunEvidence completeCalculixEvidence(
+    const ps::StructuralRequest &request, std::string statusBytes,
+    std::string dataBytes, std::string standardOutput,
+    std::string standardError) {
+  return {
+      .process_exit_code = 0,
+      .solver_executable_sha256 =
+          "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      .solver_version = "CalculiX Version 2.23",
+      .deck_bytes = ps::generate_calculix_deck(request),
+      .standard_output = std::move(standardOutput),
+      .standard_error = std::move(standardError),
+      .status_bytes = std::move(statusBytes),
+      .data_bytes = std::move(dataBytes),
+      .frd_sha256 =
+          "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      .frd_byte_length = 12U,
+  };
 }
 
 int main() {
@@ -171,33 +213,165 @@ int main() {
 
          1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00
 )";
-  const auto metrics = ps::parse_calculix_dat(rawDat);
-  require(metrics.displacement_rows == 2 && metrics.stress_rows == 1 &&
-              metrics.displacements.size() == 2 &&
-              metrics.displacements.back().node_id == 4 &&
-              metrics.stresses.size() == 1 && metrics.stresses.front().element_id == 1 &&
-              std::abs(metrics.maximum_displacement_m - 2.228571e-8) < 1e-15 &&
-              std::abs(metrics.maximum_von_mises_pa - 3428.571) < 1e-6,
-          "raw CalculiX displacement and stress rows compile to SI maxima");
-  auto resultRequest = request;
-  resultRequest.nodes = {request.nodes.front(), request.nodes.back()};
-  resultRequest.nodes[0].id = 1;
-  resultRequest.nodes[1].id = 4;
-  resultRequest.elements = {request.elements.front()};
-  resultRequest.elements.front().id = 1;
-  require(ps::validate_calculix_result_binding(resultRequest, metrics).empty(),
-          "solver field identities bind exactly to submitted node and element IDs");
-  auto incompleteMetrics = metrics;
-  incompleteMetrics.displacements.pop_back();
-  require(hasIssue(ps::validate_calculix_result_binding(resultRequest,
-                                                         incompleteMetrics),
-                   "displacement_mesh_mismatch"),
-          "incomplete solver field coverage fails closed");
+  const auto parsedRows = ps::parse_calculix_dat(rawDat);
+  require(parsedRows.displacements.size() == 2 &&
+              parsedRows.displacements.back().node_id == 4 &&
+              parsedRows.stresses.size() == 1 &&
+              parsedRows.stresses.front().element_id == 1,
+          "raw CalculiX parser retains typed row identities without judging coverage");
   try {
     (void)ps::parse_calculix_dat("solver stopped before result output\n");
-    fail("missing solver output became metrics");
+    fail("missing solver output became typed rows");
   } catch (const std::runtime_error &) {
   }
+
+  const auto solverFixtureRoot =
+      fs::path(PROMETHEUS_REPOSITORY_ROOT) /
+      "fixtures/structural/calculix-smoke/complete";
+  const auto completeEvidence = completeCalculixEvidence(
+      request,
+      fixtureBytes(solverFixtureRoot / "prometheus_tetra_smoke.sta"),
+      fixtureBytes(solverFixtureRoot / "prometheus_tetra_smoke.dat"),
+      fixtureBytes(solverFixtureRoot / "prometheus_tetra_smoke.stdout.txt"),
+      fixtureBytes(solverFixtureRoot / "prometheus_tetra_smoke.stderr.txt"));
+  const auto compiledResult =
+      ps::compile_calculix_result(request, completeEvidence);
+  require(compiledResult.complete() && compiledResult.metrics.has_value(),
+          "complete converged evidence produces metrics");
+  require(compiledResult.backend.executable_sha256 ==
+              "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "result binds the exact solver executable identity");
+  require(compiledResult.convergence.has_value() &&
+              compiledResult.convergence->total_time == 1.0,
+          "result binds the completed final step");
+  require(compiledResult.normalized.displacements.size() ==
+                  request.nodes.size() &&
+              compiledResult.normalized.stresses.size() ==
+                  request.elements.size(),
+          "result covers every submitted node and element identity exactly");
+  require(compiledResult.artifacts.deck.sha256.starts_with("sha256:") &&
+              compiledResult.artifacts.deck.byte_length ==
+                  completeEvidence.deck_bytes.size() &&
+              compiledResult.artifacts.frd.sha256 ==
+                  completeEvidence.frd_sha256 &&
+              compiledResult.identity.starts_with("sha256:"),
+          "compiled result records exact artifact lengths, hashes, and identity");
+
+  auto failedExit = completeEvidence;
+  failedExit.process_exit_code = 9;
+  require(hasResultIssue(ps::compile_calculix_result(request, failedExit),
+                         "solver_process_failed"),
+          "nonzero solver status remains indeterminate");
+  auto missingSolverIdentity = completeEvidence;
+  missingSolverIdentity.solver_executable_sha256.clear();
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingSolverIdentity),
+              "invalid_solver_identity"),
+          "missing solver executable identity remains indeterminate");
+  auto unsafeSolverVersion = completeEvidence;
+  unsafeSolverVersion.solver_version = "CalculiX 2.23\nforged";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unsafeSolverVersion),
+              "invalid_solver_version"),
+          "unsafe solver version evidence remains indeterminate");
+  auto missingCompletion = completeEvidence;
+  missingCompletion.standard_output = "CalculiX Version 2.23\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingCompletion),
+              "solver_completion_marker_missing"),
+          "missing completion marker remains indeterminate");
+  auto deceptiveCompletion = completeEvidence;
+  deceptiveCompletion.standard_output =
+      "No Job finished marker was emitted by the solver\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, deceptiveCompletion),
+              "solver_completion_marker_missing"),
+          "completion words embedded in another line do not count");
+  auto solverError = completeEvidence;
+  solverError.standard_error = "*ERROR in e_c3d: nonpositive jacobian\n";
+  require(hasResultIssue(ps::compile_calculix_result(request, solverError),
+                         "solver_reported_error"),
+          "solver error output cannot be hidden by a completion marker");
+  auto staleStep = completeEvidence;
+  staleStep.status_bytes = "1 1 1 1 0.5 0.5 0.5\n";
+  require(hasResultIssue(ps::compile_calculix_result(request, staleStep),
+                         "solver_step_incomplete"),
+          "incomplete final step remains indeterminate");
+  auto malformedStatus = completeEvidence;
+  malformedStatus.status_bytes = "1 1 1\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, malformedStatus),
+              "invalid_solver_status"),
+          "malformed convergence evidence remains indeterminate");
+  auto wrongDeck = completeEvidence;
+  wrongDeck.deck_bytes += "** changed after execution\n";
+  require(hasResultIssue(ps::compile_calculix_result(request, wrongDeck),
+                         "deck_request_mismatch"),
+          "raw output cannot detach from the reviewed deck");
+  auto invalidFrd = completeEvidence;
+  invalidFrd.frd_sha256 = "sha256:INVALID";
+  require(hasResultIssue(ps::compile_calculix_result(request, invalidFrd),
+                         "invalid_frd_identity"),
+          "FRD metadata requires an exact content identity");
+
+  auto missingNodeResult = completeEvidence;
+  missingNodeResult.data_bytes = replaceOnce(
+      missingNodeResult.data_bytes,
+      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n", "");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingNodeResult),
+              "missing_displacement_row"),
+          "missing displacement identities remain indeterminate");
+  auto duplicateNodeResult = completeEvidence;
+  duplicateNodeResult.data_bytes = replaceOnce(
+      duplicateNodeResult.data_bytes,
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
+      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n\n"
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, duplicateNodeResult),
+              "duplicate_displacement_row"),
+          "duplicate displacement identities remain indeterminate");
+  auto unexpectedNodeResult = completeEvidence;
+  unexpectedNodeResult.data_bytes = replaceOnce(
+      unexpectedNodeResult.data_bytes,
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
+      "        99  0.000000E+00  0.000000E+00  0.000000E+00\n\n"
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unexpectedNodeResult),
+              "unexpected_displacement_row"),
+          "foreign displacement identities remain indeterminate");
+  auto missingStressResult = completeEvidence;
+  missingStressResult.data_bytes = replaceOnce(
+      missingStressResult.data_bytes,
+      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n",
+      "");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingStressResult),
+              "missing_stress_row"),
+          "missing stress identities remain indeterminate");
+  auto duplicateStressResult = completeEvidence;
+  duplicateStressResult.data_bytes +=
+      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, duplicateStressResult),
+              "duplicate_stress_row"),
+          "duplicate stress identities remain indeterminate");
+  auto unexpectedStressResult = completeEvidence;
+  unexpectedStressResult.data_bytes +=
+      "        99   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unexpectedStressResult),
+              "unexpected_stress_row"),
+          "foreign stress identities remain indeterminate");
+  auto nonfiniteResult = completeEvidence;
+  nonfiniteResult.data_bytes = replaceOnce(
+      nonfiniteResult.data_bytes, "-2.228571E-08", "nan");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, nonfiniteResult),
+              "invalid_result_data"),
+          "non-finite result rows remain indeterminate");
 
   constexpr auto rawMesh = R"(*Heading
 *NODE
@@ -577,19 +751,22 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   const auto fixture = fs::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
   const auto runFixture = [&](const std::string &job,
                               const std::chrono::milliseconds timeout) {
-    std::ofstream(processRoot / (job + ".inp")) << "fixture input\n";
-    return ps::run_calculix({fixture, processRoot, job, timeout});
+    return ps::run_calculix({fixture, processRoot, job, timeout}, compiled);
   };
   const auto completed = runFixture("success", std::chrono::seconds(5));
   require(completed.status == ps::SolverRunStatus::completed &&
-              completed.exit_code == 0 && completed.metrics.has_value() &&
-              std::abs(completed.metrics->maximum_displacement_m - 2.0e-5) < 1e-15 &&
-              completed.standard_output.find("fixture stdout") != std::string::npos &&
+              completed.exit_code == 0 && completed.validated_result &&
+              completed.validated_result->complete() &&
+              std::abs(completed.validated_result->metrics
+                           ->maximum_displacement_m -
+                       2.0e-5) < 1e-15 &&
+              completed.standard_output.find("CalculiX Version 2.23") !=
+                  std::string::npos &&
               completed.standard_error.find("fixture stderr") != std::string::npos,
-          "isolated solver process captures streams and parses required raw outputs");
+          "isolated solver captures and compiles complete evidence exactly once");
   const auto staleOutputs = runFixture("success", std::chrono::seconds(5));
   require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
-              !staleOutputs.metrics,
+              !staleOutputs.validated_result,
           "pre-existing raw solver outputs cannot be reused as a new run");
   const auto withinLimits = ps::compile_structural_findings(request, completed);
   require(withinLimits.declared_obligations == 2 &&
@@ -611,13 +788,20 @@ Synthetic two-group tetrahedron; coordinates are millimetres
           "the same completed metrics produce known-fail violations at tighter limits");
   const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
   require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
-              nonzero.exit_code == 7 && !nonzero.metrics,
+              nonzero.exit_code == 7 && !nonzero.validated_result,
           "nonzero solver exit cannot become completed metrics");
   const auto missing = runFixture("missing", std::chrono::seconds(5));
-  require(missing.status == ps::SolverRunStatus::output_missing && !missing.metrics,
+  require(missing.status == ps::SolverRunStatus::output_missing &&
+              !missing.validated_result,
           "successful process without required raw files fails closed");
+  const auto invalid = runFixture("invalid", std::chrono::seconds(5));
+  require(invalid.status == ps::SolverRunStatus::result_invalid &&
+              invalid.validated_result &&
+              !invalid.validated_result->complete(),
+          "malformed solver result evidence remains inspectable and indeterminate");
   const auto timedOut = runFixture("timeout", std::chrono::milliseconds(30));
-  require(timedOut.status == ps::SolverRunStatus::timed_out && !timedOut.metrics,
+  require(timedOut.status == ps::SolverRunStatus::timed_out &&
+              !timedOut.validated_result,
           "solver timeout is terminated and classified without metrics");
   const auto indeterminate = ps::compile_structural_findings(request, timedOut);
   require(indeterminate.declared_obligations == 2 &&

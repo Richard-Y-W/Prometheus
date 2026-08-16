@@ -94,6 +94,7 @@ if(BUILD_TESTING)
     prometheus_structural
   )
   target_compile_definitions(prometheus_structural_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
   )
   add_dependencies(prometheus_structural_tests prometheus_structural_solver_fixture)
