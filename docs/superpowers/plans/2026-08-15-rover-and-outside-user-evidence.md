@@ -38,7 +38,7 @@
 - Modify: `desktop/app/project_intake.cpp`
 - Modify: `desktop/app/tests/project_intake_tests.cpp`
 
-- [ ] **Step 1: Write failing digest-contract tests**
+- [x] **Step 1: Write failing digest-contract tests**
 
 Create the same two-file tree under two different `QTemporaryDir` roots:
 
@@ -56,7 +56,7 @@ sha256:535ec79d19a301352ee1d10176bddd0e1080b4dea36241fc51daab29c34c296c
 Then assert that changing one byte or renaming one path changes the inventory
 identity. Extend `--scan-only` expectations to include `inventory_sha256`.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -68,7 +68,7 @@ ctest --test-dir out/build/desktop-no-occt-debug -R '^prometheus_project_intake$
 
 Expected: compilation fails because `inventory_sha256` is absent.
 
-- [ ] **Step 3: Implement the byte contract**
+- [x] **Step 3: Implement the byte contract**
 
 Add `QString inventory_sha256` to `ProjectIntakeResult` and expose it read-only
 on `ProjectIntakeController`. After artifact rows are sorted by relative path,
@@ -87,13 +87,13 @@ Do not include absolute root, timestamps, classification, duplicate flag, or
 elapsed time. If any artifact is unreadable or lacks a strict lowercase content
 digest, leave `inventory_sha256` empty so an expectation gate cannot pass.
 
-- [ ] **Step 4: Emit it from the production scanner CLI mode**
+- [x] **Step 4: Emit it from the production scanner CLI mode**
 
 Add `inventory_sha256` to the compact JSON written by
 `prometheus_project_intake_tests --scan-only`. Keep stdout JSON-only; write any
 diagnostic to stderr.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and commit**
 
 Run the focused test and:
 
@@ -112,7 +112,7 @@ git commit -m "Add deterministic project inventory identity"
 - Create: `fixtures/trials/project-intake-summary/actual-bad.json`
 - Modify: `desktop/app/CMakeLists.txt`
 
-- [ ] **Step 1: Add CTest cases before the assertion script exists**
+- [x] **Step 1: Add CTest cases before the assertion script exists**
 
 Add one passing test and one `WILL_FAIL` test that invoke:
 
@@ -124,7 +124,7 @@ cmake -DEXPECTED_JSON=<expected> -DACTUAL_JSON=<actual> \
 The bad fixture differs only in `ready_files`, proving a changed classification
 cannot pass merely because inventory bytes are unchanged.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Configure and run:
 
@@ -135,7 +135,7 @@ ctest --test-dir out/build/desktop-no-occt-debug -R '^prometheus_project_intake_
 
 Expected: tests fail because the assertion script is absent.
 
-- [ ] **Step 3: Implement strict field comparison**
+- [x] **Step 3: Implement strict field comparison**
 
 Use CMake `string(JSON ...)` to require integer or string values for exactly
 these asserted fields:
@@ -156,7 +156,7 @@ and `total_files = ready + not_evaluated + unsupported + unreadable`. Ignore
 only `root_path` and `elapsed_ms`. Missing, malformed, or mismatched data is a
 fatal error with the field name and both values.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 Run the two CTest cases and:
 
@@ -177,7 +177,7 @@ git commit -m "Add strict project intake summary assertion"
 - Modify: `desktop/app/CMakeLists.txt`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Write an offline preparation failure test**
+- [x] **Step 1: Write an offline preparation failure test**
 
 `JplRoverTrialFixture.cmake` creates a temporary local Git repository containing
 `LICENSE.txt`, `assembly.step`, and one ignored file, commits it, and invokes the
@@ -186,12 +186,12 @@ one with a deliberately wrong license SHA that must leave a pre-existing valid
 trial directory and sidecar byte-identical, and one with the correct
 revision/license that must prepare only `LICENSE.txt` and `assembly.step`.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run the new CTest cases. Expected: FAIL because `jpl-rover-trial.cmake` does not
 exist.
 
-- [ ] **Step 3: Implement safe, pinned preparation**
+- [x] **Step 3: Implement safe, pinned preparation**
 
 The driver resolves repository paths from `CMAKE_CURRENT_LIST_DIR`, pins
 revision `0c4a0d97ba09d028a9ca380ae8e6729ac4b8bef7`, and validates license
@@ -212,7 +212,7 @@ It must:
 Guard every recursive cleanup by first proving the target is a child of the
 repository's exact `out/trials` or `out/external-demo` directory.
 
-- [ ] **Step 4: Build and invoke the production scanner in verify mode**
+- [x] **Step 4: Build and invoke the production scanner in verify mode**
 
 Support `PROMETHEUS_JPL_MODE=prepare` and `verify`. In verify mode, default to
 `desktop-no-occt-debug` on macOS/Linux and `windows-release` on Windows, while
@@ -238,14 +238,14 @@ absolute roots produce the same strict scanner SHA. Then record that exact
 value in the expectation JSON; no wildcard or update-on-mismatch mode is
 allowed in normal verification.
 
-- [ ] **Step 5: Reduce PowerShell to thin wrappers**
+- [x] **Step 5: Reduce PowerShell to thin wrappers**
 
 `prepare-jpl-rover-trial.ps1` calls CMake in `prepare` mode and prints the
 validated path. `run-jpl-rover-trial.ps1` calls `verify`; add an explicit
 `-OpenDesktop` switch for GUI launch so automated verification never hangs on
 an open window.
 
-- [ ] **Step 6: Verify offline behavior and commit**
+- [x] **Step 6: Verify offline behavior and commit**
 
 Run the local fixture tests, simulate a corrupted cached trial, and verify that
 normal mode rejects it while refresh restores only from the pinned archive.
@@ -267,7 +267,7 @@ git commit -m "Make the JPL Rover intake trial reproducible"
 - Modify: `docs/program/01-trust-kernel/01d-multi-project-evidence.md`
 - Modify: `docs/milestone-status.md`
 
-- [ ] **Step 1: Prepare the pinned snapshot with network available**
+- [x] **Step 1: Prepare the pinned snapshot with network available**
 
 Run:
 
@@ -279,14 +279,14 @@ The first run may download approximately 623 MB. Record the exact revision and
 license validation; do not substitute a different branch tip when the pinned
 commit is unavailable.
 
-- [ ] **Step 2: Establish the inventory expectation independently**
+- [x] **Step 2: Establish the inventory expectation independently**
 
 Extract the same pinned `git archive` into two distinct ignored directories,
 scan both through the production binary, and require identical inventory SHA,
 counts, and empty primary selection. Add the resulting exact SHA to
 `jpl-open-source-rover-expectations.json`.
 
-- [ ] **Step 3: Run the normal gate twice**
+- [x] **Step 3: Run the normal gate twice**
 
 Run:
 
@@ -299,14 +299,14 @@ The second run must reuse the validated local snapshot without network and
 produce the same asserted output. Scan duration is recorded as an observation,
 not a pass threshold.
 
-- [ ] **Step 4: Record only the bounded claim**
+- [x] **Step 4: Record only the bounded claim**
 
 Update the trial document with platform, scanner build identity, inventory SHA,
 counts, measured duration, and exact commands. State that the gate proves file
 accounting and honest assembly ambiguity only; it does not prove that Rover
 CAD, electronics, controls, or mechanics work.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/trials/jpl-open-source-rover-expectations.json \
