@@ -172,7 +172,10 @@ validate_request(const StructuralRequest &request) {
           ab[0] * (ac[1] * ad[2] - ac[2] * ad[1]) -
           ab[1] * (ac[0] * ad[2] - ac[2] * ad[0]) +
           ab[2] * (ac[0] * ad[1] - ac[1] * ad[0]);
-      if (!finite(determinant) || std::abs(determinant) <= 1e-24)
+      if (finite(determinant) && determinant < 0.0)
+        issue(issues, "inverted_element",
+              "A tetrahedral element has inverted orientation.");
+      else if (!finite(determinant) || determinant <= 1e-24)
         issue(issues, "zero_volume_element",
               "A tetrahedral element has zero or unresolved volume.");
     }

@@ -86,6 +86,21 @@ bool hasIssue(const std::vector<ps::ValidationIssue> &issues,
   });
 }
 
+bool hasResultIssue(const ps::CompiledCalculixResult &result,
+                    const std::string &code) {
+  return std::ranges::any_of(result.issues, [&](const auto &value) {
+    return value.code == code;
+  });
+}
+
+std::string replaceOnce(std::string source, const std::string &from,
+                        const std::string &to) {
+  const auto position = source.find(from);
+  require(position != std::string::npos, "test replacement source exists");
+  source.replace(position, from.size(), to);
+  return source;
+}
+
 ps::VolumeMesh twoTetraSurfaceMesh() {
   ps::VolumeMesh mesh;
   mesh.nodes = {{1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
@@ -202,6 +217,11 @@ int main() {
   require(hasIssue(ps::validate_request(zeroVolume), "zero_volume_element"),
           "zero-volume tetrahedron stays blocked");
 
+  auto inverted = request;
+  inverted.elements.front().node_ids = {1, 3, 2, 4};
+  require(hasIssue(ps::validate_request(inverted), "inverted_element"),
+          "an inverted tetrahedron cannot enter a solver deck directly");
+
   auto collinear = request;
   collinear.nodes[3].position_m = {2.0, 0.0, 0.0};
   require(hasIssue(ps::validate_request(collinear), "inadequate_restraints"),
@@ -211,22 +231,178 @@ int main() {
  displacements (vx,vy,vz) for set NALL and time  0.1000000E+01
 
          1  0.000000E+00  0.000000E+00  0.000000E+00
+         2  0.100000E-08  0.000000E+00  0.000000E+00
+         3  0.000000E+00  0.200000E-08  0.000000E+00
          4  0.000000E+00  0.000000E+00 -2.228571E-08
 
  stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) for set COMPONENT and time  0.1000000E+01
 
          1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00
 )";
-  const auto metrics = ps::parse_calculix_dat(rawDat);
-  require(metrics.displacement_rows == 2 && metrics.stress_rows == 1 &&
-              std::abs(metrics.maximum_displacement_m - 2.228571e-8) < 1e-15 &&
-              std::abs(metrics.maximum_von_mises_pa - 3428.571) < 1e-6,
-          "raw CalculiX displacement and stress rows compile to SI maxima");
+  const auto parsedDat = ps::parse_calculix_dat(rawDat);
+  require(parsedDat.displacements.size() == 4 &&
+              parsedDat.stresses.size() == 1 &&
+              parsedDat.displacements.front().node_id == 1 &&
+              parsedDat.stresses.front().element_id == 1 &&
+              parsedDat.stresses.front().integration_point == 1,
+          "raw CalculiX rows retain result identities");
   try {
     (void)ps::parse_calculix_dat("solver stopped before result output\n");
     fail("missing solver output became metrics");
   } catch (const std::runtime_error &) {
   }
+
+  const std::string rawStatus = R"(SUMMARY OF JOB INFORMATION
+
+ STEP INC ATT ITRS TOT TIME STEP TIME INC TIME
+    1   1   1    1  0.100000E+01  0.100000E+01  0.100000E+01
+)";
+  const ps::CalculixRunEvidence evidence{
+      .process_exit_code = 0,
+      .solver_executable_sha256 =
+          "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      .solver_version = "CalculiX Version 2.23",
+      .deck_bytes = deck,
+      .standard_output = "CalculiX Version 2.23\n\nJob finished\n",
+      .standard_error = "",
+      .status_bytes = rawStatus,
+      .data_bytes = std::string(rawDat),
+  };
+  const auto compiled = ps::compile_calculix_result(request, evidence);
+  require(compiled.complete() && compiled.metrics.has_value() &&
+              compiled.normalized.displacements.size() == 4 &&
+              compiled.normalized.stresses.size() == 1 &&
+              compiled.metrics->displacement_rows == 4 &&
+              compiled.metrics->stress_rows == 1 &&
+              std::abs(compiled.metrics->maximum_displacement_m -
+                       2.228571e-8) < 1.0e-15 &&
+              std::abs(compiled.metrics->maximum_von_mises_pa - 3428.571) <
+                  1.0e-6 &&
+              compiled.artifacts.deck_sha256.starts_with("sha256:") &&
+              compiled.backend.version == "CalculiX Version 2.23" &&
+              compiled.convergence.has_value() &&
+              compiled.convergence->step == 1 &&
+              std::abs(compiled.convergence->step_time - 1.0) < 1.0e-12,
+          "complete solver evidence compiles typed metrics and identities");
+
+  auto failedExit = evidence;
+  failedExit.process_exit_code = 9;
+  require(hasResultIssue(ps::compile_calculix_result(request, failedExit),
+                         "solver_process_failed"),
+          "nonzero solver status is indeterminate");
+
+  auto missingSolverIdentity = evidence;
+  missingSolverIdentity.solver_executable_sha256.clear();
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingSolverIdentity),
+              "invalid_solver_identity"),
+          "missing exact solver executable identity is indeterminate");
+
+  auto unsafeSolverVersion = evidence;
+  unsafeSolverVersion.solver_version = "CalculiX 2.23\nforged";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unsafeSolverVersion),
+              "invalid_solver_version"),
+          "unsafe solver version evidence is indeterminate");
+
+  auto missingCompletion = evidence;
+  missingCompletion.standard_output = "CalculiX Version 2.23\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingCompletion),
+              "solver_completion_marker_missing"),
+          "missing solver completion marker is indeterminate");
+
+  auto errorMarker = evidence;
+  errorMarker.standard_output =
+      "*ERROR in e_c3d: nonpositive jacobian\nJob finished\n";
+  require(hasResultIssue(ps::compile_calculix_result(request, errorMarker),
+                         "solver_reported_error"),
+          "solver error text cannot be hidden by Job finished");
+
+  auto incompleteStep = evidence;
+  incompleteStep.status_bytes = replaceOnce(
+      rawStatus, "0.100000E+01  0.100000E+01",
+      "0.500000E+00  0.500000E+00");
+  require(hasResultIssue(ps::compile_calculix_result(request, incompleteStep),
+                         "solver_step_incomplete"),
+          "a converged row below final step time is indeterminate");
+
+  auto malformedStatus = evidence;
+  malformedStatus.status_bytes = replaceOnce(rawStatus, "   1    1", "   X    1");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, malformedStatus),
+              "invalid_solver_status"),
+          "malformed convergence evidence is indeterminate");
+
+  auto missingNodeResult = evidence;
+  missingNodeResult.data_bytes = replaceOnce(
+      missingNodeResult.data_bytes,
+      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n", "");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingNodeResult),
+              "missing_displacement_row"),
+          "missing displacement identities are indeterminate");
+
+  auto duplicateNodeResult = evidence;
+  duplicateNodeResult.data_bytes = replaceOnce(
+      duplicateNodeResult.data_bytes,
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
+      "         2  0.100000E-08  0.000000E+00  0.000000E+00\n\n"
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, duplicateNodeResult),
+              "duplicate_displacement_row"),
+          "duplicate displacement identities are indeterminate");
+
+  auto unexpectedNodeResult = evidence;
+  unexpectedNodeResult.data_bytes = replaceOnce(
+      unexpectedNodeResult.data_bytes,
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)",
+      "        99  0.000000E+00  0.000000E+00  0.000000E+00\n\n"
+      " stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz)");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unexpectedNodeResult),
+              "unexpected_displacement_row"),
+          "unexpected displacement identities are indeterminate");
+
+  auto missingStressResult = evidence;
+  missingStressResult.data_bytes = replaceOnce(
+      missingStressResult.data_bytes,
+      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n",
+      "");
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, missingStressResult),
+              "missing_stress_row"),
+          "missing stress identities are indeterminate");
+
+  auto duplicateStressResult = evidence;
+  duplicateStressResult.data_bytes +=
+      "         1   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, duplicateStressResult),
+              "duplicate_stress_row"),
+          "duplicate stress identities are indeterminate");
+
+  auto unexpectedStressResult = evidence;
+  unexpectedStressResult.data_bytes +=
+      "        99   1 -2.571429E+03 -2.571429E+03 -6.000000E+03  0.000000E+00  0.000000E+00  0.000000E+00\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, unexpectedStressResult),
+              "unexpected_stress_row"),
+          "unexpected stress identities are indeterminate");
+
+  auto nonfiniteResult = evidence;
+  nonfiniteResult.data_bytes = replaceOnce(nonfiniteResult.data_bytes,
+                                           "-2.228571E-08", "nan");
+  require(hasResultIssue(ps::compile_calculix_result(request, nonfiniteResult),
+                         "invalid_result_data"),
+          "nonfinite solver rows are indeterminate");
+
+  auto wrongDeck = evidence;
+  wrongDeck.deck_bytes += "** changed after execution\n";
+  require(hasResultIssue(ps::compile_calculix_result(request, wrongDeck),
+                         "deck_request_mismatch"),
+          "result evidence must bind to exact generated deck bytes");
 
   constexpr auto rawMesh = R"(*Heading
 *NODE

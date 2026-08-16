@@ -10,6 +10,7 @@ target_compile_features(prometheus_structural PUBLIC cxx_std_20)
 target_include_directories(prometheus_structural PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_link_libraries(prometheus_structural PRIVATE prometheus_integrity)
 if(MSVC)
   target_compile_options(prometheus_structural PRIVATE /fp:strict)
 else()
