@@ -1,16 +1,17 @@
 #pragma once
 
-#include "prometheus/structural/types.hpp"
+#include "prometheus/structural/gmsh_mesh.hpp"
 
 namespace prometheus::structural {
 
 struct ValidatedMeshTopology final {
-  std::vector<SurfaceGroup> surface_groups;
+  std::vector<BoundaryFace> boundary_faces;
+  std::vector<SourceSurfaceGroup> source_surface_groups;
   MeshDiagnostics diagnostics;
 };
 
 [[nodiscard]] ValidatedMeshTopology validate_and_measure_mesh(
-    const std::vector<Node> &nodes, const std::vector<Tetrahedron> &elements,
-    std::vector<SurfaceGroup> surface_groups);
+    const VolumeMesh &mesh,
+    std::vector<SourceSurfaceCandidate> source_surface_candidates);
 
 } // namespace prometheus::structural

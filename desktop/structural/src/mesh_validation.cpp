@@ -8,6 +8,7 @@
 #include <queue>
 #include <set>
 #include <stdexcept>
+#include <utility>
 
 namespace prometheus::structural {
 namespace {
@@ -18,6 +19,7 @@ using Vector3 = std::array<double, 3>;
 struct FaceRecord final {
   std::size_t count{};
   std::size_t first_element_index{};
+  int source_element_id{};
   int opposite_node_id{};
 };
 
@@ -47,12 +49,42 @@ double signed_determinant(const Vector3 &a, const Vector3 &b,
   return dot(subtract(b, a), cross(subtract(c, a), subtract(d, a)));
 }
 
+BoundaryFace measure_boundary_face(
+    Face face, const FaceRecord &record,
+    const std::map<int, const Node *> &nodeById, const double areaFloor) {
+  const auto &a = nodeById.at(face[0])->position_m;
+  const auto &b = nodeById.at(face[1])->position_m;
+  const auto &c = nodeById.at(face[2])->position_m;
+  const auto &opposite = nodeById.at(record.opposite_node_id)->position_m;
+  auto twiceAreaVector = cross(subtract(b, a), subtract(c, a));
+  const double twiceArea = magnitude(twiceAreaVector);
+  if (!std::isfinite(twiceArea) || twiceArea / 2.0 <= areaFloor)
+    throw std::runtime_error("Mesh contains a zero-area tetrahedral face");
+  const double orientation = dot(twiceAreaVector, subtract(opposite, a));
+  if (!std::isfinite(orientation) || orientation == 0.0)
+    throw std::runtime_error("Mesh contains a degenerate tetrahedron");
+  if (orientation > 0.0) {
+    std::swap(face[1], face[2]);
+    for (auto &component : twiceAreaVector)
+      component = -component;
+  }
+  for (auto &component : twiceAreaVector)
+    component /= twiceArea;
+  return {.source_element_id = record.source_element_id,
+          .node_ids = face,
+          .centroid_m = {(a[0] + b[0] + c[0]) / 3.0,
+                         (a[1] + b[1] + c[1]) / 3.0,
+                         (a[2] + b[2] + c[2]) / 3.0},
+          .outward_unit_normal = twiceAreaVector,
+          .area_m2 = twiceArea / 2.0};
+}
+
 } // namespace
 
 ValidatedMeshTopology validate_and_measure_mesh(
-    const std::vector<Node> &nodes, const std::vector<Tetrahedron> &elements,
-    std::vector<SurfaceGroup> surfaceGroups) {
-  if (nodes.size() < 4U || elements.empty())
+    const VolumeMesh &mesh,
+    std::vector<SourceSurfaceCandidate> sourceSurfaceCandidates) {
+  if (mesh.nodes.size() < 4U || mesh.elements.empty())
     throw std::runtime_error(
         "Mesh requires at least four nodes and one tetrahedron");
 
@@ -63,7 +95,7 @@ ValidatedMeshTopology validate_and_measure_mesh(
   Vector3 maximum{std::numeric_limits<double>::lowest(),
                   std::numeric_limits<double>::lowest(),
                   std::numeric_limits<double>::lowest()};
-  for (const auto &node : nodes) {
+  for (const auto &node : mesh.nodes) {
     if (node.id <= 0 || !nodeById.emplace(node.id, &node).second)
       throw std::runtime_error("Mesh node IDs must be unique and positive");
     for (std::size_t axis = 0; axis < 3U; ++axis) {
@@ -82,13 +114,13 @@ ValidatedMeshTopology validate_and_measure_mesh(
 
   std::set<int> elementIds;
   std::map<Face, FaceRecord> faceRecords;
-  std::vector<std::vector<std::size_t>> adjacency(elements.size());
+  std::vector<std::vector<std::size_t>> adjacency(mesh.elements.size());
   double minimumMeanRatio = std::numeric_limits<double>::max();
   double maximumMeanRatio = 0.0;
 
-  for (std::size_t elementIndex = 0; elementIndex < elements.size();
+  for (std::size_t elementIndex = 0; elementIndex < mesh.elements.size();
        ++elementIndex) {
-    const auto &element = elements[elementIndex];
+    const auto &element = mesh.elements[elementIndex];
     if (element.id <= 0 || !elementIds.insert(element.id).second)
       throw std::runtime_error(
           "Mesh tetrahedron IDs must be unique and positive");
@@ -110,7 +142,9 @@ ValidatedMeshTopology validate_and_measure_mesh(
                            elementNodes[1]->position_m,
                            elementNodes[2]->position_m,
                            elementNodes[3]->position_m);
-    if (!std::isfinite(determinant) || determinant < 0.0)
+    if (!std::isfinite(determinant))
+      throw std::runtime_error("Mesh tetrahedron volume is not finite");
+    if (determinant < 0.0)
       throw std::runtime_error("Mesh contains an inverted tetrahedron");
     const double volume = determinant / 6.0;
     if (volume <= volumeFloor)
@@ -124,7 +158,8 @@ ValidatedMeshTopology validate_and_measure_mesh(
         squaredEdgeLengthSum += dot(edge, edge);
       }
     const double meanRatio =
-        12.0 * std::pow(3.0 * volume, 2.0 / 3.0) / squaredEdgeLengthSum;
+        12.0 * std::pow(3.0 * volume, 2.0 / 3.0) /
+        squaredEdgeLengthSum;
     if (!std::isfinite(meanRatio) || meanRatio <= 0.0)
       throw std::runtime_error("Mesh tetrahedron quality is not finite");
     minimumMeanRatio = std::min(minimumMeanRatio, meanRatio);
@@ -143,7 +178,7 @@ ValidatedMeshTopology validate_and_measure_mesh(
     for (const auto &[unsortedFace, oppositeNodeId] : faces) {
       const auto face = sorted_face(unsortedFace);
       auto [record, inserted] = faceRecords.emplace(
-          face, FaceRecord{1U, elementIndex, oppositeNodeId});
+          face, FaceRecord{1U, elementIndex, element.id, oppositeNodeId});
       if (inserted)
         continue;
       if (record->second.count != 1U)
@@ -155,9 +190,9 @@ ValidatedMeshTopology validate_and_measure_mesh(
     }
   }
 
-  std::vector<bool> visited(elements.size());
+  std::vector<bool> visited(mesh.elements.size());
   std::size_t connectedComponents = 0U;
-  for (std::size_t start = 0; start < elements.size(); ++start) {
+  for (std::size_t start = 0; start < mesh.elements.size(); ++start) {
     if (visited[start])
       continue;
     ++connectedComponents;
@@ -179,86 +214,63 @@ ValidatedMeshTopology validate_and_measure_mesh(
     throw std::runtime_error(
         "Mesh must contain exactly one face-connected volume component");
 
-  if (surfaceGroups.empty())
-    throw std::runtime_error("Mesh has no selectable boundary surface groups");
-
-  std::size_t boundaryFaceCount = 0U;
+  std::vector<BoundaryFace> boundaryFaces;
+  std::map<Face, std::size_t> boundaryIndices;
   for (const auto &[face, record] : faceRecords) {
-    (void)face;
-    if (record.count == 1U)
-      ++boundaryFaceCount;
+    if (record.count != 1U)
+      continue;
+    boundaryIndices.emplace(face, boundaryFaces.size());
+    boundaryFaces.push_back(
+        measure_boundary_face(face, record, nodeById, areaFloor));
   }
 
-  std::set<int> triangleIds;
+  std::set<std::string> sourceGroupNames;
+  std::set<int> sourceTriangleIds;
   std::set<Face> representedBoundaryFaces;
-  for (auto &group : surfaceGroups) {
-    if (group.name.empty() || group.triangles.empty())
+  std::vector<SourceSurfaceGroup> sourceSurfaceGroups;
+  sourceSurfaceGroups.reserve(sourceSurfaceCandidates.size());
+  for (auto &candidate : sourceSurfaceCandidates) {
+    if (candidate.name.empty() || candidate.triangles.empty() ||
+        !sourceGroupNames.insert(candidate.name).second)
       throw std::runtime_error(
-          "Surface groups require a name and at least one triangle");
-    group.node_ids.clear();
-    group.area_m2 = 0.0;
-    group.centroid_m = {};
-    group.representative_normal = {};
-    group.representative_normal_defined = false;
+          "Source surface groups require a unique name and at least one triangle");
+    SourceSurfaceGroup group{.name = std::move(candidate.name)};
     std::set<int> groupNodeIds;
     Vector3 areaVector{};
-
-    for (const auto &triangle : group.triangles) {
-      if (triangle.id <= 0 || !triangleIds.insert(triangle.id).second)
+    for (const auto &triangle : candidate.triangles) {
+      if (triangle.source_element_id <= 0 ||
+          !sourceTriangleIds.insert(triangle.source_element_id).second)
         throw std::runtime_error(
-            "Surface triangle IDs must be unique and positive");
+            "Source surface triangle IDs must be unique and positive");
       std::set<int> localNodeIds;
-      std::array<const Node *, 3> triangleNodes{};
-      for (std::size_t localIndex = 0; localIndex < 3U; ++localIndex) {
-        const int nodeId = triangle.node_ids[localIndex];
-        const auto node = nodeById.find(nodeId);
-        if (node == nodeById.end())
-          throw std::runtime_error("Surface triangle references a missing node");
+      for (const int nodeId : triangle.node_ids) {
+        if (!nodeById.contains(nodeId))
+          throw std::runtime_error(
+              "Source surface triangle references a missing node");
         if (!localNodeIds.insert(nodeId).second)
           throw std::runtime_error(
-              "Surface triangle requires three distinct nodes");
-        triangleNodes[localIndex] = node->second;
+              "Source surface triangle requires three distinct nodes");
         groupNodeIds.insert(nodeId);
       }
-
       const auto face = sorted_face(triangle.node_ids);
-      const auto record = faceRecords.find(face);
-      if (record == faceRecords.end() || record->second.count != 1U)
+      const auto boundary = boundaryIndices.find(face);
+      if (boundary == boundaryIndices.end())
         throw std::runtime_error(
-            "Surface triangle is not a volume boundary face");
+            "Source surface triangle is not a volume boundary face");
       if (!representedBoundaryFaces.insert(face).second)
         throw std::runtime_error(
-            "A volume boundary face appears more than once in surface groups");
-
-      const auto firstEdge = subtract(triangleNodes[1]->position_m,
-                                      triangleNodes[0]->position_m);
-      const auto secondEdge = subtract(triangleNodes[2]->position_m,
-                                       triangleNodes[0]->position_m);
-      auto twiceAreaVector = cross(firstEdge, secondEdge);
-      const double twiceArea = magnitude(twiceAreaVector);
-      const double triangleArea = twiceArea / 2.0;
-      if (!std::isfinite(triangleArea) || triangleArea <= areaFloor)
-        throw std::runtime_error("Surface triangle has zero or unresolved area");
-
-      const auto opposite = nodeById.at(record->second.opposite_node_id);
-      if (dot(twiceAreaVector,
-              subtract(opposite->position_m,
-                       triangleNodes[0]->position_m)) > 0.0)
-        for (auto &component : twiceAreaVector)
-          component = -component;
-
-      group.area_m2 += triangleArea;
+            "A volume boundary face appears more than once in source surface groups");
+      const auto &measured = boundaryFaces.at(boundary->second);
+      group.face_node_ids.push_back(face);
+      group.area_m2 += measured.area_m2;
       for (std::size_t axis = 0; axis < 3U; ++axis) {
-        const double triangleCentroid =
-            (triangleNodes[0]->position_m[axis] +
-             triangleNodes[1]->position_m[axis] +
-             triangleNodes[2]->position_m[axis]) /
-            3.0;
-        group.centroid_m[axis] += triangleArea * triangleCentroid;
-        areaVector[axis] += twiceAreaVector[axis] / 2.0;
+        group.centroid_m[axis] +=
+            measured.area_m2 * measured.centroid_m[axis];
+        areaVector[axis] +=
+            measured.area_m2 * measured.outward_unit_normal[axis];
       }
     }
-
+    std::ranges::sort(group.face_node_ids);
     group.node_ids.assign(groupNodeIds.begin(), groupNodeIds.end());
     for (auto &coordinate : group.centroid_m)
       coordinate /= group.area_m2;
@@ -269,19 +281,15 @@ ValidatedMeshTopology validate_and_measure_mesh(
             areaVector[axis] / areaVectorMagnitude;
       group.representative_normal_defined = true;
     }
+    sourceSurfaceGroups.push_back(std::move(group));
   }
 
-  if (representedBoundaryFaces.size() != boundaryFaceCount)
-    throw std::runtime_error(
-        "Mesh boundary is not completely represented by surface groups");
-
-  return {
-      .surface_groups = std::move(surfaceGroups),
-      .diagnostics =
-          {.connected_components = connectedComponents,
-           .minimum_mean_ratio = std::min(1.0, minimumMeanRatio),
-           .maximum_mean_ratio = std::min(1.0, maximumMeanRatio)},
-  };
+  return {.boundary_faces = std::move(boundaryFaces),
+          .source_surface_groups = std::move(sourceSurfaceGroups),
+          .diagnostics =
+              {.connected_components = connectedComponents,
+               .minimum_mean_ratio = std::min(1.0, minimumMeanRatio),
+               .maximum_mean_ratio = std::min(1.0, maximumMeanRatio)}};
 }
 
 } // namespace prometheus::structural

@@ -2,6 +2,7 @@
 #include "prometheus/structural/calculix_result.hpp"
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
+#include "prometheus/structural/prepared_mesh.hpp"
 #include "prometheus/structural/structural_request.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_benchmarks.hpp"
@@ -16,6 +17,8 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
+#include <utility>
 
 namespace ps = prometheus::structural;
 namespace fs = std::filesystem;
@@ -27,6 +30,20 @@ namespace fs = std::filesystem;
 
 void require(const bool condition, const char *message) {
   if (!condition) fail(message);
+}
+
+template <typename Function>
+void requireThrows(Function &&function, const std::string_view expected,
+                   const char *message) {
+  try {
+    std::forward<Function>(function)();
+  } catch (const std::exception &error) {
+    require(std::string_view(error.what()).find(expected) !=
+                std::string_view::npos,
+            message);
+    return;
+  }
+  fail(message);
 }
 
 ps::StructuralRequest validRequest() {
@@ -175,6 +192,131 @@ int main() {
 *ELEMENT, type=C3D4, ELSET=Volume1
 9, 1, 2, 3, 4
 )";
+  constexpr std::string_view twoGroupTetra = R"(*HEADING
+Synthetic two-group tetrahedron; coordinates are millimetres
+*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+*ELEMENT, TYPE=CPS3, ELSET=FixedFaces
+1, 1, 3, 2
+*ELEMENT, TYPE=CPS3, ELSET=LoadedFaces
+2, 1, 2, 4
+3, 1, 4, 3
+4, 2, 3, 4
+*ELEMENT, TYPE=C3D4, ELSET=Volume
+5, 1, 2, 3, 4
+)";
+  const auto prepared = ps::prepare_gmsh_abaqus_mesh(twoGroupTetra, 0.001);
+  require(prepared.mesh.nodes.size() == 4,
+          "prepared mesh retains nodes");
+  require(prepared.mesh.elements.size() == 1,
+          "prepared mesh retains C3D4 elements");
+  require(prepared.boundary_faces.size() == 4,
+          "prepared mesh derives the complete exterior once");
+  require(prepared.source_surface_groups.size() == 2 &&
+              prepared.source_surface_groups.front().name == "FixedFaces" &&
+              prepared.source_surface_groups.back().name == "LoadedFaces",
+          "prepared mesh retains source labels as non-authoritative hints");
+  require(prepared.diagnostics.connected_components == 1,
+          "prepared mesh records face connectivity");
+  require(prepared.diagnostics.minimum_mean_ratio > 0.0 &&
+              prepared.diagnostics.maximum_mean_ratio <= 1.0,
+          "prepared mesh records bounded tetra quality");
+  require(prepared.identity.source_sha256.starts_with("sha256:") &&
+              prepared.identity.coordinate_scale_to_m == 0.001,
+          "prepared mesh binds exact source bytes and coordinate scale");
+
+  constexpr std::string_view invertedTetra = R"(*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+*ELEMENT, TYPE=C3D4
+1, 1, 3, 2, 4
+)";
+  requireThrows(
+      [&] { (void)ps::prepare_gmsh_abaqus_mesh(invertedTetra, 0.001); },
+      "inverted tetrahedron", "inverted tetrahedra are rejected during preparation");
+
+  constexpr std::string_view disconnectedTetrahedra = R"(*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+5, 20, 0, 0
+6, 30, 0, 0
+7, 20, 10, 0
+8, 20, 0, 10
+*ELEMENT, TYPE=C3D4
+1, 1, 2, 3, 4
+2, 5, 6, 7, 8
+)";
+  requireThrows(
+      [&] {
+        (void)ps::prepare_gmsh_abaqus_mesh(disconnectedTetrahedra, 0.001);
+      },
+      "face-connected volume component",
+      "face-disconnected tetrahedral regions are rejected");
+
+  constexpr std::string_view nonManifoldTetrahedra = R"(*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+5, 0, 0, -10
+6, 0, 0, 20
+*ELEMENT, TYPE=C3D4
+1, 1, 2, 3, 4
+2, 1, 3, 2, 5
+3, 1, 2, 3, 6
+)";
+  requireThrows(
+      [&] {
+        (void)ps::prepare_gmsh_abaqus_mesh(nonManifoldTetrahedra, 0.001);
+      },
+      "non-manifold tetrahedral face",
+      "non-manifold tetrahedral faces are rejected");
+
+  constexpr std::string_view duplicateSourceTriangle = R"(*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+*ELEMENT, TYPE=CPS3, ELSET=FirstLabel
+1, 1, 2, 3
+*ELEMENT, TYPE=CPS3, ELSET=SecondLabel
+2, 1, 3, 2
+*ELEMENT, TYPE=C3D4
+3, 1, 2, 3, 4
+)";
+  requireThrows(
+      [&] {
+        (void)ps::prepare_gmsh_abaqus_mesh(duplicateSourceTriangle, 0.001);
+      },
+      "more than once",
+      "one boundary triangle cannot appear under multiple source labels");
+
+  constexpr std::string_view interiorSourceTriangle = R"(*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+5, 0, 0, -10
+*ELEMENT, TYPE=CPS3, ELSET=InteriorLabel
+1, 1, 2, 3
+*ELEMENT, TYPE=C3D4
+2, 1, 2, 3, 4
+3, 1, 3, 2, 5
+)";
+  requireThrows(
+      [&] {
+        (void)ps::prepare_gmsh_abaqus_mesh(interiorSourceTriangle, 0.001);
+      },
+      "not a volume boundary face",
+      "source labels cannot turn an interior face into a selectable boundary");
+
   const auto mesh = ps::parse_gmsh_abaqus_mesh(rawMesh, 0.001);
   require(mesh.nodes.size() == 4 && mesh.elements.size() == 1 &&
               mesh.nodes.front().position_m[2] == 0.01,

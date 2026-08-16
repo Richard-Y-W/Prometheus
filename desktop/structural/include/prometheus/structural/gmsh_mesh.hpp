@@ -3,7 +3,10 @@
 #include "prometheus/structural/types.hpp"
 
 #include <array>
+#include <cstddef>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace prometheus::structural {
 
@@ -19,6 +22,42 @@ struct BoundaryFace final {
   std::array<double, 3> outward_unit_normal{};
   double area_m2{};
 };
+
+struct SourceSurfaceTriangle final {
+  int source_element_id{};
+  std::array<int, 3> node_ids{};
+};
+
+// A label imported from the mesher. It is a navigation hint only; reviewed
+// boundary meaning is assigned later against the volume-derived exterior.
+struct SourceSurfaceCandidate final {
+  std::string name;
+  std::vector<SourceSurfaceTriangle> triangles;
+};
+
+struct SourceSurfaceGroup final {
+  std::string name;
+  std::vector<std::array<int, 3>> face_node_ids;
+  std::vector<int> node_ids;
+  double area_m2{};
+  std::array<double, 3> centroid_m{};
+  std::array<double, 3> representative_normal{};
+  bool representative_normal_defined{};
+};
+
+struct MeshDiagnostics final {
+  std::size_t connected_components{};
+  double minimum_mean_ratio{};
+  double maximum_mean_ratio{};
+};
+
+struct ParsedGmshAbaqusSource final {
+  VolumeMesh mesh;
+  std::vector<SourceSurfaceCandidate> source_surface_candidates;
+};
+
+[[nodiscard]] ParsedGmshAbaqusSource parse_gmsh_abaqus_source(
+    std::string_view rawMesh, double coordinate_scale_to_m);
 
 [[nodiscard]] VolumeMesh parse_gmsh_abaqus_mesh(
     std::string_view rawMesh, double coordinate_scale_to_m);

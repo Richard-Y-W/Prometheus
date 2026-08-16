@@ -1,15 +1,18 @@
 #include "prometheus/structural/gmsh_mesh.hpp"
 
+#include "prometheus/structural/mesh_validation.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <locale>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
+#include <utility>
 
 namespace prometheus::structural {
 namespace {
@@ -28,32 +31,97 @@ std::istringstream fields(std::string line) {
   return result;
 }
 
+std::string trim(std::string value) {
+  const auto first = value.find_first_not_of(" \t\r");
+  if (first == std::string::npos)
+    return {};
+  const auto last = value.find_last_not_of(" \t\r");
+  return value.substr(first, last - first + 1U);
+}
+
+std::string element_set_name(const std::string &line) {
+  const auto keyword = upper(line);
+  constexpr std::string_view option = "ELSET=";
+  const auto position = keyword.find(option);
+  if (position == std::string::npos)
+    return {};
+  const auto value_start = position + option.size();
+  const auto value_end = line.find(',', value_start);
+  return trim(line.substr(value_start, value_end - value_start));
+}
+
 } // namespace
 
-VolumeMesh parse_gmsh_abaqus_mesh(const std::string_view rawMesh,
-                                  const double coordinateScaleToM) {
+ParsedGmshAbaqusSource parse_gmsh_abaqus_source(
+    const std::string_view rawMesh, const double coordinateScaleToM) {
   if (!std::isfinite(coordinateScaleToM) || coordinateScaleToM <= 0.0)
-    throw std::invalid_argument("Mesh coordinate scale must be finite and positive");
-  enum class Section { ignored, nodes, tetrahedra };
+    throw std::invalid_argument(
+        "Mesh coordinate scale must be finite and positive");
+
+  enum class Section { ignored, nodes, tetrahedra, triangles, element_set };
   Section section = Section::ignored;
-  VolumeMesh result;
+  ParsedGmshAbaqusSource result;
   std::set<int> nodeIds;
-  std::set<int> elementIds;
+  std::set<int> allElementIds;
+  std::set<int> tetrahedronIds;
+  std::map<int, SourceSurfaceTriangle> trianglesById;
+  std::vector<std::pair<std::string, std::vector<int>>> triangleBlocks;
+  std::map<std::string, std::size_t> triangleBlockIndices;
+  std::vector<std::pair<std::string, std::vector<int>>> elementSets;
+  std::map<std::string, std::size_t> elementSetIndices;
+  std::vector<std::set<int>> elementSetMemberIds;
+  std::optional<std::size_t> activeTriangleBlock;
+  std::optional<std::size_t> activeElementSet;
+
   std::istringstream input{std::string(rawMesh)};
   std::string line;
   while (std::getline(input, line)) {
-    if (line.empty()) continue;
+    line = trim(std::move(line));
+    if (line.empty())
+      continue;
     if (line.front() == '*') {
+      activeTriangleBlock.reset();
+      activeElementSet.reset();
       const auto keyword = upper(line);
-      if (keyword == "*NODE" || keyword.starts_with("*NODE,"))
+      if (keyword == "*NODE" || keyword.starts_with("*NODE,")) {
         section = Section::nodes;
-      else if (keyword.starts_with("*ELEMENT") &&
-               keyword.find("TYPE=C3D4") != std::string::npos)
+      } else if (keyword.starts_with("*ELEMENT") &&
+                 keyword.find("TYPE=C3D4") != std::string::npos) {
         section = Section::tetrahedra;
-      else
+      } else if (keyword.starts_with("*ELEMENT") &&
+                 keyword.find("TYPE=CPS3") != std::string::npos) {
+        const auto groupName = element_set_name(line);
+        if (groupName.empty())
+          throw std::runtime_error(
+              "Gmsh/Abaqus CPS3 section requires an ELSET name");
+        auto [group, inserted] =
+            triangleBlockIndices.emplace(groupName, triangleBlocks.size());
+        if (inserted)
+          triangleBlocks.emplace_back(groupName, std::vector<int>{});
+        activeTriangleBlock = group->second;
+        section = Section::triangles;
+      } else if (keyword.starts_with("*ELSET")) {
+        if (keyword.find("GENERATE") != std::string::npos)
+          throw std::runtime_error(
+              "Gmsh/Abaqus generated ELSET ranges are unsupported");
+        const auto groupName = element_set_name(line);
+        if (groupName.empty())
+          throw std::runtime_error("Gmsh/Abaqus ELSET requires a name");
+        auto [group, inserted] =
+            elementSetIndices.emplace(groupName, elementSets.size());
+        if (!inserted)
+          throw std::runtime_error(
+              "Gmsh/Abaqus ELSET names must be unique");
+        elementSets.emplace_back(groupName, std::vector<int>{});
+        elementSetMemberIds.emplace_back();
+        activeElementSet = group->second;
+        section = Section::element_set;
+      } else {
         section = Section::ignored;
+      }
       continue;
     }
+
     if (section == Section::nodes) {
       auto row = fields(line);
       Node node;
@@ -61,115 +129,111 @@ VolumeMesh parse_gmsh_abaqus_mesh(const std::string_view rawMesh,
             node.position_m[2]))
         throw std::runtime_error("Malformed Gmsh/Abaqus node row");
       if (node.id <= 0 || !nodeIds.insert(node.id).second)
-        throw std::runtime_error("Gmsh/Abaqus node IDs are not unique and positive");
-      for (auto &coordinate : node.position_m) coordinate *= coordinateScaleToM;
-      result.nodes.push_back(node);
+        throw std::runtime_error(
+            "Gmsh/Abaqus node IDs are not unique and positive");
+      for (auto &coordinate : node.position_m)
+        coordinate *= coordinateScaleToM;
+      result.mesh.nodes.push_back(node);
     } else if (section == Section::tetrahedra) {
       auto row = fields(line);
       Tetrahedron element;
       if (!(row >> element.id >> element.node_ids[0] >> element.node_ids[1] >>
             element.node_ids[2] >> element.node_ids[3]))
         throw std::runtime_error("Malformed Gmsh/Abaqus C3D4 row");
-      if (element.id <= 0 || !elementIds.insert(element.id).second)
-        throw std::runtime_error("Gmsh/Abaqus C3D4 IDs are not unique and positive");
-      result.elements.push_back(element);
+      if (element.id <= 0 || !allElementIds.insert(element.id).second)
+        throw std::runtime_error(
+            "Gmsh/Abaqus element IDs are not unique and positive");
+      tetrahedronIds.insert(element.id);
+      result.mesh.elements.push_back(element);
+    } else if (section == Section::triangles) {
+      auto row = fields(line);
+      SourceSurfaceTriangle triangle;
+      if (!(row >> triangle.source_element_id >> triangle.node_ids[0] >>
+            triangle.node_ids[1] >> triangle.node_ids[2]))
+        throw std::runtime_error("Malformed Gmsh/Abaqus CPS3 row");
+      if (triangle.source_element_id <= 0 ||
+          !allElementIds.insert(triangle.source_element_id).second ||
+          !trianglesById
+               .emplace(triangle.source_element_id, triangle)
+               .second)
+        throw std::runtime_error(
+            "Gmsh/Abaqus element IDs are not unique and positive");
+      triangleBlocks.at(*activeTriangleBlock)
+          .second.push_back(triangle.source_element_id);
+    } else if (section == Section::element_set) {
+      auto row = fields(line);
+      int elementId{};
+      bool parsed = false;
+      auto &members = elementSets.at(*activeElementSet).second;
+      auto &memberIds = elementSetMemberIds.at(*activeElementSet);
+      while (row >> elementId) {
+        if (elementId <= 0 || !memberIds.insert(elementId).second)
+          throw std::runtime_error(
+              "Gmsh/Abaqus ELSET members must be unique and positive");
+        members.push_back(elementId);
+        parsed = true;
+      }
+      if (!parsed || !row.eof())
+        throw std::runtime_error("Malformed Gmsh/Abaqus ELSET row");
     }
   }
-  if (result.nodes.empty() || result.elements.empty())
-    throw std::runtime_error("Gmsh/Abaqus mesh has no nodes or C3D4 volume elements");
-  for (const auto &element : result.elements)
+
+  if (result.mesh.nodes.empty() || result.mesh.elements.empty())
+    throw std::runtime_error(
+        "Gmsh/Abaqus mesh has no nodes or C3D4 volume elements");
+  for (const auto &element : result.mesh.elements)
     for (const int nodeId : element.node_ids)
       if (!nodeIds.contains(nodeId))
-        throw std::runtime_error("Gmsh/Abaqus C3D4 references a missing node");
+        throw std::runtime_error(
+            "Gmsh/Abaqus C3D4 references a missing node");
+
+  bool hasPhysicalSurfaceGroups = false;
+  for (const auto &[name, members] : elementSets) {
+    bool hasTriangles = false;
+    bool hasTetrahedra = false;
+    for (const int elementId : members) {
+      hasTriangles = hasTriangles || trianglesById.contains(elementId);
+      hasTetrahedra = hasTetrahedra || tetrahedronIds.contains(elementId);
+      if (!trianglesById.contains(elementId) &&
+          !tetrahedronIds.contains(elementId))
+        throw std::runtime_error(
+            "Gmsh/Abaqus ELSET references an unknown element");
+    }
+    if (hasTriangles && hasTetrahedra)
+      throw std::runtime_error(
+          "Gmsh/Abaqus ELSET mixes surface and volume elements");
+    if (!hasTriangles)
+      continue;
+    hasPhysicalSurfaceGroups = true;
+    SourceSurfaceCandidate group{.name = name};
+    for (const int elementId : members)
+      group.triangles.push_back(trianglesById.at(elementId));
+    result.source_surface_candidates.push_back(std::move(group));
+  }
+  if (!hasPhysicalSurfaceGroups) {
+    for (const auto &[name, members] : triangleBlocks) {
+      SourceSurfaceCandidate group{.name = name};
+      for (const int elementId : members)
+        group.triangles.push_back(trianglesById.at(elementId));
+      result.source_surface_candidates.push_back(std::move(group));
+    }
+  }
   return result;
 }
 
+VolumeMesh parse_gmsh_abaqus_mesh(const std::string_view rawMesh,
+                                  const double coordinateScaleToM) {
+  return parse_gmsh_abaqus_source(rawMesh, coordinateScaleToM).mesh;
+}
+
 std::vector<BoundaryFace> extract_boundary_faces(const VolumeMesh &mesh) {
-  if (mesh.nodes.empty() || mesh.elements.empty())
-    throw std::invalid_argument("Boundary extraction requires a volume mesh");
-
-  std::unordered_map<int, std::array<double, 3>> positions;
-  for (const auto &node : mesh.nodes) {
-    if (node.id <= 0 || !positions.emplace(node.id, node.position_m).second)
-      throw std::invalid_argument("Volume mesh node IDs must be unique and positive");
-    for (const double coordinate : node.position_m)
-      if (!std::isfinite(coordinate))
-        throw std::invalid_argument("Volume mesh node coordinates must be finite");
+  try {
+    return validate_and_measure_mesh(mesh, {}).boundary_faces;
+  } catch (const std::invalid_argument &) {
+    throw;
+  } catch (const std::exception &error) {
+    throw std::invalid_argument(error.what());
   }
-
-  struct Candidate final {
-    int element_id{};
-    std::array<int, 3> oriented{};
-    int opposite_node_id{};
-    int occurrences{};
-  };
-  std::map<std::array<int, 3>, Candidate> candidates;
-  std::set<int> elementIds;
-  constexpr std::array<std::array<int, 4>, 4> faceIndices{{
-      {{1, 2, 3, 0}}, {{0, 3, 2, 1}}, {{0, 1, 3, 2}}, {{0, 2, 1, 3}}}};
-  for (const auto &element : mesh.elements) {
-    if (element.id <= 0 || !elementIds.insert(element.id).second)
-      throw std::invalid_argument("Volume element IDs must be unique and positive");
-    std::set<int> distinct(element.node_ids.begin(), element.node_ids.end());
-    if (distinct.size() != 4)
-      throw std::invalid_argument("Tetrahedron must reference four distinct nodes");
-    for (const int nodeId : element.node_ids)
-      if (!positions.contains(nodeId))
-        throw std::invalid_argument("Tetrahedron references a missing node");
-    for (const auto &indices : faceIndices) {
-      std::array<int, 3> face{element.node_ids[indices[0]],
-                              element.node_ids[indices[1]],
-                              element.node_ids[indices[2]]};
-      auto key = face;
-      std::ranges::sort(key);
-      auto [entry, inserted] = candidates.try_emplace(
-          key, Candidate{element.id, face, element.node_ids[indices[3]], 1});
-      if (!inserted && ++entry->second.occurrences > 2)
-        throw std::invalid_argument("Volume mesh contains a non-manifold face");
-    }
-  }
-
-  std::vector<BoundaryFace> result;
-  for (const auto &[key, candidate] : candidates) {
-    (void)key;
-    if (candidate.occurrences == 2) continue;
-    auto oriented = candidate.oriented;
-    const auto &a = positions.at(oriented[0]);
-    const auto &b = positions.at(oriented[1]);
-    const auto &c = positions.at(oriented[2]);
-    const auto &opposite = positions.at(candidate.opposite_node_id);
-    const std::array<double, 3> ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
-    const std::array<double, 3> ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-    std::array<double, 3> normal{
-        ab[1] * ac[2] - ab[2] * ac[1],
-        ab[2] * ac[0] - ab[0] * ac[2],
-        ab[0] * ac[1] - ab[1] * ac[0]};
-    const double magnitude = std::sqrt(normal[0] * normal[0] +
-                                       normal[1] * normal[1] +
-                                       normal[2] * normal[2]);
-    if (!std::isfinite(magnitude) || magnitude == 0.0)
-      throw std::invalid_argument("Volume mesh contains a zero-area face");
-    const std::array<double, 3> towardOpposite{
-        opposite[0] - a[0], opposite[1] - a[1], opposite[2] - a[2]};
-    const double orientation = normal[0] * towardOpposite[0] +
-                               normal[1] * towardOpposite[1] +
-                               normal[2] * towardOpposite[2];
-    if (orientation > 0.0) {
-      std::swap(oriented[1], oriented[2]);
-      for (double &component : normal) component = -component;
-    } else if (orientation == 0.0) {
-      throw std::invalid_argument("Volume mesh contains a zero-volume tetrahedron");
-    }
-    for (double &component : normal) component /= magnitude;
-    result.push_back({candidate.element_id,
-                      oriented,
-                      {(a[0] + b[0] + c[0]) / 3.0,
-                       (a[1] + b[1] + c[1]) / 3.0,
-                       (a[2] + b[2] + c[2]) / 3.0},
-                      normal,
-                      magnitude / 2.0});
-  }
-  return result;
 }
 
 } // namespace prometheus::structural

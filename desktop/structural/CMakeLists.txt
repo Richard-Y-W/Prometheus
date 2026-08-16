@@ -3,6 +3,8 @@ add_library(prometheus_structural STATIC
   src/calculix_runner.cpp
   src/calculix_result.cpp
   src/gmsh_mesh.cpp
+  src/mesh_validation.cpp
+  src/prepared_mesh.cpp
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
