@@ -48,6 +48,51 @@ if(BUILD_TESTING)
     NAME prometheus_project_intake
     COMMAND prometheus_project_intake_tests
   )
+  add_test(
+    NAME prometheus_project_intake_summary_good
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-good.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  add_test(
+    NAME prometheus_project_intake_summary_bad
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-bad.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  set_tests_properties(prometheus_project_intake_summary_bad PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(
+    NAME prometheus_jpl_rover_prepare_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=correct
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-correct
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  add_test(
+    NAME prometheus_jpl_rover_failed_promotion_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=wrong_license
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-wrong-license
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  set_tests_properties(
+    prometheus_jpl_rover_prepare_fixture
+    prometheus_jpl_rover_failed_promotion_fixture
+    PROPERTIES TIMEOUT 60
+  )
+  if(WIN32)
+    add_test(
+      NAME prometheus_outside_user_bundle_fixture
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File ${PROJECT_SOURCE_DIR}/scripts/tests/outside-user-bundle-fixture.ps1
+    )
+  endif()
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp
