@@ -683,6 +683,24 @@ void test_embedded_structural_archive_round_trip() {
   fs::rename(bundleDirectory, movedBundle);
   const auto moved = run_store::verify_project_bundle(movedBundle);
   require(moved.has_value(), "whole project bundle verifies after directory relocation");
+  const auto restoredBundlePath = root.path() / "restored-portable-bundle";
+  const auto restoredBundle = run_store::restore_project_bundle(
+      movedBundle, restoredBundlePath);
+  require(restoredBundle.has_value() &&
+              restoredBundle.value().object_count == moved.value().object_count &&
+              run_store::open_read_only(restoredBundle.value().project_path)
+                  .has_value(),
+          "verified portable backup restores atomically into a new usable project");
+  write_file(restoredBundlePath / "undeclared-tool.exe", "unexpected bytes");
+  require_failure(run_store::verify_project_bundle(restoredBundlePath),
+                  "bundle_file_set_invalid",
+                  "portable bundle with undeclared filesystem payload");
+  const auto rejectedRestorePath = root.path() / "rejected-bundle-restore";
+  require_failure(run_store::restore_project_bundle(
+                      restoredBundlePath, rejectedRestorePath),
+                  "bundle_file_set_invalid", "restore from changed bundle");
+  require(!fs::exists(rejectedRestorePath),
+          "rejected restore publishes no destination");
   const auto movedProject = run_store::open_read_only(moved.value().project_path);
   require(movedProject.has_value() &&
               movedProject.value().cad_source == "sources/portable-bracket.step" &&

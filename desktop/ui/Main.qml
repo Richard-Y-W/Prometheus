@@ -222,6 +222,11 @@ ApplicationWindow {
                             onTriggered: bundleFolderDialog.open()
                         }
                         MenuItem {
+                            text: projectController.bundleBusy ? "Portable bundle operation in progress…" : "Restore portable project bundle…"
+                            enabled: !projectController.bundleBusy
+                            onTriggered: restoreBundleSourceDialog.open()
+                        }
+                        MenuItem {
                             text: projectIntakeController.rootPath === "" ? "Project inventory unavailable" : "Project inventory (" + projectIntakeController.totalCount + ")"
                             enabled: projectIntakeController.rootPath !== ""
                             onTriggered: inventoryDialog.open()
@@ -1310,6 +1315,21 @@ ApplicationWindow {
         id: bundleFolderDialog
         title: "Choose parent folder for portable project bundle"
         onAccepted: projectController.exportPortableBundle(selectedFolder)
+    }
+    property url pendingRestoreBundleFolder
+    FolderDialog {
+        id: restoreBundleSourceDialog
+        title: "Choose portable project bundle"
+        onAccepted: {
+            pendingRestoreBundleFolder = selectedFolder
+            restoreBundleDestinationDialog.open()
+        }
+    }
+    FolderDialog {
+        id: restoreBundleDestinationDialog
+        title: "Choose restore destination parent folder"
+        onAccepted: projectController.restorePortableBundle(
+                        pendingRestoreBundleFolder, selectedFolder)
     }
     Shortcut {
         sequence: "F"

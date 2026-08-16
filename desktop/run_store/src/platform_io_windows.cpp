@@ -1018,6 +1018,14 @@ read_object_file(const std::filesystem::path &project_path,
     if (!directory.has_value()) {
       return Result<std::string>::failure(directory.diagnostic());
     }
+    std::error_code existenceError;
+    const auto status = std::filesystem::symlink_status(
+        directory.value().destination_path, existenceError);
+    if (existenceError == std::errc::no_such_file_or_directory ||
+        (!existenceError && !std::filesystem::exists(status)))
+      return fail<std::string>("object_store_missing",
+                               "stored object does not exist",
+                               directory.value().destination_path);
     const auto loaded = read_safe_file(
         directory.value().destination_path, directory.value().fanout,
         directory.value().destination_name, maximum_object_bytes,

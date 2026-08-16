@@ -75,6 +75,8 @@ public:
   Q_INVOKABLE bool ensureExecutionWritable();
   Q_INVOKABLE bool verifyAssemblyArtifactCurrent();
   Q_INVOKABLE void exportPortableBundle(const QUrl &parentFolder);
+  Q_INVOKABLE void restorePortableBundle(const QUrl &bundleFolder,
+                                          const QUrl &parentFolder);
   bool commitInventorySnapshot(
       const prometheus::run_store::ObjectToStore &snapshot);
   bool assessInventorySnapshot(

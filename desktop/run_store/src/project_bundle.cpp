@@ -326,6 +326,38 @@ Result<ProjectBundle> verify_project_bundle(
     if (declared.size() != reachable.value().size())
       return failure<ProjectBundle>("bundle_object_set_invalid",
                                     "bundle object set is incomplete or unreachable");
+    std::set<std::filesystem::path> expectedFiles{
+        std::filesystem::path(bundleManifestName),
+        std::filesystem::path(bundleProjectName),
+        std::filesystem::path(bundleProjectName + std::string(".data")) /
+            ".writer.lock",
+        std::filesystem::path(cadRelative)};
+    const auto sidecar = sidecar_path_for_project(projectPath);
+    for (const auto &[hash, reference] : reachable.value()) {
+      (void)hash;
+      const auto objectPath = object_path_for_hash(sidecar, reference.object_hash);
+      if (!objectPath.has_value())
+        return Result<ProjectBundle>::failure(objectPath.diagnostic());
+      expectedFiles.insert(
+          std::filesystem::relative(objectPath.value(), bundleDirectory));
+    }
+    std::set<std::filesystem::path> actualFiles;
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(bundleDirectory)) {
+      const auto status = entry.symlink_status();
+      if (std::filesystem::is_symlink(status) ||
+          (!std::filesystem::is_directory(status) &&
+           !std::filesystem::is_regular_file(status)))
+        return failure<ProjectBundle>("bundle_filesystem_entry_unsafe",
+                                      "bundle contains an unsafe filesystem entry",
+                                      entry.path());
+      if (std::filesystem::is_regular_file(status))
+        actualFiles.insert(std::filesystem::relative(entry.path(), bundleDirectory));
+    }
+    if (actualFiles != expectedFiles)
+      return failure<ProjectBundle>("bundle_file_set_invalid",
+                                    "bundle contains missing or undeclared files",
+                                    bundleDirectory);
     return Result<ProjectBundle>::success(
         {bundleDirectory, projectPath, manifestPath, declared.size()});
   } catch (const integrity::CanonicalJsonError &error) {
@@ -333,6 +365,60 @@ Result<ProjectBundle> verify_project_bundle(
   } catch (const std::exception &error) {
     return failure<ProjectBundle>("bundle_verification_failed", error.what(),
                                   bundleDirectory);
+  }
+}
+
+Result<ProjectBundle> restore_project_bundle(
+    const std::filesystem::path &sourceBundle,
+    const std::filesystem::path &destination) noexcept {
+  std::filesystem::path temporary;
+  try {
+    const auto source = verify_project_bundle(sourceBundle);
+    if (!source.has_value()) return Result<ProjectBundle>::failure(source.diagnostic());
+    if (std::filesystem::exists(destination) ||
+        !std::filesystem::is_directory(destination.parent_path()))
+      return failure<ProjectBundle>(
+          "bundle_restore_destination_invalid",
+          "restore destination must not exist and its parent must exist",
+          destination);
+    const auto canonicalSource = std::filesystem::weakly_canonical(sourceBundle);
+    const auto canonicalParent =
+        std::filesystem::weakly_canonical(destination.parent_path());
+    auto relativeParent = canonicalParent.lexically_relative(canonicalSource);
+    if (!relativeParent.empty() && *relativeParent.begin() != "..")
+      return failure<ProjectBundle>(
+          "bundle_restore_destination_unsafe",
+          "restore destination cannot be inside its source bundle", destination);
+    std::mt19937_64 random{std::random_device{}()};
+    temporary = destination;
+    temporary += ".partial-" + std::to_string(random());
+    std::filesystem::create_directory(temporary);
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(sourceBundle)) {
+      const auto relative = std::filesystem::relative(entry.path(), sourceBundle);
+      const auto target = temporary / relative;
+      const auto status = entry.symlink_status();
+      if (std::filesystem::is_directory(status))
+        std::filesystem::create_directories(target);
+      else if (std::filesystem::is_regular_file(status)) {
+        std::filesystem::create_directories(target.parent_path());
+        std::filesystem::copy_file(entry.path(), target,
+                                   std::filesystem::copy_options::none);
+      } else {
+        throw std::runtime_error("source bundle changed during restore");
+      }
+    }
+    const auto copied = verify_project_bundle(temporary);
+    if (!copied.has_value())
+      throw std::runtime_error(copied.diagnostic().code + ": " +
+                               copied.diagnostic().message);
+    std::filesystem::rename(temporary, destination);
+    return verify_project_bundle(destination);
+  } catch (const std::exception &error) {
+    std::error_code ignored;
+    if (!temporary.empty()) std::filesystem::remove_all(temporary, ignored);
+    return failure<ProjectBundle>("bundle_restore_failed", error.what(),
+                                  destination);
   }
 }
 

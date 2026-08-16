@@ -922,6 +922,15 @@ read_object_file(const std::filesystem::path &project_path,
       return Result<std::string>::failure(directory_result.diagnostic());
     }
     auto directory = std::move(directory_result.value());
+    std::error_code existence_error;
+    const auto status = std::filesystem::symlink_status(
+        directory.destination_path, existence_error);
+    if (existence_error == std::errc::no_such_file_or_directory ||
+        (!existence_error && !std::filesystem::exists(status))) {
+      return fail<std::string>("object_store_missing",
+                               "stored object does not exist",
+                               directory.destination_path);
+    }
     const auto loaded = read_named_file(
         directory.fanout.get(), directory.destination_name,
         maximum_object_bytes, directory.destination_path,

@@ -466,6 +466,56 @@ void ProjectController::exportPortableBundle(const QUrl &parentFolder) {
   }));
 }
 
+void ProjectController::restorePortableBundle(const QUrl &bundleFolder,
+                                               const QUrl &parentFolder) {
+  if (bundle_busy_) return;
+  const auto source = bundleFolder.toLocalFile();
+  const auto parent = parentFolder.toLocalFile();
+  if (!QFileInfo(source).isDir() || !QFileInfo(parent).isDir()) {
+    setError("Select an existing portable bundle and destination folder.",
+             "bundle_restore_selection_invalid");
+    return;
+  }
+  const auto destination = QDir(parent).filePath(
+      QFileInfo(source).fileName() + "-restored");
+  bundle_busy_ = true;
+  last_bundle_path_.clear();
+  clearError();
+  emit changed();
+  struct RestoreResult final {
+    QString bundlePath;
+    QString projectPath;
+    QString code;
+    QString message;
+  };
+  auto *watcher = new QFutureWatcher<RestoreResult>(this);
+  connect(watcher, &QFutureWatcher<RestoreResult>::finished, this,
+          [this, watcher] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    bundle_busy_ = false;
+    if (!result.code.isEmpty()) {
+      setError(result.message, result.code);
+      emit changed();
+      return;
+    }
+    last_bundle_path_ = result.bundlePath;
+    emit changed();
+    openProject(QUrl::fromLocalFile(result.projectPath));
+  });
+  watcher->setFuture(QtConcurrent::run([source, destination] {
+    const auto restored = run_store::restore_project_bundle(
+        nativePath(source), nativePath(destination));
+    if (!restored.has_value())
+      return RestoreResult{
+          {}, {}, QString::fromStdString(restored.diagnostic().code),
+          QString::fromStdString(restored.diagnostic().message)};
+    return RestoreResult{
+        QString::fromStdWString(restored.value().bundle_directory.wstring()),
+        QString::fromStdWString(restored.value().project_path.wstring()), {}, {}};
+  }));
+}
+
 bool ProjectController::commitInventorySnapshot(
     const run_store::ObjectToStore &snapshot) {
   if (!project_.has_value() || current_project_path_.isEmpty()) return false;

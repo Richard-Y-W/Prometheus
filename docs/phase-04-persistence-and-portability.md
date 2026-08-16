@@ -237,10 +237,32 @@ byte-for-byte, reconstructs unknown executable-shaped bytes only under the
 neutral quarantine name, and confirms the CAD source is not duplicated into the
 generic evidence output.
 
+## Checkpoint 12: verified backup restore
+
+The desktop now exposes **Restore portable project bundle** as a two-folder
+workflow: select the bundle, then select a destination parent. Restore first
+verifies the source bundle, copies it only into a new sibling temporary
+directory, verifies the complete copy, atomically renames it into place, and
+opens the restored project. Existing destinations are never overwritten.
+
+Bundle verification now closes the filesystem envelope as well as the manifest
+graph. The only permitted regular files are the canonical bundle manifest,
+project index, writer lock, selected CAD source, and exactly declared reachable
+content-addressed objects. Symlinks, special filesystem entries, missing files,
+and undeclared payloads are rejected. A restore destination may not be inside
+its source bundle.
+
+Tests restore a relocated structural/evidence project into a new directory and
+open it successfully. Adding an undeclared executable-shaped payload makes both
+verification and restore fail without publishing a destination. This provides a
+user-facing backup/restore primitive and automated clean-location evidence; it
+does not replace the still-required trial on a physically separate supported
+machine.
+
 ## Still required
 
-- add user-facing backup/restore and migration flows beyond the existing atomic
-  interrupted-write recovery primitives;
+- complete migration/recovery trials across representative legacy and current
+  real projects;
 - bind non-CAD inventory/evidence dependencies and invalidate only their correct
   downstream setup, request, or result state when they change or disappear;
 - prove relocation on a separate supported clean machine; and

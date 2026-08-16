@@ -20,4 +20,10 @@ struct ProjectBundle final {
 [[nodiscard]] Result<ProjectBundle> verify_project_bundle(
     const std::filesystem::path &bundle_directory) noexcept;
 
+// Restores a verified bundle into a new destination. The destination must not
+// exist; publication occurs only after the copied bundle verifies completely.
+[[nodiscard]] Result<ProjectBundle> restore_project_bundle(
+    const std::filesystem::path &source_bundle_directory,
+    const std::filesystem::path &destination_directory) noexcept;
+
 } // namespace prometheus::run_store
