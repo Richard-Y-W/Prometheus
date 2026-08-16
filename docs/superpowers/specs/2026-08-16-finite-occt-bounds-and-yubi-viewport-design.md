@@ -33,9 +33,32 @@ The resulting finite box will serve two existing consumers:
 2. `LeafShape.bounds`, which performs broad-phase rejection before an exact
    Open Cascade common-volume operation.
 
-Exact interference, when requested, will still use the original B-Rep shapes.
-The fallback box can exclude spatially disjoint pairs; it cannot create an
-interference finding or turn a failed boolean into a clear result.
+When an exact interference attempt runs, it will still use the original B-Rep
+shapes. The fallback box can exclude spatially disjoint pairs; it cannot create
+an interference finding or turn a failed boolean into a clear result.
+
+## Interactive interference policy
+
+The first finite-bounds implementation retained all 90 YUBI solids in the
+broad phase, but a normal desktop import still remained inside one
+`BRepAlgoAPI_Common` face/face intersection 166 seconds after launch. A macOS
+process sample bound that delay to the Open Cascade boolean worker rather than
+hashing, parsing, tessellation, camera fitting, or repeated execution.
+
+An interactive import will therefore defer the complete static-interference
+batch when any candidate leaf required tessellation-derived bounds. This rule
+uses the condition already observed during the single import pass; it does not
+reparse the file, remesh the assembly, run a preliminary boolean, or use file
+size as a proxy for topology risk. The returned result will contain no static
+interference pass or clear claim and will carry the existing explicit deferred
+state. The desktop can display and inspect the finite mesh while reporting
+static interference as `not_evaluated`.
+
+The engineer-triggered deferred-analysis action remains the boundary for an
+explicit exact attempt. That path uses the original B-Rep shapes and finite
+broad-phase boxes. It may still be slow or fail, and either outcome remains
+unknown rather than clear. Assemblies whose leaves all have closed finite
+B-Rep bounds retain the current automatic exact-interference behavior.
 
 ## Bounds contract
 
@@ -71,7 +94,11 @@ Transferred TopoDS_Shape
                                                +--> AssemblyNode.bounds (m)
                                                +--> LeafShape.bounds (mm)
 
-LeafShape bounds --> broad-phase exclusion --> original B-Rep exact boolean
+LeafShape bounds --> any tessellation fallback? -- yes --> deferred / unknown
+                         |
+                         no
+                         v
+                  broad-phase exclusion --> original B-Rep exact boolean
 AssemblyNode bounds --> CadController scene extent --> Qt Quick 3D camera fit
 ```
 
@@ -85,6 +112,16 @@ AssemblyNode bounds --> CadController scene extent --> Qt Quick 3D camera fit
 - **Repair or heal the STEP shape automatically.** The earlier YUBI trial found
   that automatic Open Cascade healing could access-violate. This change retains
   the established no-healing boundary.
+- **Lower the file-size threshold.** The 7.6 MB YUBI file is smaller than the
+  current 20 MB threshold but contains a pathological exact pair. Byte count
+  does not measure boolean-operation risk.
+- **Run an exact preflight and cancel it after a timeout.** Open Cascade's
+  in-process boolean call has no safe cancellation boundary in the current
+  adapter. A preflight would also repeat the expensive calculation the user is
+  trying to avoid.
+- **Keep a viewing-only build flag.** A transient flag can demonstrate the
+  mesh, but it leaves the normal product path blocked and makes the displayed
+  behavior depend on an undocumented binary.
 
 ## Verification
 
@@ -96,6 +133,8 @@ must establish:
 - the pinned YUBI assembly still produces nonzero roots, leaves, and triangles;
 - the YUBI viewport reports finite metre-scale dimensions and renders after
   `Fit`;
+- a normal interactive YUBI import completes with static interference marked
+  deferred because its leaves used tessellation-derived bounds;
 - the existing synthetic motor-arm exact-interference test still finds its
   known overlap;
 - malformed STEP input still fails closed;
