@@ -45,9 +45,11 @@ constexpr qint64 maximumMeshBytes = 512LL * 1024LL * 1024LL;
 constexpr qint64 maximumMaterialEvidenceBytes = 4LL * 1024LL * 1024LL;
 constexpr qsizetype maximumMaterialCandidates = 4096;
 
-struct DesktopRunCompletion final {
-  DesktopStructuralRun result;
+struct DesktopSampleCompletion final {
+  DesktopStructuralSampleResult sample;
+  std::optional<DesktopStructuralRefinementResult> refinement;
   QString output_directory;
+  bool fine{};
 };
 
 struct DesktopStructuralCommitResult final {
@@ -110,6 +112,33 @@ QString run_status(const ps::SolverRunStatus status) {
   case ps::SolverRunStatus::result_invalid: return "result_invalid";
   }
   return "unknown";
+}
+
+QString refinement_status(const ps::StructuralRefinementStatus status) {
+  return status == ps::StructuralRefinementStatus::accepted
+             ? QStringLiteral("accepted")
+             : QStringLiteral("indeterminate");
+}
+
+QVariantMap comparison_map(const ps::VerifiedStructuralRefinement &comparison) {
+  return {
+      {"status", refinement_status(comparison.status())},
+      {"displacement_change_fraction",
+       comparison.displacement_change_fraction()},
+      {"stress_change_fraction", comparison.stress_change_fraction()},
+      {"maximum_change_fraction", comparison.maximum_change_fraction()},
+      {"maximum_allowed_change_fraction",
+       comparison.coarse().criterion().maximum_change_fraction()},
+      {"coarse_setup_identity",
+       QString::fromStdString(comparison.coarse().setup().identity)},
+      {"fine_setup_identity",
+       QString::fromStdString(comparison.fine().setup().identity)},
+      {"coarse_result_identity",
+       QString::fromStdString(
+           comparison.coarse().run().validated_result->identity)},
+      {"fine_result_identity",
+       QString::fromStdString(
+           comparison.fine().run().validated_result->identity)}};
 }
 
 QVariantList ids(const std::vector<int> &values) {
@@ -442,7 +471,13 @@ StructuralController::StructuralController(
     connect(project_, &ProjectController::assemblyArtifactInvalidated, this,
             [this] {
       compiled_setup_.reset();
-      completed_run_.reset();
+      baseline_sample_.reset();
+      baseline_run_.clear();
+      refinement_criterion_.reset();
+      boundary_correspondence_.reset();
+      completed_refinement_.reset();
+      refinement_comparison_.clear();
+      refinement_stage_ = "coarse";
       can_run_ = false;
       const auto present = std::ranges::any_of(
           blockers_, [](const QVariant &value) {
@@ -460,12 +495,15 @@ StructuralController::StructuralController(
 }
 
 void StructuralController::clearCompletedRun() {
-  completed_run_.reset();
+  completed_refinement_.reset();
+  boundary_correspondence_.reset();
+  refinement_comparison_.clear();
   restored_verification_.reset();
   last_run_.clear();
   findings_.clear();
   clear_geometry(result_geometry_);
   result_view_.clear();
+  refinement_stage_ = baseline_sample_ ? "fine" : "coarse";
 }
 
 void StructuralController::invalidateRefinementEvidence() {
@@ -539,7 +577,29 @@ void StructuralController::loadMesh(const QUrl &url,
     emit changed();
     return;
   }
-  reset();
+  if (!baseline_sample_) {
+    reset();
+  } else {
+    prepared_mesh_.reset();
+    patches_.clear();
+    compiled_setup_.reset();
+    load_patch_ids_.clear();
+    restraint_patch_ids_.clear();
+    active_patch_id_.reset();
+    surface_patches_.clear();
+    active_surface_patch_.clear();
+    mesh_summary_.clear();
+    request_preview_.clear();
+    blockers_.clear();
+    can_run_ = false;
+    draft_["load_reviewed"] = false;
+    draft_["restraint_reviewed"] = false;
+    draft_["boundary_load_correspondence_reviewed"] = false;
+    draft_["boundary_restraint_correspondence_reviewed"] = false;
+    clear_geometry(mesh_geometry_);
+    clear_geometry(highlight_geometry_);
+    clearCompletedRun();
+  }
   try {
     if (!url.isLocalFile())
       throw std::invalid_argument("a local mesh file is required");
@@ -572,7 +632,9 @@ void StructuralController::setPatchAngle(const double patchAngleDegrees) {
     restraint_patch_ids_.clear();
     draft_["load_reviewed"] = false;
     draft_["restraint_reviewed"] = false;
-    draft_["scenario_confirmed"] = false;
+    draft_["boundary_load_correspondence_reviewed"] = false;
+    draft_["boundary_restraint_correspondence_reviewed"] = false;
+    if (!baseline_sample_) draft_["scenario_confirmed"] = false;
     invalidateRefinementEvidence();
     compiled_setup_.reset();
     clearCompletedRun();
@@ -634,7 +696,10 @@ void StructuralController::setPatchSelected(const int patchId,
                   target->end());
   *target = sorted_unique(std::move(*target));
   draft_[role == "load" ? "load_reviewed" : "restraint_reviewed"] = false;
-  draft_["scenario_confirmed"] = false;
+  draft_[role == "load" ? "boundary_load_correspondence_reviewed"
+                          : "boundary_restraint_correspondence_reviewed"] =
+      false;
+  if (!baseline_sample_) draft_["scenario_confirmed"] = false;
   invalidateRefinementEvidence();
   compiled_setup_.reset();
   clearCompletedRun();
@@ -668,6 +733,11 @@ bool StructuralController::loadMaterialEvidence(const QUrl &source) {
 void StructuralController::selectMaterialCandidate(
     const QString &candidateId, const QString &applicability) {
   if (busy_) return;
+  if (baseline_sample_) {
+    error_ = "Discard the coarse baseline before changing shared material inputs.";
+    emit changed();
+    return;
+  }
   const auto normalizedApplicability =
       applicability == "known" || applicability == "assumed"
           ? applicability
@@ -699,10 +769,58 @@ void StructuralController::selectMaterialCandidate(
 void StructuralController::reviewSetup(const QVariantMap &draft) {
   if (busy_) return;
   draft_ = draft;
+  QString criterionError;
+  if (!baseline_sample_) {
+    refinement_criterion_.reset();
+    try {
+      refinement_criterion_ = ps::compile_structural_refinement_criterion(
+          draft_.value("refinement_maximum_change_fraction").toDouble());
+    } catch (const std::exception &error) {
+      criterionError = QString::fromUtf8(error.what());
+    }
+  } else {
+    const auto &coarse = baseline_sample_->setup().reviewed_setup;
+    draft_["analysis_id"] = QString::fromStdString(coarse.analysis_id);
+    draft_["component_name"] = QString::fromStdString(coarse.component_name);
+    draft_["geometry_sha256"] =
+        QString::fromStdString(coarse.geometry_sha256);
+    draft_["material_designation"] =
+        QString::fromStdString(coarse.material.designation);
+    draft_["material_source_sha256"] =
+        QString::fromStdString(coarse.material.source_sha256);
+    draft_["material_applicability"] =
+        QString::fromStdString(coarse.material.applicability);
+    draft_["material_temper"] =
+        QString::fromStdString(coarse.material.temper);
+    draft_["material_product_form"] =
+        QString::fromStdString(coarse.material.product_form);
+    draft_["youngs_modulus_pa"] = coarse.material.youngs_modulus_pa;
+    draft_["poisson_ratio"] = coarse.material.poisson_ratio;
+    draft_["material_reviewed"] = coarse.material.reviewed;
+    draft_["force_x_n"] = coarse.load.total_force_n[0];
+    draft_["force_y_n"] = coarse.load.total_force_n[1];
+    draft_["force_z_n"] = coarse.load.total_force_n[2];
+    draft_["displacement_limit_m"] =
+        coarse.requirement.displacement_limit_m.value_or(0.0);
+    draft_["von_mises_limit_pa"] =
+        coarse.requirement.von_mises_limit_pa.value_or(0.0);
+    draft_["requirement_rationale"] = QString::fromStdString(
+        coarse.requirement.source_or_exploratory_rationale);
+    draft_["displacement_limit_basis"] =
+        QString::fromStdString(coarse.requirement.displacement_limit_basis);
+    draft_["von_mises_limit_basis"] =
+        QString::fromStdString(coarse.requirement.von_mises_limit_basis);
+    draft_["requirement_reviewed"] = coarse.requirement.reviewed;
+    draft_["scenario_description"] =
+        QString::fromStdString(coarse.scenario_description);
+    draft_["scenario_confirmed"] = coarse.scenario_confirmed;
+    draft_["refinement_maximum_change_fraction"] =
+        baseline_sample_->criterion().maximum_change_fraction();
+  }
   invalidateRefinementEvidence();
   compiled_setup_.reset();
   clearCompletedRun();
-  error_.clear();
+  error_ = criterionError;
   rebuildPreview();
   emit changed();
 }
@@ -826,6 +944,22 @@ void StructuralController::rebuildPreview() {
       .scenario_confirmed = draft_.value("scenario_confirmed").toBool(),
       .selection_patch_angle_degrees =
           mesh_summary_.value("patch_angle_degrees", 15.0).toDouble()};
+  if (baseline_sample_) {
+    const auto &coarse = baseline_sample_->setup().reviewed_setup;
+    setup.analysis_id = coarse.analysis_id;
+    setup.component_name = coarse.component_name;
+    setup.geometry_sha256 = coarse.geometry_sha256;
+    setup.material = coarse.material;
+    setup.load.total_force_n = coarse.load.total_force_n;
+    setup.requirement = coarse.requirement;
+    setup.scenario_description = coarse.scenario_description;
+    setup.scenario_confirmed = coarse.scenario_confirmed;
+  }
+  if (!refinement_criterion_)
+    blockers_.append(QVariantMap{
+        {"code", "refinement_criterion_invalid"},
+        {"message",
+         "Declare a finite mesh-refinement maximum change in (0, 1] before the coarse solve."}});
   if (project_ && project_->project() &&
       setup.geometry_sha256 != project_->project()->assembly_artifact_hash)
     blockers_.append(QVariantMap{
@@ -852,6 +986,37 @@ void StructuralController::rebuildPreview() {
   }
   try {
     compiled_setup_ = backend_->compileSetup(setup);
+    if (baseline_sample_) {
+      const auto &coarse = baseline_sample_->setup().reviewed_setup;
+      if (setup.mesh_controls.mesh_sha256 ==
+              coarse.mesh_controls.mesh_sha256 ||
+          setup.mesh.elements.size() <= coarse.mesh.elements.size() ||
+          setup.mesh_controls.target_size_m >=
+              coarse.mesh_controls.target_size_m) {
+        blockers_.append(QVariantMap{
+            {"code", "refinement_mesh_not_finer"},
+            {"message",
+             "The fine role requires a distinct mesh with more elements and a smaller reviewed target size."}});
+      }
+      const auto loadCorrespondence =
+          draft_.value("boundary_load_correspondence_reviewed").toBool();
+      const auto restraintCorrespondence =
+          draft_.value("boundary_restraint_correspondence_reviewed").toBool();
+      boundary_correspondence_ =
+          ps::review_structural_boundary_correspondence(
+              baseline_sample_->setup(), *compiled_setup_,
+              loadCorrespondence, restraintCorrespondence);
+      if (!loadCorrespondence || !restraintCorrespondence)
+        blockers_.append(QVariantMap{
+            {"code", "refinement_boundary_review_required"},
+            {"message",
+             "Confirm that the fine load and restraint regions correspond to the retained coarse regions."}});
+      if (!blockers_.isEmpty()) {
+        can_run_ = false;
+        status_ = "setup_blocked";
+        return;
+      }
+    }
     applyCompiledPreview(setup);
   } catch (const std::exception &error) {
     blockers_.append(QVariantMap{{"code", "request_invalid"},
@@ -863,7 +1028,7 @@ void StructuralController::rebuildPreview() {
 void StructuralController::runAnalysis(const QUrl &calculixExecutable,
                                        const QUrl &outputRoot) {
   if (busy_) return;
-  if (!can_run_ || !compiled_setup_) {
+  if (!can_run_ || !compiled_setup_ || !refinement_criterion_) {
     error_ = "The reviewed structural setup is not ready for execution.";
     emit changed();
     return;
@@ -888,34 +1053,57 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     emit changed();
     return;
   }
-  const QString runName =
-      "structural-" +
-      QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
-      QUuid::createUuid().toString(QUuid::Id128).left(8);
-  if (!root.mkdir(runName)) {
-    error_ = "A unique structural run directory could not be created.";
-    emit changed();
-    return;
+  const bool fine = baseline_sample_ != nullptr;
+  QString runDirectory;
+  QString jobName;
+  if (fine) {
+    if (!boundary_correspondence_) {
+      error_ = "Review fine boundary correspondence before execution.";
+      emit changed();
+      return;
+    }
+    runDirectory = qt_path(baseline_sample_->options().working_directory);
+    if (!QDir(runDirectory).exists()) {
+      error_ = "The retained refinement study directory is unavailable.";
+      emit changed();
+      return;
+    }
+    jobName = "prometheus_structural_fine_" +
+              QUuid::createUuid().toString(QUuid::Id128).left(8);
+  } else {
+    const QString runName =
+        "structural-refinement-" +
+        QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
+        QUuid::createUuid().toString(QUuid::Id128).left(8);
+    if (!root.mkdir(runName)) {
+      error_ = "A unique structural refinement directory could not be created.";
+      emit changed();
+      return;
+    }
+    runDirectory = root.filePath(runName);
+    jobName = "prometheus_structural_coarse";
   }
-  const auto runDirectory = root.filePath(runName);
   const auto options = ps::SolverRunOptions{
       native_path(executablePath), native_path(runDirectory),
-      "prometheus_structural_run", std::chrono::minutes(5)};
+      jobName.toStdString(), std::chrono::minutes(5)};
   const auto setup = *compiled_setup_;
+  const auto criterion = *refinement_criterion_;
+  const auto baseline = baseline_sample_;
+  const auto correspondence = boundary_correspondence_;
   const auto backend = backend_;
   clearCompletedRun();
+  if (fine) boundary_correspondence_ = correspondence;
   error_.clear();
   busy_ = true;
-  status_ = "executing";
+  status_ = fine ? "executing_fine" : "executing_coarse";
   emit changed();
-  auto *watcher = new QFutureWatcher<DesktopRunCompletion>(this);
-  connect(watcher, &QFutureWatcher<DesktopRunCompletion>::finished, this,
+  auto *watcher = new QFutureWatcher<DesktopSampleCompletion>(this);
+  connect(watcher, &QFutureWatcher<DesktopSampleCompletion>::finished, this,
           [this, watcher] {
     auto completed = watcher->result();
     watcher->deleteLater();
     busy_ = false;
-    completed_run_ = std::move(completed.result);
-    const auto &run = completed_run_->run;
+    const auto &run = completed.sample.run();
     last_run_ = {
         {"status", run_status(run.status)},
         {"exit_code", run.exit_code},
@@ -924,29 +1112,50 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
         {"stdout", QString::fromStdString(run.standard_output)},
         {"stderr", QString::fromStdString(run.standard_error)},
         {"output_directory", completed.output_directory},
-        {"archived", completed_run_->archive.has_value()},
-        {"declared_obligations",
-         completed_run_->evaluation.declared_obligations},
-        {"evaluated_obligations",
-         completed_run_->evaluation.evaluated_obligations},
-        {"limitation",
-         QString::fromStdString(completed_run_->evaluation.limitation)}};
-    if (completed_run_->archive) {
-      last_run_["archive_manifest"] =
-          qt_path(completed_run_->archive->manifest_path);
-      last_run_["archive_sha256"] = QString::fromStdString(
-          completed_run_->archive->manifest_sha256);
-      last_run_["archive_schema_version"] = QString::fromStdString(
-          completed_run_->archive->schema_version);
-      last_run_["validated_result_identity"] = QString::fromStdString(
-          completed_run_->archive->validated_result_identity);
-    } else if (!completed_run_->archive_error.empty()) {
-      last_run_["archive_error"] =
-          QString::fromStdString(completed_run_->archive_error);
+        {"archived", false},
+        {"declared_obligations", 0},
+        {"evaluated_obligations", 0}};
+    if (!completed.sample.error.empty())
+      last_run_["error"] = QString::fromStdString(completed.sample.error);
+
+    if (completed.refinement) {
+      completed_refinement_ = std::move(*completed.refinement);
+      const auto &evaluation = completed_refinement_->evaluation;
+      last_run_["declared_obligations"] = evaluation.declared_obligations;
+      last_run_["evaluated_obligations"] = evaluation.evaluated_obligations;
+      last_run_["limitation"] = QString::fromStdString(evaluation.limitation);
+      if (completed_refinement_->comparison) {
+        refinement_comparison_ =
+            comparison_map(*completed_refinement_->comparison);
+      }
+      if (completed_refinement_->archive) {
+        last_run_["archived"] = true;
+        const auto &archive = *completed_refinement_->archive;
+        last_run_["archive_manifest"] = qt_path(archive.manifest_path);
+        last_run_["archive_sha256"] =
+            QString::fromStdString(archive.manifest_sha256);
+        last_run_["archive_schema_version"] =
+            QString::fromStdString(archive.schema_version);
+        last_run_["validated_result_identity"] =
+            QString::fromStdString(archive.validated_result_identity);
+        last_run_["coarse_result_identity"] =
+            QString::fromStdString(archive.coarse_result_identity);
+      } else if (!completed_refinement_->archive_error.empty()) {
+        last_run_["archive_error"] =
+            QString::fromStdString(completed_refinement_->archive_error);
+      }
+      if (!completed_refinement_->issues.empty()) {
+        QVariantList issues;
+        for (const auto &issue : completed_refinement_->issues)
+          issues.append(QVariantMap{
+              {"code", QString::fromStdString(issue.code)},
+              {"message", QString::fromStdString(issue.message)}});
+        last_run_["refinement_issues"] = issues;
+      }
+      findings_.clear();
+      for (const auto &finding : evaluation.findings)
+        append_finding(findings_, finding);
     }
-    findings_.clear();
-    for (const auto &finding : completed_run_->evaluation.findings)
-      append_finding(findings_, finding);
     if (run.validated_result && run.validated_result->metrics && prepared_mesh_) {
       const auto &validated = *run.validated_result;
       const auto &metrics = *validated.metrics;
@@ -992,16 +1201,49 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
           {"color_min_pa", 0.0},
           {"color_max_pa", metrics.maximum_von_mises_pa}};
     }
-    status_ = run.status == ps::SolverRunStatus::completed
-                  ? "execution_completed"
-                  : "execution_failed";
+    if (run.status != ps::SolverRunStatus::completed || !completed.sample.sample) {
+      status_ = "execution_failed";
+      refinement_stage_ = baseline_sample_ ? "fine" : "coarse";
+    } else if (!completed.fine) {
+      baseline_sample_ = completed.sample.sample;
+      refinement_criterion_ = baseline_sample_->criterion();
+      baseline_run_ = last_run_;
+      refinement_stage_ = "fine";
+      status_ = "execution_completed_evaluation_pending";
+      compiled_setup_.reset();
+      can_run_ = false;
+    } else if (!completed_refinement_ ||
+               !completed_refinement_->comparison) {
+      refinement_stage_ = "fine";
+      status_ = "comparison_failed";
+    } else {
+      refinement_stage_ = "completed";
+      can_run_ = false;
+      if (!completed_refinement_->archive) {
+        status_ = "comparison_archive_failed";
+      } else {
+        status_ = completed_refinement_->comparison->status() ==
+                          ps::StructuralRefinementStatus::accepted
+                      ? "comparison_accepted"
+                      : "comparison_indeterminate";
+      }
+    }
     emit changed();
     emit runFinished();
   });
   watcher->setFuture(QtConcurrent::run(
-      [backend, options, setup,
-       runDirectory]() mutable -> DesktopRunCompletion {
-        return {backend->execute(options, setup), runDirectory};
+      [backend, options, setup, criterion, baseline, correspondence,
+       runDirectory, fine]() mutable -> DesktopSampleCompletion {
+        auto sample = backend->executeSample(
+            options, setup,
+            fine ? ps::StructuralSampleRole::fine
+                 : ps::StructuralSampleRole::coarse,
+            criterion);
+        std::optional<DesktopStructuralRefinementResult> refinement;
+        if (fine && sample.sample)
+          refinement = backend->finalizeRefinement(
+              baseline, sample.sample, correspondence.value());
+        return {std::move(sample), std::move(refinement), runDirectory, fine};
       }));
 }
 
@@ -1013,12 +1255,12 @@ void StructuralController::commitLastRun() {
     emit changed();
     return;
   }
-  if (!completed_run_ || !completed_run_->archive) {
-    error_ = "A completed active structural archive is required.";
+  if (!completed_refinement_ || !completed_refinement_->archive) {
+    error_ = "A completed active structural refinement archive is required.";
     emit changed();
     return;
   }
-  const auto trustedArchive = *completed_run_->archive;
+  const auto trustedArchive = *completed_refinement_->archive;
   if (last_run_.value("archive_manifest").toString() !=
       qt_path(trustedArchive.manifest_path)) {
     error_ = "The active archive handle no longer matches the displayed run.";
@@ -1091,7 +1333,10 @@ void StructuralController::reloadProject() {
           {"restorable", false}});
       continue;
     }
-    if (reference.schema_id != run_store::structural_project_run_schema_id)
+    if (reference.schema_id !=
+            run_store::structural_project_run_schema_id_v1 &&
+        reference.schema_id !=
+            run_store::structural_project_run_schema_id_v2)
       continue;
     QVariantMap display{
         {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
@@ -1139,16 +1384,19 @@ void StructuralController::reloadProject() {
                             .object();
       display["analysis_id"] = root.value("analysis_id").toString();
       display["component_name"] = root.value("component_name").toString();
+      const auto metrics =
+          root.value("schema_version").toString() == "3.0.0"
+              ? root.value("samples")
+                    .toObject()
+                    .value("fine")
+                    .toObject()
+                    .value("metrics")
+                    .toObject()
+              : root.value("metrics").toObject();
       display["maximum_displacement_m"] =
-          root.value("metrics")
-              .toObject()
-              .value("maximum_displacement_m")
-              .toDouble();
+          metrics.value("maximum_displacement_m").toDouble();
       display["maximum_von_mises_pa"] =
-          root.value("metrics")
-              .toObject()
-              .value("maximum_von_mises_pa")
-              .toDouble();
+          metrics.value("maximum_von_mises_pa").toDouble();
     }
     stored_runs_.append(display);
   }
@@ -1207,7 +1455,7 @@ void StructuralController::restoreStoredRun(const int index,
         !restored.verification.compiled_setup ||
         !restored.verification.evaluation) {
       error_ = QString::fromStdString(
-          restored.error.empty() ? "restored v2 evidence is incomplete"
+          restored.error.empty() ? "restored structural evidence is incomplete"
                                  : restored.error);
       status_ = "structural_archive_restore_failed";
       emit changed();
@@ -1310,10 +1558,54 @@ void StructuralController::restoreStoredRun(const int index,
          QString::fromStdString(reviewed.scenario_description)},
         {"scenario_confirmed", reviewed.scenario_confirmed}};
     const auto &evaluation = *restored.verification.evaluation;
+    baseline_sample_.reset();
+    baseline_run_.clear();
+    refinement_criterion_.reset();
+    boundary_correspondence_.reset();
+    completed_refinement_.reset();
+    refinement_comparison_.clear();
+    refinement_stage_ = "coarse";
+    if (restored.verification.refinement) {
+      const auto &pair = *restored.verification.refinement;
+      const auto &coarse = pair.coarse();
+      baseline_sample_ = ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::coarse, coarse.criterion(),
+          coarse.options(), coarse.setup(), coarse.run());
+      refinement_criterion_ = coarse.criterion();
+      boundary_correspondence_ = pair.boundary_correspondence();
+      refinement_comparison_ = comparison_map(pair);
+      refinement_stage_ = "completed";
+      draft_["refinement_maximum_change_fraction"] =
+          coarse.criterion().maximum_change_fraction();
+      draft_["boundary_load_correspondence_reviewed"] =
+          pair.boundary_correspondence().load_region_confirmed();
+      draft_["boundary_restraint_correspondence_reviewed"] =
+          pair.boundary_correspondence().restraint_region_confirmed();
+      const auto &coarseRun = coarse.run();
+      baseline_run_ = {
+          {"status", run_status(coarseRun.status)},
+          {"exit_code", coarseRun.exit_code},
+          {"elapsed_ms", static_cast<qlonglong>(coarseRun.elapsed.count())},
+          {"output_directory", qt_path(coarse.options().working_directory)},
+          {"archived", false},
+          {"evaluated_obligations", 0}};
+      if (coarseRun.validated_result &&
+          coarseRun.validated_result->metrics) {
+        baseline_run_["maximum_displacement_m"] =
+            coarseRun.validated_result->metrics->maximum_displacement_m;
+        baseline_run_["maximum_von_mises_pa"] =
+            coarseRun.validated_result->metrics->maximum_von_mises_pa;
+      }
+      DesktopStructuralRefinementResult restoredRefinement;
+      restoredRefinement.comparison = restored.verification.refinement;
+      restoredRefinement.evaluation = evaluation;
+      completed_refinement_ = std::move(restoredRefinement);
+    }
     compiled_setup_ = *restored.verification.compiled_setup;
     blockers_.clear();
     request_preview_.clear();
     applyCompiledPreview(reviewed);
+    can_run_ = false;
     if (!sourceCurrent) {
       compiled_setup_.reset();
       can_run_ = false;
@@ -1352,6 +1644,19 @@ void StructuralController::restoreStoredRun(const int index,
         {"status", "restored_verified"},
         {"archive_manifest", restored.manifest_path},
         {"output_directory", restored.output_directory},
+        {"archived", true},
+        {"archive_schema_version",
+         QString::fromStdString(restored.verification.schema_version)},
+        {"validated_result_identity",
+         QString::fromStdString(
+             restored.verification.validated_result_identity)},
+        {"coarse_result_identity",
+         QString::fromStdString(restored.verification.refinement
+                                    ? restored.verification.refinement
+                                          ->coarse()
+                                          .run()
+                                          .validated_result->identity
+                                    : std::string{})},
         {"project_anchored", true},
         {"project_artifacts_embedded", true},
         {"maximum_displacement_m", metrics.maximum_displacement_m},
@@ -1374,7 +1679,6 @@ void StructuralController::restoreStoredRun(const int index,
       last_run_["maximum_stress_integration_point"] =
           maximumStress->integration_point;
     }
-    completed_run_.reset();
     restored_verification_ = std::move(restored.verification);
     status_ = sourceCurrent ? "structural_archive_restored"
                             : "structural_archive_restored_stale";
@@ -1404,6 +1708,26 @@ void StructuralController::restoreStoredRun(const int index,
       }));
 }
 
+void StructuralController::discardRefinementBaseline() {
+  if (busy_) return;
+  baseline_sample_.reset();
+  baseline_run_.clear();
+  refinement_criterion_.reset();
+  boundary_correspondence_.reset();
+  completed_refinement_.reset();
+  refinement_comparison_.clear();
+  refinement_stage_ = "coarse";
+  compiled_setup_.reset();
+  can_run_ = false;
+  draft_.remove("refinement_maximum_change_fraction");
+  draft_.remove("boundary_load_correspondence_reviewed");
+  draft_.remove("boundary_restraint_correspondence_reviewed");
+  clearCompletedRun();
+  error_.clear();
+  rebuildPreview();
+  emit changed();
+}
+
 void StructuralController::reset() {
   if (busy_) return;
   status_ = "mesh_required";
@@ -1423,7 +1747,13 @@ void StructuralController::reset() {
   prepared_mesh_.reset();
   patches_.clear();
   compiled_setup_.reset();
-  completed_run_.reset();
+  refinement_stage_ = "coarse";
+  baseline_run_.clear();
+  refinement_comparison_.clear();
+  refinement_criterion_.reset();
+  baseline_sample_.reset();
+  boundary_correspondence_.reset();
+  completed_refinement_.reset();
   restored_verification_.reset();
   load_patch_ids_.clear();
   restraint_patch_ids_.clear();

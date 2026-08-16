@@ -59,6 +59,11 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QVariantMap resultView READ resultView NOTIFY changed)
   Q_PROPERTY(QVariantList storedRuns READ storedRuns NOTIFY changed)
   Q_PROPERTY(QVariantMap setupDraft READ setupDraft NOTIFY changed)
+  Q_PROPERTY(QString refinementStage READ refinementStage NOTIFY changed)
+  Q_PROPERTY(bool hasRefinementBaseline READ hasRefinementBaseline NOTIFY changed)
+  Q_PROPERTY(bool sharedInputsLocked READ sharedInputsLocked NOTIFY changed)
+  Q_PROPERTY(QVariantMap baselineRun READ baselineRun NOTIFY changed)
+  Q_PROPERTY(QVariantMap refinementComparison READ refinementComparison NOTIFY changed)
 
 public:
   explicit StructuralController(
@@ -86,6 +91,11 @@ public:
   QVariantMap resultView() const { return result_view_; }
   QVariantList storedRuns() const { return stored_runs_; }
   QVariantMap setupDraft() const { return draft_; }
+  QString refinementStage() const { return refinement_stage_; }
+  bool hasRefinementBaseline() const { return baseline_sample_ != nullptr; }
+  bool sharedInputsLocked() const { return baseline_sample_ != nullptr; }
+  QVariantMap baselineRun() const { return baseline_run_; }
+  QVariantMap refinementComparison() const { return refinement_comparison_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);
@@ -101,6 +111,7 @@ public:
                                const QUrl &outputRoot);
   Q_INVOKABLE void commitLastRun();
   Q_INVOKABLE void restoreStoredRun(int index, const QUrl &outputRoot);
+  Q_INVOKABLE void discardRefinementBaseline();
   Q_INVOKABLE void reloadProject();
   Q_INVOKABLE void reset();
 
@@ -136,7 +147,15 @@ private:
   std::vector<prometheus::structural::SurfacePatch> patches_;
   std::optional<prometheus::structural::CompiledStructuralSetup>
       compiled_setup_;
-  std::optional<DesktopStructuralRun> completed_run_;
+  QString refinement_stage_{"coarse"};
+  QVariantMap baseline_run_;
+  QVariantMap refinement_comparison_;
+  std::optional<prometheus::structural::StructuralRefinementCriterion>
+      refinement_criterion_;
+  prometheus::structural::CompletedStructuralSamplePtr baseline_sample_;
+  std::optional<prometheus::structural::ReviewedBoundaryCorrespondence>
+      boundary_correspondence_;
+  std::optional<DesktopStructuralRefinementResult> completed_refinement_;
   std::optional<prometheus::structural::StructuralArchiveVerification>
       restored_verification_;
   std::vector<int> load_patch_ids_;

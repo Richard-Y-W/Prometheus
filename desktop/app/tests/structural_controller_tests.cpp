@@ -36,7 +36,9 @@ struct StageCounts final {
 
 class CountingStructuralBackend final : public StructuralBackend {
 public:
-  CountingStructuralBackend() : delegate_(makeLocalStructuralBackend()) {}
+  explicit CountingStructuralBackend(const bool failFineOnce = false)
+      : delegate_(makeLocalStructuralBackend()),
+        fail_fine_once_(failFineOnce) {}
 
   ps::PreparedMesh prepareMesh(const std::string_view bytes,
                                const double scale) const override {
@@ -71,6 +73,16 @@ public:
       const ps::StructuralSampleRole role,
       ps::StructuralRefinementCriterion criterion) const override {
     ++execute_sample_;
+    if (role == ps::StructuralSampleRole::fine &&
+        fail_fine_once_.exchange(false)) {
+      DesktopStructuralSampleResult failed;
+      failed.failed_run = ps::SolverRunResult{
+          .status = ps::SolverRunStatus::nonzero_exit,
+          .exit_code = 7,
+          .detail = "injected fine execution failure"};
+      failed.error = "injected fine execution failure";
+      return failed;
+    }
     return delegate_->executeSample(
         std::move(options), std::move(setup), role, std::move(criterion));
   }
@@ -101,6 +113,7 @@ private:
   mutable std::atomic<int> execute_{};
   mutable std::atomic<int> execute_sample_{};
   mutable std::atomic<int> finalize_refinement_{};
+  mutable std::atomic<bool> fail_fine_once_{};
   mutable std::optional<ps::CompiledStructuralSetup> last_setup_;
 };
 
@@ -111,6 +124,35 @@ private:
 
 void require(const bool condition, const char *message) {
   if (!condition) fail(message);
+}
+
+void writeQtFixture(const QString &path, const std::string_view bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
+          "structural fixture opens");
+  require(file.write(bytes.data(), static_cast<qint64>(bytes.size())) ==
+              static_cast<qint64>(bytes.size()),
+          "structural fixture writes completely");
+  file.close();
+}
+
+void waitForRun(StructuralController &controller) {
+  if (!controller.busy()) return;
+  QEventLoop loop;
+  QObject::connect(&controller, &StructuralController::runFinished,
+                   &loop, &QEventLoop::quit);
+  QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+  loop.exec();
+}
+
+void waitForPublication(StructuralController &controller) {
+  if (!controller.busy()) return;
+  QEventLoop loop;
+  QObject::connect(&controller, &StructuralController::changed, &loop, [&] {
+    if (!controller.busy()) loop.quit();
+  });
+  QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+  loop.exec();
 }
 
 QVariantMap reviewedDraft() {
@@ -153,6 +195,7 @@ QVariantMap projectBoundDraft() {
   auto draft = reviewedDraft();
   draft["geometry_sha256"] =
       "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  draft["refinement_maximum_change_fraction"] = 0.10;
   return draft;
 }
 
@@ -162,10 +205,7 @@ int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   QTemporaryDir temporary;
   require(temporary.isValid(), "temporary structural workspace exists");
-  QFile mesh(temporary.filePath("tetra.inp"));
-  require(mesh.open(QIODevice::WriteOnly | QIODevice::Truncate),
-          "structural fixture mesh opens");
-  mesh.write(R"(*Heading
+  constexpr std::string_view coarseMesh = R"(*Heading
 *NODE
 1, 0, 0, 0
 2, 10, 0, 0
@@ -173,8 +213,24 @@ int main(int argc, char **argv) {
 4, 0, 0, 10
 *ELEMENT, TYPE=C3D4, ELSET=Volume1
 1, 1, 2, 3, 4
-)");
-  mesh.close();
+)";
+  constexpr std::string_view fineMesh = R"(*Heading
+*NODE
+1, 0, 0, 0
+2, 10, 0, 0
+3, 0, 10, 0
+4, 0, 0, 10
+5, 2.5, 2.5, 2.5
+*ELEMENT, TYPE=C3D4, ELSET=Volume1
+1, 1, 2, 3, 5
+2, 1, 4, 2, 5
+3, 1, 3, 4, 5
+4, 2, 4, 3, 5
+)";
+  const auto coarseMeshPath = temporary.filePath("tetra-coarse.inp");
+  const auto fineMeshPath = temporary.filePath("tetra-fine.inp");
+  writeQtFixture(coarseMeshPath, coarseMesh);
+  writeQtFixture(fineMeshPath, fineMesh);
 
   prometheus::run_store::ProjectV2 initialProject;
   initialProject.name = "Structural controller fixture";
@@ -270,7 +326,7 @@ int main(int argc, char **argv) {
 
   auto countingBackend = std::make_shared<CountingStructuralBackend>();
   StructuralController controller(&project, nullptr, countingBackend);
-  controller.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001, 1.0);
+  controller.loadMesh(QUrl::fromLocalFile(coarseMeshPath), 0.001, 1.0);
   (void)controller.meshSummary();
   (void)controller.surfacePatches();
   (void)controller.meshSummary();
@@ -322,31 +378,34 @@ int main(int argc, char **argv) {
   controller.setPatchSelected(2, "restraint", true);
   controller.reviewSetup(reviewedDraft());
   bool sourceMismatchBlocked = false;
-  for (const auto &value : controller.blockers())
+  bool criterionBlocked = false;
+  for (const auto &value : controller.blockers()) {
     sourceMismatchBlocked = sourceMismatchBlocked ||
         value.toMap().value("code") == "structural_geometry_binding_mismatch";
-  require(!controller.canRun() && sourceMismatchBlocked &&
+    criterionBlocked = criterionBlocked ||
+        value.toMap().value("code") == "refinement_criterion_invalid";
+  }
+  require(!controller.canRun() && sourceMismatchBlocked && criterionBlocked &&
               project.committedRunCount() == 0,
-          "desktop rejects reviewed geometry that differs from the loaded project assembly");
-  controller.reviewSetup(projectBoundDraft());
+          "desktop rejects mismatched geometry and a missing predeclared criterion");
+  auto coarseDraft = projectBoundDraft();
+  controller.reviewSetup(coarseDraft);
   require(controller.status() == "ready_for_execution" && controller.canRun() &&
               controller.blockers().isEmpty() &&
               controller.requestPreview().value("fixed_nodes").toInt() == 3 &&
               controller.requestPreview().value("loaded_nodes").toInt() == 3,
           "reviewed desktop setup compiles through authoritative structural validation");
-  QEventLoop runLoop;
-  QObject::connect(&controller, &StructuralController::runFinished,
-                   &runLoop, &QEventLoop::quit);
-  QTimer::singleShot(5000, &runLoop, &QEventLoop::quit);
+  const auto solverUrl =
+      QUrl::fromLocalFile(QString::fromUtf8(PROMETHEUS_SOLVER_FIXTURE_PATH));
+  const auto outputUrl = QUrl::fromLocalFile(temporary.path());
   controller.runAnalysis(
-      QUrl::fromLocalFile(QString::fromUtf8(PROMETHEUS_SOLVER_FIXTURE_PATH)),
-      QUrl::fromLocalFile(temporary.path()));
-  runLoop.exec();
-  require(controller.lastRun().value("evaluated_obligations").toInt() == 0 &&
-              controller.findings().isEmpty() &&
-              !controller.lastRun().value("archived").toBool(),
-          "presentation-supplied refinement fields cannot generate findings or an archive");
-  require(!controller.busy() && controller.status() == "execution_completed" &&
+      solverUrl, outputUrl);
+  waitForRun(controller);
+  require(!controller.busy() && controller.hasRefinementBaseline() &&
+              controller.sharedInputsLocked() &&
+              controller.refinementStage() == "fine" &&
+              controller.status() ==
+                  "execution_completed_evaluation_pending" &&
               controller.lastRun().value("status") == "completed" &&
               controller.lastRun().value("evaluated_obligations").toInt() == 0 &&
               controller.lastRun().value("maximum_displacement_node_id").toInt() == 1 &&
@@ -357,15 +416,15 @@ int main(int argc, char **argv) {
               controller.resultView().value("color_max_pa").toDouble() == 1.0e6 &&
               controller.findings().isEmpty() &&
               !controller.lastRun().value("archived").toBool() &&
-              controller.lastRun().value("archive_error").toString().contains(
-                  "trusted mesh-refinement") &&
               !controller.setupDraft().contains("refinement_complete"),
-          "desktop executes once and exposes raw results without promoting untrusted refinement fields");
+          "one completed coarse solve becomes a retained baseline, not a pass");
   require(countingBackend->counts().prepare_mesh == 1 &&
               countingBackend->counts().group_patches == 1 &&
               countingBackend->counts().compile_setup == 1 &&
-              countingBackend->counts().execute == 1,
-          "reviewed structural stages execute exactly once");
+              countingBackend->counts().execute == 0 &&
+              countingBackend->counts().execute_sample == 1 &&
+              countingBackend->counts().finalize_refinement == 0,
+          "the production controller executes one coarse sample exactly once");
   const auto activeOutput =
       controller.lastRun().value("output_directory").toString();
   require(controller.loadMaterialEvidence(
@@ -374,73 +433,76 @@ int main(int argc, char **argv) {
               countingBackend->counts().prepare_mesh == 1 &&
               countingBackend->counts().group_patches == 1 &&
               countingBackend->counts().compile_setup == 1 &&
-              countingBackend->counts().execute == 1,
-          "browsing material candidates is read-only and retains the active run");
+              countingBackend->counts().execute_sample == 1,
+          "browsing material candidates is read-only and retains the baseline");
   controller.commitLastRun();
   require(project.committedRunCount() == 0 &&
-              controller.error().contains("completed active structural archive"),
-          "an unrefined desktop run cannot mutate the project");
+              controller.error().contains("refinement archive"),
+          "a coarse-only baseline cannot mutate the project");
 
-  const auto trustedRoot =
-      std::filesystem::path(temporary.path().toStdWString()) /
-      "trusted-refinement";
-  const auto coarseDirectory = trustedRoot / "coarse";
-  const auto fineDirectory = trustedRoot / "fine";
-  require(std::filesystem::create_directories(coarseDirectory) &&
-              std::filesystem::create_directories(fineDirectory),
-          "trusted refinement run directories are created");
-  const auto compiledSetup = countingBackend->lastSetup();
-  const auto solverFixture =
-      std::filesystem::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
-  const auto coarse = ps::run_calculix(
-      {solverFixture, coarseDirectory, "desktop_cantilever_coarse",
-       std::chrono::seconds(5)},
-      compiledSetup);
-  const auto fine = ps::run_calculix(
-      {solverFixture, fineDirectory, "desktop_cantilever_fine",
-       std::chrono::seconds(5)},
-      compiledSetup);
-  require(coarse.status == ps::SolverRunStatus::completed &&
-              coarse.validated_result &&
-              fine.status == ps::SolverRunStatus::completed &&
-              fine.validated_result,
-          "trusted refinement inputs are independently completed solver results");
-  const auto refinement = ps::compile_structural_refinement_evidence(
-      *coarse.validated_result, *fine.validated_result, 0.10);
-  const auto evaluation = ps::compile_structural_findings(
-      compiledSetup.request, fine.validated_result, refinement);
-  require(refinement.complete && refinement.criteria_satisfied &&
-              evaluation.evaluated_obligations == 2 &&
-              evaluation.findings.size() == 2,
-          "typed refinement compiler—not presentation data—unlocks findings");
-  const auto trustedArchive = ps::write_structural_archive(
-      fineDirectory, "desktop_cantilever_fine", compiledSetup, fine,
-      evaluation);
-  const auto archivePath = trustedArchive.manifest_path;
-  const auto verified = prometheus::structural::verify_structural_archive(
-      archivePath);
-  require(verified.valid && verified.evaluated_obligations == 2,
-          "offline archive verification replays exact raw DAT metrics");
+  controller.loadMesh(QUrl::fromLocalFile(fineMeshPath), 0.001, 1.0);
+  require(controller.hasRefinementBaseline() &&
+              controller.refinementStage() == "fine" &&
+              controller.meshSummary().value("elements").toInt() == 4,
+          "loading a distinct fine mesh retains the completed baseline");
+  controller.setPatchSelected(1, "load", true);
+  controller.setPatchSelected(2, "restraint", true);
+  const auto coarseExecutionCount =
+      countingBackend->counts().execute_sample;
+  controller.setPatchSelected(3, "load", true);
+  require(controller.hasRefinementBaseline() &&
+              !controller.lastRun().value("archived").toBool() &&
+              countingBackend->counts().execute_sample == coarseExecutionCount,
+          "fine-only edits retain the baseline and invalidate only fine state");
+  controller.setPatchSelected(3, "load", false);
+  auto fineDraft = projectBoundDraft();
+  fineDraft["mesh_target_size_m"] = 0.001;
+  fineDraft["boundary_load_correspondence_reviewed"] = true;
+  fineDraft["boundary_restraint_correspondence_reviewed"] = true;
+  controller.reviewSetup(fineDraft);
+  require(controller.canRun() && controller.status() == "ready_for_execution",
+          "reviewed finer setup is ready without repeating the coarse solve");
+  controller.runAnalysis(solverUrl, outputUrl);
+  waitForRun(controller);
+  require(controller.status() == "comparison_accepted" &&
+              controller.refinementStage() == "completed" &&
+              controller.lastRun().value("archived").toBool() &&
+              controller.lastRun().value("archive_schema_version") == "3.0.0" &&
+              controller.refinementComparison().value("status") == "accepted" &&
+              controller.findings().size() == 2,
+          "the second controller run creates accepted findings and a v3 archive");
+  const auto archivePath = std::filesystem::path(
+      controller.lastRun().value("archive_manifest").toString().toStdString());
+  const auto verified =
+      prometheus::structural::verify_structural_archive(archivePath);
+  require(verified.valid && verified.schema_version == "3.0.0" &&
+              verified.refinement && verified.evaluated_obligations == 2,
+          "offline archive verification replays both retained samples");
   const auto exportedDirectory = std::filesystem::path(temporary.path().toStdWString()) /
                                  "relocated-structural-run";
   const auto exported = prometheus::structural::export_structural_archive(
       archivePath, exportedDirectory);
   require(prometheus::structural::verify_structural_archive(
               exported.manifest_path).valid &&
-              exported.manifest_sha256 == trustedArchive.manifest_sha256,
+              exported.manifest_sha256 ==
+                  controller.lastRun().value("archive_sha256")
+                      .toString().toStdString(),
           "verified archive relocates with identical manifest identity");
-  auto archiveObjects =
-      prometheus::run_store::build_structural_archive_objects(
-          archivePath, initialProject.assembly_artifact_hash,
-          trustedArchive.manifest_sha256);
-  require(archiveObjects.has_value() &&
-              prometheus::run_store::publish_structural_archive(
-                  projectPath, archiveObjects.value())
-                  .has_value(),
-          "trusted refined archive graph publishes through the run-store boundary");
-  require(countingBackend->counts().compile_setup == 1 &&
-              countingBackend->counts().execute == 1,
-          "trusted archive publication does not repeat the desktop calculation");
+  (void)controller.meshSummary();
+  (void)controller.findings();
+  (void)controller.refinementComparison();
+  controller.commitLastRun();
+  waitForPublication(controller);
+  require(project.committedRunCount() == 1 &&
+              controller.lastRun().value("project_anchored").toBool(),
+          "the valid production controller path publishes its retained archive");
+  require(countingBackend->counts().prepare_mesh == 2 &&
+              countingBackend->counts().group_patches == 2 &&
+              countingBackend->counts().compile_setup == 2 &&
+              countingBackend->counts().execute == 0 &&
+              countingBackend->counts().execute_sample == 2 &&
+              countingBackend->counts().finalize_refinement == 1,
+          "reads, export, and publication never repeat structural calculation");
   CadController reopenedCad;
   EngineeringController reopenedEngineering;
   ProjectController reopened(&reopenedCad, &reopenedEngineering);
@@ -472,7 +534,12 @@ int main(int argc, char **argv) {
               << restoredController.error().toStdString() << '\n';
   require(restoredController.status() == "structural_archive_restored" &&
               restoredController.resultGeometry() != nullptr &&
-              restoredController.canRun() &&
+              !restoredController.canRun() &&
+              restoredController.hasRefinementBaseline() &&
+              restoredController.sharedInputsLocked() &&
+              restoredController.refinementStage() == "completed" &&
+              restoredController.refinementComparison().value("status") ==
+                  "accepted" &&
               restoredController.setupDraft().value("analysis_id") ==
                   "desktop-structural-preview" &&
               restoredController.selectedLoadPatchIds().size() == 1 &&
@@ -480,13 +547,15 @@ int main(int argc, char **argv) {
               restoredController.findings().size() == 2 &&
               restoredController.lastRun().value("status") ==
                   "restored_verified",
-          "reopened desktop restores editable reviewed setup and result visualization");
+          "reopened desktop restores the verified pair and fine result visualization");
   (void)restoredController.meshSummary();
   (void)restoredController.findings();
   require(restoreCountingBackend->counts().prepare_mesh == 0 &&
               restoreCountingBackend->counts().group_patches == 1 &&
               restoreCountingBackend->counts().compile_setup == 0 &&
-              restoreCountingBackend->counts().execute == 0,
+              restoreCountingBackend->counts().execute == 0 &&
+              restoreCountingBackend->counts().execute_sample == 0 &&
+              restoreCountingBackend->counts().finalize_refinement == 0,
           "restore verifies once, regroups once, and does not recompile or execute");
   auto changedSnapshot = *reopened.project();
   changedSnapshot.assembly_artifact_hash =
@@ -529,48 +598,108 @@ int main(int argc, char **argv) {
   require(restored.has_value() &&
               prometheus::structural::verify_structural_archive(restored.value()).valid,
           "reopened project reconstructs a fully replayable structural archive");
-  QFile changed(QString::fromStdWString(
-      (fineDirectory / "desktop_cantilever_fine.dat").wstring()));
+  const auto fineDat =
+      archivePath.parent_path() /
+      (verified.refinement->fine().options().job_name + ".dat");
+  QFile changed(QString::fromStdWString(fineDat.wstring()));
   require(changed.open(QIODevice::Append), "archived DAT opens for corruption test");
   changed.write("changed\n");
   changed.close();
   require(!prometheus::structural::verify_structural_archive(
                archivePath).valid,
           "changed raw solver output invalidates offline archive verification");
-  auto changedForce = projectBoundDraft();
-  changedForce["force_z_n"] = -101.0;
-  controller.reviewSetup(changedForce);
-  require(countingBackend->counts().prepare_mesh == 1 &&
-              countingBackend->counts().compile_setup == 2,
-          "reviewed force edit recompiles setup without preparing the mesh again");
-  controller.setPatchAngle(5.0);
-  (void)controller.meshSummary();
-  (void)controller.surfacePatches();
-  require(countingBackend->counts().prepare_mesh == 1 &&
-              countingBackend->counts().group_patches == 2,
-          "patch-angle edit regroups the prepared boundary without reparsing mesh bytes");
-  auto blocked = projectBoundDraft();
-  blocked["material_reviewed"] = false;
-  controller.reviewSetup(blocked);
-  bool materialBlocked = false;
-  for (const auto &value : controller.blockers())
-    materialBlocked = materialBlocked ||
-        value.toMap().value("code") == "material_unreviewed";
-  require(!controller.canRun() && controller.status() == "setup_blocked" &&
-              materialBlocked && controller.lastRun().isEmpty() &&
-              controller.findings().isEmpty(),
-          "desktop cannot bypass review or retain stale execution after setup changes");
+
+  auto retryBackend = std::make_shared<CountingStructuralBackend>(true);
+  StructuralController retryController(&project, nullptr, retryBackend);
+  retryController.loadMesh(QUrl::fromLocalFile(coarseMeshPath), 0.001, 1.0);
+  retryController.setPatchSelected(1, "load", true);
+  retryController.setPatchSelected(2, "restraint", true);
+  retryController.reviewSetup(projectBoundDraft());
+  retryController.runAnalysis(solverUrl, outputUrl);
+  waitForRun(retryController);
+  require(retryController.hasRefinementBaseline() &&
+              retryBackend->counts().execute_sample == 1,
+          "retry fixture retains one coarse execution");
+
+  auto lockedFineDraft = projectBoundDraft();
+  lockedFineDraft["analysis_id"] = "tampered-analysis";
+  lockedFineDraft["component_name"] = "tampered-component";
+  lockedFineDraft["geometry_sha256"] =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  lockedFineDraft["material_designation"] = "tampered material";
+  lockedFineDraft["force_z_n"] = -999.0;
+  lockedFineDraft["displacement_limit_m"] = 0.5;
+  lockedFineDraft["scenario_description"] = "tampered scenario";
+  lockedFineDraft["boundary_load_correspondence_reviewed"] = true;
+  lockedFineDraft["boundary_restraint_correspondence_reviewed"] = true;
+  retryController.reviewSetup(lockedFineDraft);
+  bool notFinerBlocked = false;
+  for (const auto &value : retryController.blockers())
+    notFinerBlocked = notFinerBlocked ||
+        value.toMap().value("code") == "refinement_mesh_not_finer";
+  require(notFinerBlocked && !retryController.canRun() &&
+              retryBackend->counts().execute_sample == 1 &&
+              retryController.setupDraft().value("analysis_id") ==
+                  "desktop-structural-preview" &&
+              retryController.setupDraft().value("component_name") ==
+                  "reviewed tetrahedron" &&
+              retryController.setupDraft().value("geometry_sha256") ==
+                  initialProject.assembly_artifact_hash.c_str() &&
+              retryController.setupDraft().value("material_designation") ==
+                  "benchmark material" &&
+              retryController.setupDraft().value("force_z_n").toDouble() ==
+                  -100.0 &&
+              retryController.setupDraft()
+                      .value("displacement_limit_m").toDouble() == 0.001 &&
+              retryController.setupDraft().value("scenario_description") ==
+                  "bounded desktop structural preview",
+          "a direct fine draft cannot change locked physics and a reused mesh is blocked");
+
+  retryController.loadMesh(QUrl::fromLocalFile(fineMeshPath), 0.001, 1.0);
+  retryController.setPatchSelected(1, "load", true);
+  retryController.setPatchSelected(2, "restraint", true);
+  lockedFineDraft["mesh_target_size_m"] = 0.001;
+  retryController.reviewSetup(lockedFineDraft);
+  require(retryController.canRun() &&
+              retryController.hasRefinementBaseline(),
+          "locked shared physics permits a reviewed distinct fine mesh");
+  retryController.runAnalysis(solverUrl, outputUrl);
+  waitForRun(retryController);
+  require(retryController.hasRefinementBaseline() &&
+              retryController.refinementStage() == "fine" &&
+              retryController.status() == "execution_failed" &&
+              !retryController.lastRun().value("archived").toBool() &&
+              retryBackend->counts().execute_sample == 2 &&
+              retryBackend->counts().finalize_refinement == 0,
+          "a failed fine run retains the baseline and cannot finalize");
+  retryController.runAnalysis(solverUrl, outputUrl);
+  waitForRun(retryController);
+  require(retryController.status() == "comparison_accepted" &&
+              retryBackend->counts().execute_sample == 3 &&
+              retryBackend->counts().finalize_refinement == 1,
+          "a unique fine retry succeeds without another coarse execution");
+  retryController.discardRefinementBaseline();
+  require(!retryController.hasRefinementBaseline() &&
+              !retryController.sharedInputsLocked() &&
+              retryController.refinementStage() == "coarse" &&
+              retryController.baselineRun().isEmpty() &&
+              retryController.refinementComparison().isEmpty() &&
+              retryController.lastRun().isEmpty(),
+          "discarding the baseline clears both active refinement stages");
+
   controller.reset();
   require(controller.status() == "mesh_required" &&
               controller.surfacePatches().isEmpty() && !controller.canRun(),
           "reset removes transient structural setup authority");
 
   StructuralController reviewInvalidation;
-  reviewInvalidation.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001,
+  reviewInvalidation.loadMesh(QUrl::fromLocalFile(coarseMeshPath), 0.001,
                               1.0);
   reviewInvalidation.setPatchSelected(1, "load", true);
   reviewInvalidation.setPatchSelected(2, "restraint", true);
-  reviewInvalidation.reviewSetup(reviewedDraft());
+  auto invalidationDraft = reviewedDraft();
+  invalidationDraft["refinement_maximum_change_fraction"] = 0.10;
+  reviewInvalidation.reviewSetup(invalidationDraft);
   require(reviewInvalidation.canRun(),
           "review-invalidation fixture begins with a compiled setup");
   reviewInvalidation.setPatchSelected(3, "load", true);
