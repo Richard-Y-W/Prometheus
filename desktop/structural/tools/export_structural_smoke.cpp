@@ -1,8 +1,10 @@
 #include "prometheus/structural/calculix_deck.hpp"
+#include "prometheus/structural/smoke_case.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <string>
 
 namespace ps = prometheus::structural;
 
@@ -13,46 +15,8 @@ int main(int argc, char **argv) {
   }
   const std::filesystem::path output(argv[1]);
   std::filesystem::create_directories(output);
-  const ps::StructuralRequest request{
-      .analysis_id = "analytic-tetra-smoke-v1",
-      .component_name = "analytic tetrahedron (not YUBI evidence)",
-      .geometry_sha256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      .nodes = {{1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
-                {3, {0.0, 1.0, 0.0}}, {4, {0.0, 0.0, 1.0}}},
-      .elements = {{1, {1, 2, 3, 4}}},
-      .youngs_modulus_pa = 2.0e11,
-      .poisson_ratio = 0.3,
-      .fully_fixed_node_ids = {1, 2, 3},
-      .nodal_forces = {{4, {0.0, 0.0, -1000.0}}},
-      .displacement_limit_m = 1.0e-6,
-      .von_mises_limit_pa = 1.0e7,
-      .material_reviewed = true,
-      .loads_reviewed = true,
-      .restraints_reviewed = true,
-      .requirements_reviewed = true,
-      .scenario_confirmed = true,
-      .material_designation = "synthetic linear-elastic fixture",
-      .material_temper = "not applicable",
-      .material_product_form = "analytic tetrahedron",
-      .material_applicability = "assumed",
-      .material_evidence_sha256 =
-          "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      .mesh_sha256 =
-          "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      .restraint_surface_groups = {"analytic-fixed-face"},
-      .load_surface_groups = {"analytic-load-node"},
-      .reviewed_force_magnitude_n = 1000.0,
-      .reviewed_force_direction = {0.0, 0.0, -1.0},
-      .selected_load_area_m2 = 0.5,
-      .mesh_target_size_m = 1.0,
-      .minimum_mean_ratio_threshold = 0.01,
-      .observed_minimum_mean_ratio = 0.8399473666,
-      .displacement_limit_basis = "synthetic smoke threshold",
-      .von_mises_limit_basis = "synthetic smoke threshold",
-      .mesh_reviewed = true,
-  };
-  const auto deck = ps::generate_calculix_deck(request);
-  const auto path = output / "prometheus_tetra_smoke.inp";
+  const auto deck = ps::generate_calculix_deck(ps::structural_smoke_request());
+  const auto path = output / (std::string(ps::calculix_smoke_job_name) + ".inp");
   std::ofstream stream(path, std::ios::binary | std::ios::trunc);
   stream.write(deck.data(), static_cast<std::streamsize>(deck.size()));
   if (!stream) {

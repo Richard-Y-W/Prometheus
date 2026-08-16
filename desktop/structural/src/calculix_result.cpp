@@ -79,6 +79,22 @@ bool near_final_time(const double value) {
   return std::abs(value - finalStepTime) <= timeTolerance;
 }
 
+bool solver_completed(const std::string_view standardOutput) {
+  std::istringstream input{std::string(standardOutput)};
+  std::string line;
+  while (std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r')
+      line.pop_back();
+    const auto first = line.find_first_not_of(" \t");
+    if (first == std::string::npos)
+      continue;
+    const auto last = line.find_last_not_of(" \t");
+    if (line.substr(first, last - first + 1U) == "Job finished")
+      return true;
+  }
+  return false;
+}
+
 bool solver_reports_error(const std::string &standardOutput,
                           const std::string &standardError) {
   auto combined = standardOutput + '\n' + standardError;
@@ -266,7 +282,7 @@ CompiledCalculixResult compile_calculix_result(
   if (evidence.process_exit_code != 0)
     add_issue(result, "solver_process_failed",
               "CalculiX process returned a nonzero exit status");
-  if (evidence.standard_output.find("Job finished") == std::string::npos)
+  if (!solver_completed(evidence.standard_output))
     add_issue(result, "solver_completion_marker_missing",
               "CalculiX completion marker is absent from standard output");
   if (solver_reports_error(evidence.standard_output, evidence.standard_error))

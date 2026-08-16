@@ -29,14 +29,18 @@ Implemented:
 - Qt-free typed nodes, first-order tetrahedra, nodal forces, full-node
   restraints, material values, reviewed requirements, and review gates;
 - validation for exact geometry identity, unsupported schema, non-finite or
-  invalid material values, missing mesh references, zero-volume tetrahedra,
-  missing loads, fewer than three non-collinear fixed nodes, missing limits,
-  and unconfirmed review state;
+  invalid material values, missing mesh references, inverted or zero-volume
+  tetrahedra, zero-resultant or duplicate loads, unsafe heading text, weak
+  reviewed mesh quality, fewer than three non-collinear fixed nodes, missing
+  limit bases, and unconfirmed review state;
 - deterministic SI CalculiX input generation using `C3D4` and an explicitly
   pinned `SPOOLES` equation solver;
-- deterministic parsing of raw `.dat` displacement and stress rows into
-  maximum displacement and von Mises stress;
-- missing output sections fail instead of becoming zero-valued results.
+- typed parsing of raw `.dat` displacement and stress identities;
+- fail-closed result compilation that binds the exact regenerated deck,
+  executable hash and version, process status, completion and error streams,
+  final `.sta` convergence state, and complete final-step node and element row
+  coverage before calculating displacement or von Mises metrics;
+- cryptographic hashes for every raw artifact consumed by that compiler.
 
 Installed development backends:
 
@@ -47,7 +51,7 @@ The initial PaStiX default crashed with Windows access violation `0xC0000005`.
 Prometheus therefore pins SPOOLES; the same smoke deck completed successfully.
 This is backend compatibility evidence, not validation of the YUBI bracket.
 
-Successful smoke artifacts:
+Artifacts from the prior successful real Windows smoke:
 
 | Artifact | SHA-256 |
 | --- | --- |
@@ -60,11 +64,20 @@ integration-point stress state compiled to `3428.571 Pa` von Mises. These
 values prove parser/execution wiring only; no independent benchmark tolerance
 has been claimed yet.
 
-Run the reproducible smoke with:
+The checked-in `fixtures/structural/calculix-smoke/complete` case is explicitly
+synthetic and only tests parser and coverage wiring. It is not solver-execution
+evidence. Run the real reproducible gate on Windows with:
 
 ```powershell
 .\scripts\run-calculix-smoke.ps1
 ```
+
+The command deletes stale outputs for this one generated job, captures the
+actual solver executable hash, version, exit status, stdout, and stderr, and
+passes the generated deck plus `.sta` and `.dat` bytes through the same Qt-free
+result compiler. A missing file, solver error marker, incomplete step, stale or
+modified deck, non-finite value, or missing/duplicate/unexpected result identity
+causes a nonzero gate result; file existence alone cannot pass.
 
 ## Checkpoint 2: real bracket meshing
 

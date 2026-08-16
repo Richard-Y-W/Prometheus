@@ -312,6 +312,14 @@ int main() {
               "solver_completion_marker_missing"),
           "missing solver completion marker is indeterminate");
 
+  auto deceptiveCompletion = evidence;
+  deceptiveCompletion.standard_output =
+      "No Job finished marker was emitted by the solver\n";
+  require(hasResultIssue(
+              ps::compile_calculix_result(request, deceptiveCompletion),
+              "solver_completion_marker_missing"),
+          "completion text embedded in another line is indeterminate");
+
   auto errorMarker = evidence;
   errorMarker.standard_output =
       "*ERROR in e_c3d: nonpositive jacobian\nJob finished\n";
