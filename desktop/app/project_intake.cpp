@@ -85,6 +85,37 @@ int countState(const QVariantList &artifacts, const QString &state) {
       }));
 }
 
+bool isStrictContentDigest(const QByteArray &digest) {
+  if (digest.size() != 71 || !digest.startsWith("sha256:"))
+    return false;
+  return std::all_of(digest.cbegin() + 7, digest.cend(), [](const char value) {
+    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
+  });
+}
+
+QString inventoryDigest(const QVariantList &artifacts) {
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  for (const auto &value : artifacts) {
+    const auto row = value.toMap();
+    const auto relativePath = row.value("relative_path").toString().toUtf8();
+    const auto byteSize = row.value("byte_size").toLongLong();
+    const auto contentDigest = row.value("sha256").toString().toLatin1();
+    if (byteSize < 0 || !isStrictContentDigest(contentDigest))
+      return {};
+
+    QByteArray record;
+    record.reserve(relativePath.size() + 68);
+    record.append(relativePath);
+    record.append('\0');
+    record.append(QByteArray::number(byteSize));
+    record.append('\0');
+    record.append(contentDigest.mid(7));
+    record.append('\n');
+    hash.addData(record);
+  }
+  return "sha256:" + QString::fromLatin1(hash.result().toHex());
+}
+
 } // namespace
 
 QVariantMap readCandidateComponentManifest(const QVariantMap &manifestArtifact,
@@ -158,6 +189,8 @@ ProjectIntakeResult scanProjectFolder(const QString &rootPath) {
               return left.toMap().value("relative_path").toString() <
                      right.toMap().value("relative_path").toString();
             });
+
+  result.inventory_sha256 = inventoryDigest(result.artifacts);
 
   QHash<QString, int> digestCounts;
   for (const auto &value : result.artifacts) {
