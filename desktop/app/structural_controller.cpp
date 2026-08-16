@@ -846,6 +846,7 @@ void StructuralController::applyCompiledPreview(
       {"restraint_faces",
        static_cast<qlonglong>(setup.restraint.selection.face_node_ids.size())},
       {"selected_load_area_m2", setup.load.selection.area_m2},
+      {"selected_restraint_area_m2", setup.restraint.selection.area_m2},
       {"resultant_force_x_n", resultant[0]},
       {"resultant_force_y_n", resultant[1]},
       {"resultant_force_z_n", resultant[2]},
@@ -1208,6 +1209,14 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
       baseline_sample_ = completed.sample.sample;
       refinement_criterion_ = baseline_sample_->criterion();
       baseline_run_ = last_run_;
+      baseline_run_["nodes"] = static_cast<qlonglong>(
+          baseline_sample_->setup().reviewed_setup.mesh.nodes.size());
+      baseline_run_["elements"] = static_cast<qlonglong>(
+          baseline_sample_->setup().reviewed_setup.mesh.elements.size());
+      baseline_run_["selected_load_area_m2"] =
+          baseline_sample_->setup().reviewed_setup.load.selection.area_m2;
+      baseline_run_["selected_restraint_area_m2"] =
+          baseline_sample_->setup().reviewed_setup.restraint.selection.area_m2;
       refinement_stage_ = "fine";
       status_ = "execution_completed_evaluation_pending";
       compiled_setup_.reset();
@@ -1588,7 +1597,15 @@ void StructuralController::restoreStoredRun(const int index,
           {"elapsed_ms", static_cast<qlonglong>(coarseRun.elapsed.count())},
           {"output_directory", qt_path(coarse.options().working_directory)},
           {"archived", false},
-          {"evaluated_obligations", 0}};
+          {"evaluated_obligations", 0},
+          {"nodes", static_cast<qlonglong>(
+                        coarse.setup().reviewed_setup.mesh.nodes.size())},
+          {"elements", static_cast<qlonglong>(
+                           coarse.setup().reviewed_setup.mesh.elements.size())},
+          {"selected_load_area_m2",
+           coarse.setup().reviewed_setup.load.selection.area_m2},
+          {"selected_restraint_area_m2",
+           coarse.setup().reviewed_setup.restraint.selection.area_m2}};
       if (coarseRun.validated_result &&
           coarseRun.validated_result->metrics) {
         baseline_run_["maximum_displacement_m"] =

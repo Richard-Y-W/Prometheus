@@ -15,20 +15,29 @@ Item {
     property url calculixExecutable
     property url outputRoot
     property string appliedRestoredManifest
+    readonly property bool workflowAccepted: structuralController.status === "comparison_accepted"
+    readonly property bool workflowFailed: structuralController.status.indexOf("failed") >= 0
+    readonly property color workflowStatusColor: workflowAccepted ? "#70c99a" :
+                                                   (workflowFailed ? "#e87972" : "#e0ac62")
 
     function invalidateLoadReview() {
         loadReviewed.checked = false
-        scenarioConfirmed.checked = false
+        loadCorrespondenceReviewed.checked = false
+        if (!structuralController.sharedInputsLocked)
+            scenarioConfirmed.checked = false
     }
 
     function invalidateRestraintReview() {
         restraintReviewed.checked = false
-        scenarioConfirmed.checked = false
+        restraintCorrespondenceReviewed.checked = false
+        if (!structuralController.sharedInputsLocked)
+            scenarioConfirmed.checked = false
     }
 
     function invalidateMaterialReview() {
         materialReviewed.checked = false
-        scenarioConfirmed.checked = false
+        if (!structuralController.sharedInputsLocked)
+            scenarioConfirmed.checked = false
     }
 
     function invalidateRequirementReview() {
@@ -37,7 +46,8 @@ Item {
 
     function invalidateMeshReview() {
         meshReviewed.checked = false
-        scenarioConfirmed.checked = false
+        if (!structuralController.sharedInputsLocked)
+            scenarioConfirmed.checked = false
     }
 
     function setApplicability(value) {
@@ -95,6 +105,9 @@ Item {
         meshReviewed.checked = draft.mesh_controls_reviewed
         scenarioDescription.text = draft.scenario_description
         scenarioConfirmed.checked = draft.scenario_confirmed
+        refinementMaximumChange.text = String(draft.refinement_maximum_change_fraction || 0.10)
+        loadCorrespondenceReviewed.checked = draft.boundary_load_correspondence_reviewed || false
+        restraintCorrespondenceReviewed.checked = draft.boundary_restraint_correspondence_reviewed || false
         coordinateScale.text = String(structuralController.meshSummary.coordinate_scale_to_m || 1)
         patchAngle.text = String(structuralController.meshSummary.patch_angle_degrees || 15)
     }
@@ -133,7 +146,10 @@ Item {
             mesher_identity: mesherIdentity.text,
             mesh_controls_reviewed: meshReviewed.checked,
             scenario_description: scenarioDescription.text,
-            scenario_confirmed: scenarioConfirmed.checked
+            scenario_confirmed: scenarioConfirmed.checked,
+            refinement_maximum_change_fraction: Number(refinementMaximumChange.text),
+            boundary_load_correspondence_reviewed: loadCorrespondenceReviewed.checked,
+            boundary_restraint_correspondence_reviewed: restraintCorrespondenceReviewed.checked
         });
     }
 
@@ -175,7 +191,7 @@ Item {
                 spacing: 2
                 Label { text: "BOUNDED LINEAR-STATIC WORKFLOW"; color: mutedColor; font.bold: true; font.pixelSize: 11 }
                 Label { text: "Structural setup review"; color: textColor; font.pixelSize: 23 }
-                Label { text: "Status: " + structuralController.status; color: structuralController.canRun ? "#70c99a" : "#e0ac62" }
+                Label { text: "Status: " + structuralController.status; color: root.workflowStatusColor }
             }
             Item { Layout.fillWidth: true }
             Button { text: "×"; flat: true; onClicked: root.closeRequested() }
@@ -222,7 +238,12 @@ Item {
                             }
                         }
                     }
-                    Button { text: "Load generated tetra mesh…"; Layout.fillWidth: true; onClicked: meshDialog.open() }
+                    Button {
+                        text: structuralController.hasRefinementBaseline ?
+                              "Load fine mesh…" : "Load coarse mesh…"
+                        Layout.fillWidth: true
+                        onClicked: meshDialog.open()
+                    }
                     Label {
                         Layout.fillWidth: true
                         color: mutedColor
@@ -378,15 +399,33 @@ Item {
                         width: parent.width
                         spacing: 7
                         Label { text: "2  REVIEW INPUTS"; color: textColor; font.bold: true }
+                        Label { text: "Maximum coarse-to-fine change"; color: mutedColor }
+                        TextField {
+                            id: refinementMaximumChange
+                            objectName: "refinementMaximumChange"
+                            Layout.fillWidth: true
+                            text: "0.10"
+                            enabled: !structuralController.sharedInputsLocked
+                            validator: DoubleValidator { bottom: 0; top: 1 }
+                        }
+                        Button {
+                            objectName: "discardRefinementBaseline"
+                            Layout.fillWidth: true
+                            visible: structuralController.hasRefinementBaseline
+                            text: "Discard baseline and start over"
+                            onClicked: structuralController.discardRefinementBaseline()
+                        }
                         Button {
                             objectName: "materialEvidenceButton"
                             text: structuralController.materialCandidates.length > 0 ?
                                 "Material evidence loaded ✓" : "Load material evidence…"
                             Layout.fillWidth: true
+                            enabled: !structuralController.sharedInputsLocked
                             onClicked: materialEvidenceDialog.open()
                         }
                         RowLayout {
                             Layout.fillWidth: true
+                            enabled: !structuralController.sharedInputsLocked
                             ComboBox {
                                 id: materialCandidateSelector
                                 objectName: "materialCandidateSelector"
@@ -423,6 +462,7 @@ Item {
                         }
                         GridLayout {
                             Layout.fillWidth: true
+                            enabled: !structuralController.sharedInputsLocked
                             columns: 2
                             columnSpacing: 8
                             rowSpacing: 5
@@ -455,10 +495,11 @@ Item {
                                 onTextEdited: root.invalidateMaterialReview()
                             }
                         }
-                        CheckBox { id: materialReviewed; text: "I reviewed material identity, source, applicability, and elastic properties"; palette.text: textColor; palette.windowText: textColor }
+                        CheckBox { id: materialReviewed; enabled: !structuralController.sharedInputsLocked; text: "I reviewed material identity, source, applicability, and elastic properties"; palette.text: textColor; palette.windowText: textColor }
                         Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
                         Label { text: "Total surface force (N)"; color: textColor; font.bold: true }
                         RowLayout {
+                            enabled: !structuralController.sharedInputsLocked
                             Label { text: "X"; color: mutedColor }
                             TextField {
                                 id: forceX
@@ -488,9 +529,26 @@ Item {
                             CheckBox { id: loadReviewed; text: "Load selection and vector reviewed"; palette.text: textColor; palette.windowText: textColor }
                             CheckBox { id: restraintReviewed; text: "Fixed surface reviewed"; palette.text: textColor; palette.windowText: textColor }
                         }
+                        CheckBox {
+                            id: loadCorrespondenceReviewed
+                            objectName: "loadCorrespondenceReviewed"
+                            visible: structuralController.hasRefinementBaseline
+                            text: "Fine load faces represent the same physical region as baseline"
+                            palette.text: textColor
+                            palette.windowText: textColor
+                        }
+                        CheckBox {
+                            id: restraintCorrespondenceReviewed
+                            objectName: "restraintCorrespondenceReviewed"
+                            visible: structuralController.hasRefinementBaseline
+                            text: "Fine restraint faces represent the same physical region as baseline"
+                            palette.text: textColor
+                            palette.windowText: textColor
+                        }
                         Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
                         GridLayout {
                             Layout.fillWidth: true; columns: 2
+                            enabled: !structuralController.sharedInputsLocked
                             Label { text: "Displacement limit (m)"; color: mutedColor }
                             TextField {
                                 id: displacementLimit
@@ -514,7 +572,7 @@ Item {
                             Label { text: "Source or exploratory rationale"; color: mutedColor }
                             TextField { id: requirementRationale; Layout.fillWidth: true; onTextEdited: root.invalidateRequirementReview() }
                         }
-                        CheckBox { id: requirementReviewed; text: "Requirement limits and rationale reviewed"; palette.text: textColor; palette.windowText: textColor }
+                        CheckBox { id: requirementReviewed; enabled: !structuralController.sharedInputsLocked; text: "Requirement limits and rationale reviewed"; palette.text: textColor; palette.windowText: textColor }
                         Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
                         GridLayout {
                             Layout.fillWidth: true; columns: 2
@@ -555,11 +613,11 @@ Item {
                         }
                         CheckBox { id: meshReviewed; text: "Mesh controls and mesher reviewed"; palette.text: textColor; palette.windowText: textColor }
                         Label { text: "Scenario description"; color: mutedColor }
-                        TextArea { id: scenarioDescription; Layout.fillWidth: true; Layout.preferredHeight: 62; wrapMode: TextEdit.Wrap; placeholderText: "What is loaded, fixed, assumed, and intentionally excluded?"; onTextChanged: scenarioConfirmed.checked = false }
-                        CheckBox { id: scenarioConfirmed; text: "I confirm this complete bounded scenario"; palette.text: textColor; palette.windowText: textColor }
+                        TextArea { id: scenarioDescription; enabled: !structuralController.sharedInputsLocked; Layout.fillWidth: true; Layout.preferredHeight: 62; wrapMode: TextEdit.Wrap; placeholderText: "What is loaded, fixed, assumed, and intentionally excluded?"; onTextChanged: if (!structuralController.sharedInputsLocked) scenarioConfirmed.checked = false }
+                        CheckBox { id: scenarioConfirmed; enabled: !structuralController.sharedInputsLocked; text: "I confirm this complete bounded scenario"; palette.text: textColor; palette.windowText: textColor }
                         Label {
                             Layout.fillWidth: true
-                            text: "This panel cannot supply refinement evidence. Execution may be inspected, but no scoped finding will be issued or archived until a typed refinement workflow validates two completed results."
+                            text: "The criterion and correspondence confirmations are reviewed inputs. Prometheus derives all result changes, coverage, findings, and archive evidence from the two completed solver runs."
                             color: "#e0ac62"
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -577,9 +635,32 @@ Item {
                     anchors.fill: parent
                     Label { text: "3  AUTHORITY CHECK"; color: textColor; font.bold: true }
                     Label {
+                        objectName: "refinementStateSummary"
+                        Layout.fillWidth: true
+                        visible: structuralController.hasRefinementBaseline ||
+                                 structuralController.refinementComparison.status !== undefined
+                        text: "REFINEMENT STAGE  " + structuralController.refinementStage.toUpperCase() +
+                              "\ncoarse  " + (structuralController.baselineRun.elements || 0) + " elements" +
+                              "  •  load " + Number(structuralController.baselineRun.selected_load_area_m2 || 0).toExponential(3) + " m²" +
+                              "  •  restraint " + Number(structuralController.baselineRun.selected_restraint_area_m2 || 0).toExponential(3) + " m²" +
+                              "\nfine  " + (structuralController.requestPreview.elements || 0) + " elements" +
+                              "  •  load " + Number(structuralController.requestPreview.selected_load_area_m2 || 0).toExponential(3) + " m²" +
+                              "  •  restraint " + Number(structuralController.requestPreview.selected_restraint_area_m2 || 0).toExponential(3) + " m²" +
+                              (structuralController.refinementComparison.status !== undefined ?
+                               "\n" + structuralController.refinementComparison.status.toUpperCase() +
+                               "  •  displacement Δ " + Number(structuralController.refinementComparison.displacement_change_fraction).toExponential(3) +
+                               "  •  stress Δ " + Number(structuralController.refinementComparison.stress_change_fraction).toExponential(3) +
+                               "\nmaximum Δ " + Number(structuralController.refinementComparison.maximum_change_fraction).toExponential(3) +
+                               "  ≤  criterion " + Number(structuralController.refinementComparison.maximum_allowed_change_fraction).toExponential(3) :
+                               "\ncomparison pending  •  criterion " + Number(refinementMaximumChange.text).toExponential(3))
+                        color: root.workflowStatusColor
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 10
+                    }
+                    Label {
                         Layout.fillWidth: true
                         text: structuralController.canRun ? "READY FOR ISOLATED EXECUTION" : structuralController.blockers.length + " BLOCKER(S)"
-                        color: structuralController.canRun ? "#70c99a" : "#e0ac62"
+                        color: root.workflowStatusColor
                         font.bold: true
                         wrapMode: Text.WordWrap
                     }
@@ -656,7 +737,11 @@ Item {
                     }
                     Button {
                         Layout.fillWidth: true
-                        text: structuralController.busy ? "Running isolated solver…" : "Run reviewed analysis"
+                        text: structuralController.busy ?
+                              (structuralController.hasRefinementBaseline ?
+                               "Running fine comparison…" : "Running coarse baseline…") :
+                              (structuralController.hasRefinementBaseline ?
+                               "Run fine comparison" : "Run coarse baseline")
                         highlighted: true
                         enabled: structuralController.canRun && !structuralController.busy && root.calculixExecutable.toString() !== "" && root.outputRoot.toString() !== ""
                         onClicked: structuralController.runAnalysis(root.calculixExecutable, root.outputRoot)
@@ -707,7 +792,7 @@ Item {
                               structuralController.lastRun.evaluated_obligations + " / " + structuralController.lastRun.declared_obligations + " obligations evaluated" +
                               (structuralController.lastRun.detail ? "\n" + structuralController.lastRun.detail : "") +
                               (structuralController.lastRun.archive_error ? "\narchive unavailable: " + structuralController.lastRun.archive_error : "")
-                        color: structuralController.lastRun.status === "completed" ? "#70c99a" : "#e87972"
+                        color: root.workflowStatusColor
                         wrapMode: Text.WordWrap
                     }
                     ListView {

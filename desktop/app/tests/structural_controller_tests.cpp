@@ -406,6 +406,11 @@ int main(int argc, char **argv) {
               controller.refinementStage() == "fine" &&
               controller.status() ==
                   "execution_completed_evaluation_pending" &&
+              controller.baselineRun().value("elements").toInt() == 1 &&
+              controller.baselineRun()
+                      .value("selected_load_area_m2").toDouble() > 0.0 &&
+              controller.baselineRun()
+                      .value("selected_restraint_area_m2").toDouble() > 0.0 &&
               controller.lastRun().value("status") == "completed" &&
               controller.lastRun().value("evaluated_obligations").toInt() == 0 &&
               controller.lastRun().value("maximum_displacement_node_id").toInt() == 1 &&
@@ -460,7 +465,10 @@ int main(int argc, char **argv) {
   fineDraft["boundary_load_correspondence_reviewed"] = true;
   fineDraft["boundary_restraint_correspondence_reviewed"] = true;
   controller.reviewSetup(fineDraft);
-  require(controller.canRun() && controller.status() == "ready_for_execution",
+  require(controller.canRun() && controller.status() == "ready_for_execution" &&
+              controller.requestPreview().value("elements").toInt() == 4 &&
+              controller.requestPreview()
+                      .value("selected_restraint_area_m2").toDouble() > 0.0,
           "reviewed finer setup is ready without repeating the coarse solve");
   controller.runAnalysis(solverUrl, outputUrl);
   waitForRun(controller);

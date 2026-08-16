@@ -197,6 +197,11 @@ class StructuralControllerProbe final : public QObject {
   Q_PROPERTY(QVariantMap resultView READ emptyMap CONSTANT)
   Q_PROPERTY(QVariantList storedRuns READ emptyList CONSTANT)
   Q_PROPERTY(QVariantMap setupDraft READ emptyMap CONSTANT)
+  Q_PROPERTY(QString refinementStage READ refinementStage CONSTANT)
+  Q_PROPERTY(bool hasRefinementBaseline READ hasRefinementBaseline CONSTANT)
+  Q_PROPERTY(bool sharedInputsLocked READ sharedInputsLocked CONSTANT)
+  Q_PROPERTY(QVariantMap baselineRun READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantMap refinementComparison READ emptyMap CONSTANT)
 
 public:
   QString status() const { return "setup_blocked"; }
@@ -214,6 +219,9 @@ public:
   }
   bool canRun() const { return false; }
   bool busy() const { return false; }
+  QString refinementStage() const { return "coarse"; }
+  bool hasRefinementBaseline() const { return false; }
+  bool sharedInputsLocked() const { return false; }
   QQuick3DGeometry *geometry() const { return nullptr; }
 
   Q_INVOKABLE void loadMesh(const QUrl &, double, double) {}
@@ -226,6 +234,7 @@ public:
   Q_INVOKABLE void runAnalysis(const QUrl &, const QUrl &) {}
   Q_INVOKABLE void commitLastRun() {}
   Q_INVOKABLE void restoreStoredRun(int, const QUrl &) {}
+  Q_INVOKABLE void discardRefinementBaseline() {}
 
 signals:
   void changed();
@@ -376,12 +385,18 @@ void verifyAuthorityScan() {
                 retired);
   for (const auto &untrustedRefinementField : {
            "refinement_complete", "refinement_criteria_satisfied",
-           "refinement_change_fraction",
-           "refinement_maximum_allowed_change_fraction",
-           "refinement_result_sha256"})
+           "refinement_change_fraction", "refinement_result_sha256",
+           "validated_result_identity"})
     require(!structuralSource.contains(untrustedRefinementField),
             std::string("structural presentation cannot submit refinement evidence: ") +
                 untrustedRefinementField);
+  require(structuralSource.contains(
+              "refinement_maximum_change_fraction") &&
+              structuralSource.contains(
+                  "boundary_load_correspondence_reviewed") &&
+              structuralSource.contains(
+                  "boundary_restraint_correspondence_reviewed"),
+          "QML may declare a pre-run criterion and explicit human review");
 
   const std::vector<QRegularExpression> forbidden{
       QRegularExpression(
@@ -432,7 +447,8 @@ void verifyStructuralPanel() {
       "canRun",          "busy",           "lastRun",
       "findings",        "meshGeometry",   "highlightGeometry",
       "resultGeometry",  "resultView",     "storedRuns",
-      "setupDraft"};
+      "setupDraft",      "refinementStage", "hasRefinementBaseline",
+      "sharedInputsLocked", "baselineRun", "refinementComparison"};
   for (int repetition = 0; repetition < 2; ++repetition)
     for (const auto *property : properties)
       require(structural.property(property).isValid(),
@@ -444,7 +460,12 @@ void verifyStructuralPanel() {
                                  "materialEvidenceButton",
                                  "materialCandidateSelector",
                                  "selectedSurfaceSummary",
-                                 "compiledEvidenceSummary"})
+                                 "compiledEvidenceSummary",
+                                 "refinementMaximumChange",
+                                 "loadCorrespondenceReviewed",
+                                 "restraintCorrespondenceReviewed",
+                                 "discardRefinementBaseline",
+                                 "refinementStateSummary"})
     require(requiredChild(root.get(), objectName) != nullptr,
             std::string("structural workflow element exists: ") + objectName);
 }
