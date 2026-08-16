@@ -157,7 +157,6 @@ SolverRunResult run_calculix(const SolverRunOptions &options,
                         : result.validated_result->issues.front().code;
     return result;
   }
-  result.metrics = result.validated_result->metrics;
   result.status = SolverRunStatus::completed;
   result.detail = "completed";
   return result;

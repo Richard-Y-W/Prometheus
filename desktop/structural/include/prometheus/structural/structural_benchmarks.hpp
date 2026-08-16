@@ -1,12 +1,13 @@
 #pragma once
 
 #include "prometheus/structural/calculix_result.hpp"
-#include "prometheus/structural/types.hpp"
+#include "prometheus/structural/structural_findings.hpp"
+#include "prometheus/structural/structural_setup.hpp"
 
 namespace prometheus::structural {
 
 struct BenchmarkReference final {
-  StructuralRequest request;
+  CompiledStructuralSetup setup;
   double expected_maximum_displacement_m{};
   double expected_maximum_von_mises_pa{};
   double displacement_relative_tolerance{};
@@ -26,7 +27,9 @@ struct BenchmarkComparison final {
 
 // A 1 m x 0.1 m x 0.1 m, nu=0 bar under 1000 N uniform axial
 // traction. Closed-form references are u=F L/(A E) and sigma=F/A.
-[[nodiscard]] BenchmarkReference axial_tension_bar_benchmark();
+[[nodiscard]] BenchmarkReference axial_tension_bar_benchmark(
+    int length_divisions = 1, int width_divisions = 1,
+    int height_divisions = 1);
 
 // A 1 m x 0.1 m x 0.1 m cantilever under a 1000 N end load. References use
 // Euler-Bernoulli tip displacement F L^3/(3 E I) and root stress 6 F L/(b h^2).
@@ -35,5 +38,11 @@ struct BenchmarkComparison final {
 
 [[nodiscard]] BenchmarkComparison compare_benchmark(
     const BenchmarkReference &reference, const CalculixMetrics &actual);
+
+[[nodiscard]] StructuralRefinementEvidence
+compile_structural_refinement_evidence(
+    const CompiledCalculixResult &coarse,
+    const CompiledCalculixResult &fine,
+    double maximum_allowed_change_fraction);
 
 } // namespace prometheus::structural

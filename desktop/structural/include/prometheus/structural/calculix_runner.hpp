@@ -28,9 +28,6 @@ struct SolverRunResult final {
   std::string standard_error;
   std::string detail;
   std::optional<CompiledCalculixResult> validated_result;
-  // Transitional scalar view for v1 archive/finding callers. It is copied
-  // from validated_result and performs no parsing or calculation.
-  std::optional<CalculixMetrics> metrics;
 };
 
 struct SolverRunOptions final {

@@ -137,7 +137,7 @@ ps::CalculixRunEvidence completeCalculixEvidence(
 
 int main() {
   const auto axialBenchmark = ps::axial_tension_bar_benchmark();
-  require(ps::validate_request(axialBenchmark.request).empty() &&
+  require(ps::validate_request(axialBenchmark.setup.request).empty() &&
               std::abs(axialBenchmark.expected_maximum_displacement_m - 5.0e-7) < 1e-18 &&
               std::abs(axialBenchmark.expected_maximum_von_mises_pa - 1.0e5) < 1e-9,
           "axial benchmark derives closed-form displacement and stress references");
@@ -148,9 +148,9 @@ int main() {
       axialBenchmark, {6.0e-7, 1.2e5, 8, 6});
   require(!badComparison.passed(), "benchmark comparison rejects material error");
   const auto cantilever = ps::cantilever_benchmark(20, 3, 3);
-  require(ps::validate_request(cantilever.request).empty() &&
-              cantilever.request.nodes.size() == 336 &&
-              cantilever.request.elements.size() == 1080 &&
+  require(ps::validate_request(cantilever.setup.request).empty() &&
+              cantilever.setup.request.nodes.size() == 336 &&
+              cantilever.setup.request.elements.size() == 1080 &&
               std::abs(cantilever.expected_maximum_displacement_m - 0.0002) < 1e-15 &&
               std::abs(cantilever.expected_maximum_von_mises_pa - 6.0e6) < 1e-8,
           "cantilever benchmark derives beam references and bounded solid mesh");
@@ -256,6 +256,32 @@ int main() {
                   completeEvidence.frd_sha256 &&
               compiledResult.identity.starts_with("sha256:"),
           "compiled result records exact artifact lengths, hashes, and identity");
+  constexpr std::string_view coarseResultHash =
+      "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  constexpr std::string_view fineResultHash =
+      "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+  auto coarseBenchmarkResult = compiledResult;
+  coarseBenchmarkResult.identity = coarseResultHash;
+  coarseBenchmarkResult.metrics->maximum_displacement_m = 2.1e-5;
+  coarseBenchmarkResult.metrics->maximum_von_mises_pa = 1.04e6;
+  auto fineBenchmarkResult = compiledResult;
+  fineBenchmarkResult.identity = fineResultHash;
+  fineBenchmarkResult.metrics->maximum_displacement_m = 2.0e-5;
+  fineBenchmarkResult.metrics->maximum_von_mises_pa = 1.0e6;
+  const auto benchmarkRefinement =
+      ps::compile_structural_refinement_evidence(
+          coarseBenchmarkResult, fineBenchmarkResult, 0.10);
+  require(benchmarkRefinement.complete &&
+              benchmarkRefinement.criteria_satisfied &&
+              benchmarkRefinement.result_sha256 ==
+                  std::vector<std::string>({std::string(coarseResultHash),
+                                            std::string(fineResultHash)}),
+          "benchmark refinement uses exact result identities and one criterion");
+  coarseBenchmarkResult.metrics->maximum_displacement_m = 4.0e-5;
+  require(!ps::compile_structural_refinement_evidence(
+               coarseBenchmarkResult, fineBenchmarkResult, 0.10)
+               .criteria_satisfied,
+          "benchmark refinement rejects excessive coarse-to-fine change");
 
   auto failedExit = completeEvidence;
   failedExit.process_exit_code = 9;
@@ -768,24 +794,70 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(staleOutputs.status == ps::SolverRunStatus::output_conflict &&
               !staleOutputs.validated_result,
           "pre-existing raw solver outputs cannot be reused as a new run");
-  const auto withinLimits = ps::compile_structural_findings(request, completed);
+  const ps::StructuralRefinementEvidence acceptedRefinement{
+      .complete = true,
+      .criteria_satisfied = true,
+      .coarse_to_fine_change_fraction = 0.04,
+      .maximum_allowed_change_fraction = 0.10,
+      .result_sha256 = {std::string(coarseResultHash),
+                        std::string(fineResultHash)}};
+  const auto &findingRequest = compiled.request;
+  const auto withinLimits = ps::compile_structural_findings(
+      findingRequest, completed.validated_result, acceptedRefinement);
   require(withinLimits.declared_obligations == 2 &&
               withinLimits.evaluated_obligations == 2 &&
               std::ranges::all_of(withinLimits.findings, [](const auto &finding) {
                 return finding.disposition ==
                     ps::StructuralFindingDisposition::no_violation_detected_within_scope;
               }) &&
+              std::ranges::all_of(withinLimits.findings, [&](const auto &finding) {
+                return std::ranges::find(
+                           finding.evidence_sha256,
+                           completed.validated_result->identity) !=
+                           finding.evidence_sha256.end() &&
+                       !finding.assumptions.empty();
+              }) &&
               withinLimits.limitation.find("project-wide") != std::string::npos,
-          "completed metrics compile into scoped no-violation findings");
-  auto strictRequest = request;
+          "validated and refined evidence compiles into scoped findings");
+  auto strictRequest = findingRequest;
   strictRequest.displacement_limit_m = 1.0e-6;
   strictRequest.von_mises_limit_pa = 1.0e5;
-  const auto violated = ps::compile_structural_findings(strictRequest, completed);
+  const auto violated = ps::compile_structural_findings(
+      strictRequest, completed.validated_result, acceptedRefinement);
   require(std::ranges::all_of(violated.findings, [](const auto &finding) {
             return finding.disposition == ps::StructuralFindingDisposition::violated &&
                    finding.margin_to_limit < 0.0;
           }),
           "the same completed metrics produce known-fail violations at tighter limits");
+  auto equalityResult = *completed.validated_result;
+  equalityResult.metrics->maximum_displacement_m =
+      *findingRequest.displacement_limit_m;
+  const auto equality = ps::compile_structural_findings(
+      findingRequest, equalityResult, acceptedRefinement);
+  require(!equality.findings.empty() &&
+              equality.findings.front().disposition ==
+                  ps::StructuralFindingDisposition::violated &&
+              equality.findings.front().margin_to_limit == 0.0,
+          "a zero margin is reported as a violation");
+  const auto unrefined = ps::compile_structural_findings(
+      findingRequest, completed.validated_result, std::nullopt);
+  require(unrefined.evaluated_obligations == 0 && unrefined.findings.empty(),
+          "missing refinement evidence cannot generate findings");
+  auto inconsistentRefinement = acceptedRefinement;
+  inconsistentRefinement.coarse_to_fine_change_fraction = 0.20;
+  const auto inconsistent = ps::compile_structural_findings(
+      findingRequest, completed.validated_result, inconsistentRefinement);
+  require(inconsistent.evaluated_obligations == 0 &&
+              inconsistent.findings.empty(),
+          "inconsistent refinement evidence cannot generate findings");
+  auto invalidCompiledResult = *completed.validated_result;
+  invalidCompiledResult.issues.push_back(
+      {"test_invalid", "synthetic invalid result"});
+  const auto invalidEvidence = ps::compile_structural_findings(
+      findingRequest, invalidCompiledResult, acceptedRefinement);
+  require(invalidEvidence.evaluated_obligations == 0 &&
+              invalidEvidence.findings.empty(),
+          "invalid solver evidence cannot generate findings");
   const auto nonzero = runFixture("nonzero", std::chrono::seconds(5));
   require(nonzero.status == ps::SolverRunStatus::nonzero_exit &&
               nonzero.exit_code == 7 && !nonzero.validated_result,
@@ -803,7 +875,8 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(timedOut.status == ps::SolverRunStatus::timed_out &&
               !timedOut.validated_result,
           "solver timeout is terminated and classified without metrics");
-  const auto indeterminate = ps::compile_structural_findings(request, timedOut);
+  const auto indeterminate = ps::compile_structural_findings(
+      findingRequest, timedOut.validated_result, acceptedRefinement);
   require(indeterminate.declared_obligations == 2 &&
               indeterminate.evaluated_obligations == 0 &&
               indeterminate.findings.empty(),

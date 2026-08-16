@@ -84,6 +84,41 @@ std::optional<std::string> legacy_v1_binding_issue(
   return std::nullopt;
 }
 
+StructuralEvaluation replay_legacy_v1_findings(
+    const StructuralRequest &request, const CalculixMetrics &metrics) {
+  StructuralEvaluation result;
+  result.execution_status = SolverRunStatus::completed;
+  result.declared_obligations =
+      static_cast<int>(request.displacement_limit_m.has_value()) +
+      static_cast<int>(request.von_mises_limit_pa.has_value());
+  result.limitation =
+      "These findings do not establish safety, fatigue life, buckling, contact, "
+      "fastener adequacy, nonlinear behavior, or project-wide correctness.";
+  const auto append = [&](std::string obligation, const double measured,
+                          const double limit, std::string unit) {
+    result.findings.push_back(
+        {.obligation = std::move(obligation),
+         .disposition =
+             measured <= limit
+                 ? StructuralFindingDisposition::no_violation_detected_within_scope
+                 : StructuralFindingDisposition::violated,
+         .measured_value = measured,
+         .limit_value = limit,
+         .margin_to_limit = limit - measured,
+         .unit = std::move(unit),
+         .scope =
+             "isotropic linear-elastic C3D4 model under the confirmed scenario"});
+  };
+  if (request.displacement_limit_m)
+    append("maximum_displacement", metrics.maximum_displacement_m,
+           *request.displacement_limit_m, "m");
+  if (request.von_mises_limit_pa)
+    append("maximum_von_mises_stress", metrics.maximum_von_mises_pa,
+           *request.von_mises_limit_pa, "Pa");
+  result.evaluated_obligations = static_cast<int>(result.findings.size());
+  return result;
+}
+
 } // namespace
 
 StructuralArchive write_structural_archive(
@@ -91,8 +126,10 @@ StructuralArchive write_structural_archive(
     std::string solverIdentity, std::string reviewedSetupBytes,
     const StructuralRequest &request,
     const SolverRunResult &run, const StructuralEvaluation &evaluation) {
-  if (run.status != SolverRunStatus::completed || !run.metrics)
+  if (run.status != SolverRunStatus::completed || !run.validated_result ||
+      !run.validated_result->complete() || !run.validated_result->metrics)
     throw std::invalid_argument("only a completed structural run can be archived");
+  const auto &runMetrics = *run.validated_result->metrics;
   if (jobName.empty() || solverIdentity.empty())
     throw std::invalid_argument("archive job and solver identities are required");
   const auto verifiedSetup = integrity::verify_canonical_bytes(
@@ -143,10 +180,10 @@ StructuralArchive write_structural_archive(
                       {"sta", artifact(workingDirectory, staName)},
                       {"stdout", artifact(workingDirectory, stdoutName)},
                       {"stderr", artifact(workingDirectory, stderrName)}}},
-      {"metrics", {{"maximum_displacement_m", run.metrics->maximum_displacement_m},
-                    {"maximum_von_mises_pa", run.metrics->maximum_von_mises_pa},
-                    {"displacement_rows", run.metrics->displacement_rows},
-                    {"stress_rows", run.metrics->stress_rows}}},
+      {"metrics", {{"maximum_displacement_m", runMetrics.maximum_displacement_m},
+                    {"maximum_von_mises_pa", runMetrics.maximum_von_mises_pa},
+                    {"displacement_rows", runMetrics.displacement_rows},
+                    {"stress_rows", runMetrics.stress_rows}}},
       {"requirements", {{"displacement_limit_m", request.displacement_limit_m},
                          {"von_mises_limit_pa", request.von_mises_limit_pa}}},
       {"coverage", {{"declared_obligations", evaluation.declared_obligations},
@@ -251,10 +288,8 @@ StructuralArchiveVerification verify_structural_archive(
       replayRequest.displacement_limit_m = requirements.at("displacement_limit_m").get<double>();
     if (!requirements.at("von_mises_limit_pa").is_null())
       replayRequest.von_mises_limit_pa = requirements.at("von_mises_limit_pa").get<double>();
-    SolverRunResult replayRun;
-    replayRun.status = SolverRunStatus::completed;
-    replayRun.metrics = parsedMetrics;
-    const auto replayEvaluation = compile_structural_findings(replayRequest, replayRun);
+    const auto replayEvaluation =
+        replay_legacy_v1_findings(replayRequest, parsedMetrics);
     if (replayEvaluation.declared_obligations !=
             root.at("coverage").at("declared_obligations").get<int>() ||
         replayEvaluation.evaluated_obligations !=
