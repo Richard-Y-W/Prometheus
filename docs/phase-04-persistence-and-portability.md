@@ -12,15 +12,20 @@ The operation:
 
 - refuses an unverified or corrupt source archive;
 - refuses to overwrite an existing destination;
-- copies only the seven filenames declared by the closed archive contract;
+- copies exactly the files declared by the closed archive contract: seven
+  setup/solver artifacts for legacy v1/v2 or fourteen coarse/fine artifacts for
+  v3;
 - verifies all copied byte lengths, SHA-256 identities, canonical setup and
-  manifest bytes, replayed DAT metrics, and recompiled findings;
+  manifest bytes, replayed result metrics, and recompiled findings; v3 also
+  reconstructs both results and the derived comparison;
 - publishes only after verification through an atomic directory rename; and
 - removes an unpublished temporary directory after failure.
 
-The controller test relocates a completed child-process run and proves the
-manifest identity remains unchanged. This is one evidence-bearing transport
-primitive, not the Phase 4 exit gate.
+The controller test relocates a completed two-sample v3 run and proves the
+manifest identity remains unchanged. Legacy v1/v2 relocation retains the
+original seven-artifact contract; it does not upgrade those archives to a
+two-result claim. This is one evidence-bearing transport primitive, not the
+Phase 4 exit gate.
 
 ## Checkpoint 2: project-anchored structural manifests
 
@@ -52,21 +57,27 @@ New structural publications now retain the complete verified run inside the
 project's content-addressed sidecar. Each binary or text artifact is split into
 bounded 700 KiB raw chunks and encoded as canonical immutable JSON objects. A
 closed structural project-run manifest binds the original archive manifest,
-all seven artifact identities, ordered chunk references, offsets, decoded
-lengths, and complete reconstructed SHA-256 identities.
+all declared artifact identities, ordered chunk references, offsets, decoded
+lengths, and complete reconstructed SHA-256 identities. Legacy v1/v2 graphs
+retain seven artifacts; new v3 desktop publications retain fourteen artifacts
+across the coarse and fine samples.
 
 Publication independently decodes and hashes every supplied chunk graph before
-installing it. It then installs the original archive manifest, chunks, and
-project-run manifest under the existing exclusive transaction lock and commits
-only the closed project-run reference to history. Missing, duplicated,
+installing it. Active v3 publication streams integrity hashing and chunking
+without rerunning CalculiX, reparsing active output, recomputing the pair, or
+recompiling findings. It then installs the original archive manifest, chunks,
+and project-run manifest under the existing exclusive transaction lock and
+commits only the closed project-run reference to history. Missing, duplicated,
 unreferenced, reordered, malformed, or forged chunks fail before the project
 index changes. Retrying an interrupted or repeated publication is idempotent.
 
 Reconstruction reads only verified content-addressed objects, rebuilds each
 artifact, checks its exact length and SHA-256 identity, writes through a new
-sibling temporary directory, and publishes by atomic rename. Tests cover a DAT
-artifact spanning multiple chunks, byte-identical reconstruction of every
-file, full structural offline replay after project close/reopen, forged and
+sibling temporary directory, and publishes by atomic rename. Offline v3
+verification then replays both raw result packages and derives the comparison,
+coverage, and findings again because the bytes crossed a trust boundary. Tests
+cover a DAT artifact spanning multiple chunks, byte-identical reconstruction of
+every file, full two-sample replay after project close/reopen, forged and
 missing chunk rejection, changed source rejection, interruption immediately
 before project replacement, and successful recovery by retry.
 

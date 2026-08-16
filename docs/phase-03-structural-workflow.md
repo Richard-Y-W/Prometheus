@@ -11,14 +11,16 @@ The product path is:
 
 ```text
 project evidence
-  -> prepared tetrahedral mesh and exterior boundary
-  -> reviewable geometric patches
-  -> reviewed material, load, restraint, requirement, mesh, and scenario
-  -> immutable CompiledStructuralSetup
-  -> isolated CalculiX process
-  -> one validated CompiledCalculixResult
-  -> refinement-gated scoped findings
-  -> versioned structural archive and project publication
+  -> manually supplied coarse tetrahedral mesh and reviewed surfaces
+  -> locked refinement criterion and immutable coarse setup
+  -> isolated CalculiX process -> validated coarse result
+  -> retained immutable baseline
+  -> manually supplied fine mesh and independently reviewed surfaces
+  -> copied and locked shared physics plus reviewed boundary correspondence
+  -> isolated CalculiX process -> validated fine result
+  -> verified two-result comparison
+  -> scoped findings or an honest indeterminate evaluation
+  -> two-sample archive v3 and project publication
 ```
 
 There is one desktop controller (`StructuralController`), one setup panel
@@ -35,24 +37,24 @@ evidence, and compiles findings.
 
 ### Single-computation invariant
 
-For one active immutable input identity, the desktop performs each expensive
-stage once:
+For one active coarse/fine session, the desktop performs each expensive stage
+once for the immutable input that owns it:
 
-- mesh bytes are parsed and validated once;
-- exterior faces and mesh quality are measured once;
-- patches are grouped once for a selected angle;
-- the reviewed setup and deterministic deck are compiled once;
-- CalculiX executes once;
-- raw solver fields, convergence, coverage, extrema, and findings compile once.
+- each supplied mesh is parsed and validated once;
+- each exterior boundary and mesh-quality record is measured once;
+- each mesh's patches are grouped once for its selected angle;
+- each reviewed setup and deterministic deck is compiled once;
+- CalculiX executes once for the coarse sample and once for the fine sample;
+- each raw solver output set is parsed and validated once; and
+- the pair comparison and findings compile once after the fine result exists.
 
 Repeated property reads, QML repaints, result viewing, and material-candidate
-browsing do not invoke those stages. When trusted refinement has produced a
-publishable archive, publication uses the existing compiled results and
-manifest; it does not rerun the solver or recompile the setup. Editing an input
-invalidates only the affected stage and its downstream state. For example,
-changing force data invalidates setup and execution but does not reparse the
-mesh; changing the patch angle regroups the retained prepared boundary but does
-not remeasure tetrahedra.
+browsing do not invoke those stages. Archive creation and publication consume
+the existing pair, findings, and manifest; they do not rerun either solve or
+recompile findings. Editing an input invalidates only the affected stage and
+its downstream state. A fine-mesh or fine-surface edit retains the immutable
+coarse baseline. Changing shared material, load, requirements, scenario, or
+other shared physics requires an explicit baseline reset and a new coarse run.
 
 Integrity hashing is intentionally separate from this engineering-stage
 invariant. Mutable solver files are rehash-verified when they cross into an
@@ -60,11 +62,11 @@ archive or project object store. Structural publication now hashes and chunks
 each artifact in one streaming read rather than reading the whole artifact once
 to hash it and again to chunk it.
 
-Reopening or importing persisted bytes is a new trust-boundary operation. It
-deliberately verifies those bytes once and returns one typed restore snapshot.
-Restoration then regroups the visual patches once but does not compile a new
-setup or execute a solver. Counting-backend desktop tests enforce these stage
-counts directly.
+Reopening or importing persisted bytes is a new trust-boundary operation. V3
+replay deliberately reconstructs both setup/result packages and returns one
+typed pair snapshot. Restoration then regroups the visual patches for display
+but does not execute a solver. Counting-backend desktop tests enforce these
+stage counts directly.
 
 ## Selected real slice
 
@@ -173,21 +175,36 @@ fixture's canonical setup, deck, and compiled identity for inspection.
 
 ### Findings and refinement
 
-A completed result alone is insufficient for a finding. The finding compiler
-also requires complete refinement evidence satisfying its predeclared maximum
-change, and that evidence must include the active validated-result identity.
-The desktop strips any refinement-shaped fields supplied through its generic
-presentation map; only a typed comparison of completed results can unlock
-findings. The compiler evaluates only the displacement and/or von Mises
-obligations present in the reviewed request. A value strictly below its limit is
+A completed result alone is insufficient for a finding. Before the coarse
+solve, the engineer locks a finite maximum-change criterion. Prometheus then
+requires two complete, identity-bound samples with the same reviewed material,
+load, requirements, scenario, solver backend, and criterion. The fine mesh must
+have a distinct source identity, more volume elements, and a smaller reviewed
+target size.
+
+The fine stage copies and locks the coarse sample's shared physics. Load and
+restraint surfaces remain mesh-specific: the engineer selects them again on the
+fine mesh and confirms that both selections represent the same physical regions
+as the baseline. That correspondence is a reviewed assumption because arbitrary
+external meshes do not provide stable CAD-face identities.
+
+Only `VerifiedStructuralRefinement`, whose changes and status are derived from
+the two validated results, can enter the finding compiler. QML and generic maps
+cannot submit acceptance flags, result identities, or calculated deltas. The
+compiler evaluates only the displacement and/or von Mises obligations present
+in the reviewed request. A value strictly below its limit is
 `no_violation_detected_within_scope`; equality or exceedance is `violated`.
+A valid pair above the locked threshold is archived as
+`comparison_indeterminate` with zero evaluated obligations and no pass or
+violation findings.
 
 Every finding retains the measured value, limit, margin, unit, evidence
 identities, assumptions, and bounded isotropic linear-elastic `C3D4` scope. The
 limitation explicitly excludes fatigue, buckling, contact, fasteners,
 nonlinearity, safety certification, and project-wide correctness. Unit and
-process-fixture tests exercise known-pass, known-fail, equality, missing
-refinement, stale-output, timeout, malformed output, and coverage failure.
+process-fixture tests exercise accepted, above-threshold, known-pass,
+known-fail, equality, stale-output, timeout, malformed-output, lineage, mesh
+ordering, boundary-review, backend, and coverage failures.
 
 ## Validation gates
 
@@ -219,51 +236,74 @@ Run the current external gates on the supported Windows environment with:
 ```
 
 The validation command first runs the focused known-pass/known-fail polarity
-fixture, then runs the compiled axial benchmark, writes its v2 archive without
-reparsing the active result, verifies that archive offline, and runs the
-cantilever refinement gate. The checked-in Gmsh tension-bar geometry and
-expectations remain historical validation inputs; the retired parallel case
-exporter/verifier no longer executes them. A post-reconciliation Windows run
-must be recorded before claiming these current external gates passed.
+fixture. It then runs coarse and fine forms of the compiled axial benchmark,
+derives their displacement and stress changes, writes one two-sample v3 archive,
+and verifies both raw result packages plus the derived comparison offline. The
+cantilever refinement gate uses the same typed pair API and v3 writer. Neither
+archive creation nor active publication repeats a solve or finding compilation.
+The checked-in Gmsh tension-bar geometry and expectations remain historical
+validation inputs; the retired parallel case exporter/verifier no longer
+executes them. A post-reconciliation Windows run must be recorded before
+claiming these current external gates passed.
 
 ## Desktop workflow
 
-The one structural panel can load and render a supported mesh, show mesh and
-source identities, display quality and boundary counts, highlight load and
-restraint selections, show selected area and compiled resultant, load bounded
-material candidates, collect all reviewed inputs, and display exact blocker
-codes. Changing a boundary role invalidates the corresponding review, scenario
-confirmation, and refinement state.
+The structural panel exposes an explicit coarse stage, retained-baseline stage,
+fine stage, and completed-comparison stage. The engineer manually loads a
+supported coarse mesh, reviews its surfaces and shared physics, and locks the
+criterion before starting the asynchronous baseline solve. A completed coarse
+sample displays field coverage and extrema as
+`execution_completed_evaluation_pending`; it has no scoped findings.
 
-Execution is asynchronous. A completed single run displays field coverage,
-exact displacement and stress extrema, limitations, and a deformed exterior
-stress view with an explicit deformation scale and color range. It remains
-indeterminate, with zero scoped findings and no publishable archive, until a
-trusted refinement comparison is available. The view is not physical-scale
-motion, continuous collision proof, or a safety claim.
+The fine stage accepts a second manually supplied mesh. Shared physics is shown
+read-only from the baseline, while fine load/restraint surfaces and mesh
+controls are reviewed independently. The panel displays both selected areas and
+requires explicit load-region and restraint-region correspondence confirmation.
+After the fine solve, the controller derives and displays displacement, stress,
+and maximum changes. Accepted and above-threshold pairs both remain replayable;
+only the accepted pair emits scoped findings.
+
+Fine-only edits retain the coarse baseline and invalidate only the fine sample
+and downstream comparison. Shared-physics edits require **Discard baseline and
+start over**. The deformed exterior stress view uses an explicit deformation
+scale and color range; it is not physical-scale motion, continuous collision
+proof, or a safety claim.
 
 ## Archives, replay, and project publication
 
-Only runs with accepted typed refinement write structural archive schema v2.
-V2 binds the complete reviewed setup, compiled setup identity, solver/backend
-identity, convergence, exact raw artifact identities, normalized metrics and
-fields, accepted refinement, coverage, findings, and limitations. The writer
-consumes already validated objects; it does not run the solver-evidence or
-finding compilers again.
+New structural writes use archive schema v3. Each manifest closes over fourteen
+artifacts: reviewed setup, deck, DAT, FRD, STA, standard output, and standard
+error for both coarse and fine samples. It also binds the locked criterion,
+reviewed boundary correspondence, two backend/execution records, derived
+comparison, coverage, findings, and limitation. Accepted and valid
+above-threshold pairs can both be archived; the latter contains zero findings.
+The writer consumes already validated objects and does not rerun either solver,
+reparse active output, or compile findings again.
 
-Legacy v1 archives remain readable under their original narrower claims. They
-are not upgraded or granted v2 convergence, setup, or finding evidence. Offline
-v2 verification deliberately rehashes persisted artifacts, reconstructs the
-compiled setup, reparses DAT evidence, and recompiles findings because those
-bytes crossed a trust boundary.
+Offline v3 verification treats persisted bytes as untrusted. It rehashes all
+fourteen artifacts, reconstructs both reviewed setups and raw result packages,
+reruns the pair compiler, and requires the regenerated comparison, coverage,
+and findings to match the manifest. This trust-boundary replay is distinct from
+active-session calculation.
 
-A verified v2 archive can be relocated and embedded in a Prometheus project as
-a closed content-addressed artifact graph. Reopen reconstructs and verifies it,
-restores the editable reviewed setup and visualization, and compares its bound
+V1 and v2 remain legacy read contracts. V1 retains its narrower historical
+claim. V2 reconstructs its one stored active result and reproduces its original
+scoped finding claim through an isolated compatibility routine, but it cannot
+produce `VerifiedStructuralRefinement` or enter the new finding compiler. New
+desktop runs never write v1 or v2.
+
+A verified archive can be relocated and embedded in a Prometheus project as a
+closed content-addressed artifact graph. V3 embedding retains all fourteen
+sample artifacts. Reopen reconstructs and verifies both results, restores the
+editable reviewed setup and visualization, and compares the archive's bound
 assembly identity with the current project. Evidence bound to a changed source
 remains viewable but is marked stale and cannot be rerun without renewed
 geometry and surface review. Review, packaging, and final graph validation each
 reject a structural geometry identity that differs from the project assembly.
+
+Automatic coarse/fine generation is not implemented. A later mesher can plug
+into the existing prepared-mesh boundary, but it must preserve the same two-run
+comparison, solver authority, provenance, replay, and review rules.
 
 ## Phase 5 boundary
 
@@ -276,18 +316,16 @@ here.
 
 ## Remaining Phase 3 evidence
 
-1. Add a typed desktop refinement workflow that derives evidence from two
-   completed, identity-bound mesh results; generic UI fields remain forbidden.
-2. Rerun and record the strengthened external smoke, analytic, refinement, and
+1. Rerun and record the strengthened external smoke, analytic, refinement, and
    offline-replay gates on the supported Windows CalculiX environment.
-3. Have the user review the YUBI bracket's actual temper, product form,
+2. Have the user review the YUBI bracket's actual temper, product form,
    applicability, elastic properties, load faces and vector, restraint faces,
    requirements, mesh controls, and scenario.
-4. Produce acceptable YUBI mesh-refinement evidence for that exact reviewed
-   setup.
-5. Execute the reviewed bracket and retain a physically independent
+3. Manually supply and review coarse and fine YUBI meshes, including explicit
+   physical-region correspondence and an acceptable locked-threshold study.
+4. Execute the reviewed bracket and retain a physically independent
    real-component comparison.
-6. Complete the outstanding outside-user folder-screening session.
+5. Complete the outstanding outside-user folder-screening session.
 
 Until those items are complete, Prometheus has a bounded, fail-closed
 structural workflow—not a validated YUBI result and not proof that an arbitrary
@@ -295,25 +333,25 @@ engineering project works.
 
 ## Reconciliation release gate — 2026-08-16
 
-After the initial gate and independent-review remediation, the local
-post-reconciliation evidence is:
+The manual coarse/fine release checkpoint produced this local evidence:
 
 - all 405 backend tests passed and one PostgreSQL-only case skipped under the
   default SQLite environment;
-- 70 PostgreSQL 17 migration tests had already passed against an isolated
-  temporary local database before the native-only remediation; no backend file
-  changed afterward;
+- all 70 migration suites passed against an isolated UTF-8 PostgreSQL 17.10
+  database;
 - all 16 headless CTests passed;
 - 28 of 29 desktop CTests passed inside the managed sandbox, whose socket
   policy prevented the remaining HTTP fixture from opening a loopback listener;
 - that exact loopback test passed 1 of 1 outside the socket sandbox;
-- focused post-remediation integrity, structural-controller, QML-authority, and
-  run-store tests passed, including rejection of geometry-detached historical
-  reconstruction; and
-- project publication streams each source artifact once while hashing and
-  chunking it.
+- the integrity regression first reached an unsafe allocation path, then passed
+  after chunk sizes outside `std::streamsize` were rejected before allocation;
+- source-authority, two-sample replay, structural-controller, QML-authority,
+  run-store, rover-fixture, and preset-parse gates passed; and
+- an inline review found no Critical or Important issue in reachable
+  publication, private comparison construction, two-result replay, legacy
+  isolation, fine-only invalidation, or exact stage counts.
 
-These results cover the consolidated native and persistence paths. They do not
-replace the still-open second independent code review, post-reconciliation
-Windows CalculiX run, typed desktop refinement producer, reviewed YUBI scenario,
-independent component comparison, or outside-user session.
+This checkpoint did not run Windows. A second independent reviewer has not
+assessed the final inline diff. The post-reconciliation Windows CalculiX run,
+reviewed YUBI scenario, independent component comparison, and outside-user
+session remain open.

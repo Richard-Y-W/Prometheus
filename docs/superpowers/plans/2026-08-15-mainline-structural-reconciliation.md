@@ -1461,6 +1461,13 @@ No `git push` occurs in this plan without a new user instruction.
 
 ### Task 11: Remediate the independent final review
 
+- [x] Apply the follow-on
+  [manual structural refinement reconciliation](2026-08-16-manual-structural-refinement-reconciliation.md).
+  Its typed sequential controller makes publication reachable only after one
+  coarse and one fine result, and archive v3 reconstructs both raw results
+  before deriving comparison and findings. These changes close the independent
+  review's two Important findings without rewriting this plan's historical
+  sequence.
 - [x] Bind reviewed geometry to the loaded project assembly during desktop
   review, archive packaging, final graph validation, and historical
   reconstruction.

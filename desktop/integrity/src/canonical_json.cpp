@@ -1339,6 +1339,12 @@ StreamedFileSha256 sha256_file_chunks(
   if (chunkBytes == 0U) {
     fail("invalid_chunk_size", "SHA-256 file chunk size must be positive");
   }
+  if (chunkBytes >
+      static_cast<std::size_t>(
+          std::numeric_limits<std::streamsize>::max())) {
+    fail("invalid_chunk_size",
+         "SHA-256 file chunk size exceeds std::streamsize");
+  }
   std::error_code status_error;
   const auto status = std::filesystem::symlink_status(path, status_error);
   if (status_error || status.type() == std::filesystem::file_type::not_found) {

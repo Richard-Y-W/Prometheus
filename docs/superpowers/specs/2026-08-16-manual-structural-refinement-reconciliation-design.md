@@ -1,23 +1,24 @@
 # Manual Structural Refinement Reconciliation Design
 
 **Date:** 2026-08-16
-**Status:** Approved design, pending written-spec review
+**Status:** Implemented and locally verified
 
 ## Problem
 
-The reconciled structural branch removed QML-authored refinement flags, result
-hashes, and convergence deltas. That removal closed a path by which
-presentation data could create findings, but it also left the production
-desktop with no valid path from a completed solve to a publishable structural
-archive. `LocalStructuralBackend` currently evaluates each run without
-refinement, so its archive-writing condition cannot be reached.
+Before this increment, the reconciled structural branch had removed
+QML-authored refinement flags, result hashes, and convergence deltas. That
+removal closed a path by which presentation data could create findings, but it
+also left the production desktop with no valid path from a completed solve to a
+publishable structural archive. `LocalStructuralBackend` evaluated each run
+without refinement, so its archive-writing condition could not be reached.
 
-The remaining refinement object is also too weak for offline replay. Its public
-fields let a caller state that a comparison is complete, supply two result
-hashes, and claim an acceptable change. A v2 archive verifier reconstructs the
-active result but trusts the claimed second result and change. It therefore
-cannot establish that two completed analyses used the same reviewed scenario
-or that the second mesh is a legitimate refinement of the first.
+The remaining refinement object was also too weak for offline replay. Its
+public fields let a caller state that a comparison was complete, supply two
+result hashes, and claim an acceptable change. A v2 archive verifier
+reconstructed the active result but trusted the claimed second result and
+change. It therefore could not establish that two completed analyses used the
+same reviewed scenario or that the second mesh was a legitimate refinement of
+the first.
 
 This design closes those two reconciliation gaps. It does not add automatic
 meshing or another structural-analysis authority.
@@ -149,7 +150,7 @@ comparison delta, result identities, or accepted status.
 
 ### Verified comparison
 
-The current public `StructuralRefinementEvidence` aggregate is replaced by a
+The former public `StructuralRefinementEvidence` aggregate is replaced by a
 type whose comparison fields cannot be assigned by callers. A Qt-free factory
 accepts two completed samples plus their reviewed boundary-correspondence
 record and either returns a verified comparison or typed diagnostics.
