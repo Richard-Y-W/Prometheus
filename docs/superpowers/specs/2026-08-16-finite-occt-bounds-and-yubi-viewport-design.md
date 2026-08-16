@@ -54,11 +54,14 @@ interference pass or clear claim and will carry the existing explicit deferred
 state. The desktop can display and inspect the finite mesh while reporting
 static interference as `not_evaluated`.
 
-The engineer-triggered deferred-analysis action remains the boundary for an
+The standalone `static_interferences` API remains the code boundary for an
 explicit exact attempt. That path uses the original B-Rep shapes and finite
-broad-phase boxes. It may still be slow or fail, and either outcome remains
-unknown rather than clear. Assemblies whose leaves all have closed finite
-B-Rep bounds retain the current automatic exact-interference behavior.
+broad-phase boxes. The current desktop does not launch this API while
+`collisionDeferred` is true because the in-process operation cannot be safely
+cancelled. Exposing an engineer-triggered retry requires the later isolated
+solver-runtime boundary; until then, the result remains unknown rather than
+clear. Assemblies whose leaves all have closed finite B-Rep bounds retain the
+current automatic exact-interference behavior.
 
 ## Bounds contract
 
