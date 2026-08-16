@@ -4,6 +4,7 @@ add_library(prometheus_structural STATIC
   src/gmsh_mesh.cpp
   src/mesh_validation.cpp
   src/structural_request.cpp
+  src/surface_setup.cpp
 )
 target_compile_features(prometheus_structural PUBLIC cxx_std_20)
 target_include_directories(prometheus_structural PUBLIC

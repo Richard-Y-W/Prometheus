@@ -3,12 +3,14 @@
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/mesh_validation.hpp"
 #include "prometheus/structural/structural_request.hpp"
+#include "prometheus/structural/surface_setup.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -82,6 +84,26 @@ bool hasIssue(const std::vector<ps::ValidationIssue> &issues,
   return std::ranges::any_of(issues, [&](const auto &value) {
     return value.code == code;
   });
+}
+
+ps::VolumeMesh twoTetraSurfaceMesh() {
+  ps::VolumeMesh mesh;
+  mesh.nodes = {{1, {0.0, 0.0, 0.0}}, {2, {1.0, 0.0, 0.0}},
+                {3, {0.0, 1.0, 0.0}}, {4, {0.0, 0.0, 1.0}},
+                {5, {0.0, 0.0, -1.0}}};
+  mesh.elements = {{1, {1, 2, 3, 4}}, {2, {1, 3, 2, 5}}};
+  const auto validated = ps::validate_and_measure_mesh(
+      mesh.nodes, mesh.elements,
+      {{.name = "Fixed", .triangles = {{10, {1, 2, 4}}}},
+       {.name = "Load",
+        .triangles = {{11, {1, 3, 4}}, {12, {3, 2, 5}}}},
+       {.name = "Other",
+        .triangles = {{13, {2, 3, 4}},
+                      {14, {1, 3, 5}},
+                      {15, {1, 2, 5}}}}});
+  mesh.surface_groups = validated.surface_groups;
+  mesh.diagnostics = validated.diagnostics;
+  return mesh;
 }
 
 int main() {
@@ -322,5 +344,61 @@ int main() {
       },
       "not a volume boundary face",
       "interior tetrahedral faces cannot become selectable surfaces");
+
+  const auto setupMesh = twoTetraSurfaceMesh();
+  const auto setup = ps::compile_surface_setup(
+      setupMesh, {"Fixed"}, {"Load"}, 120.0, {0.0, 0.0, -2.0});
+  require(setup.fully_fixed_node_ids == std::vector<int>({1, 2, 4}),
+          "restraint groups compile unique sorted nodes");
+  require(setup.loaded_node_ids == std::vector<int>({1, 2, 3, 4, 5}) &&
+              setup.nodal_forces.size() == setup.loaded_node_ids.size(),
+          "shared load nodes compile once in sorted order");
+  require(std::abs(setup.resultant_force_n[0]) < 1.0e-10 &&
+              std::abs(setup.resultant_force_n[1]) < 1.0e-10 &&
+              std::abs(setup.resultant_force_n[2] + 120.0) < 1.0e-10,
+          "area-weighted nodal loads preserve the reviewed resultant");
+
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(setupMesh, {"Missing"}, {"Load"},
+                                        120.0, {0.0, 0.0, -1.0});
+      },
+      "Unknown restraint surface group",
+      "unknown restraint groups are rejected");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(setupMesh, {"Fixed"}, {}, 120.0,
+                                        {0.0, 0.0, -1.0});
+      },
+      "At least one load surface group",
+      "empty load selections are rejected");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(setupMesh, {"Fixed"}, {"Load"}, 0.0,
+                                        {0.0, 0.0, -1.0});
+      },
+      "finite and positive", "zero force magnitude is rejected");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(
+            setupMesh, {"Fixed"}, {"Load"}, 120.0,
+            {0.0, std::numeric_limits<double>::quiet_NaN(), -1.0});
+      },
+      "finite nonzero vector", "nonfinite force direction is rejected");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(setupMesh, {"Fixed"},
+                                        {"Load", "Load"}, 120.0,
+                                        {0.0, 0.0, -1.0});
+      },
+      "selected more than once",
+      "duplicate surface selections cannot double the applied load");
+  requireThrowsContaining(
+      [&] {
+        (void)ps::compile_surface_setup(setupMesh, {"Load"}, {"Load"},
+                                        120.0, {0.0, 0.0, -1.0});
+      },
+      "both restrained and loaded",
+      "one surface group cannot carry conflicting boundary roles");
   return 0;
 }
