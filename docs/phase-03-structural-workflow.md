@@ -79,6 +79,34 @@ result compiler. A missing file, solver error marker, incomplete step, stale or
 modified deck, non-finite value, or missing/duplicate/unexpected result identity
 causes a nonzero gate result; file existence alone cannot pass.
 
+## Structural trust-seam verification — 2026-08-15
+
+Local release-checkpoint environment: macOS 26.5.2 build 25F84 on arm64,
+Apple Clang 21.0.0, CMake 4.4.2, and Qt 6.11.1.
+
+- `cmake --fresh --preset headless-debug`, build, and CTest: 15/15 passed.
+- `cmake --fresh --preset desktop-no-occt-debug` and build: passed.
+- Desktop CTest inside the managed sandbox: 22/23 passed. The remaining
+  `prometheus_exact_package_download` test could not create its loopback test
+  listener there; an isolated rerun with loopback access passed 1/1.
+- `git diff --check`: passed.
+
+The synthetic smoke fixture consumed by both headless and desktop CTest has
+these exact SHA-256 values:
+
+| Synthetic artifact | SHA-256 |
+| --- | --- |
+| Input deck | `e8d0d9a76022c5df81ef4b986162fd6ac89214d3523afcc2c15911f1bbc40495` |
+| Status | `3a8a499e47d474d5c4fa30bde12ead2550ef84b8c5ca5b3ba14fcc79f24bcd5d` |
+| Data | `57d38a55374169fb2b707d2ba804e6a78fa03c6f381955338c242191c374d49b` |
+| Standard output | `713f43615dc704c1dce8bfc34d71f31ca6fb512df922e8543da3e7edabfcd5cb` |
+| Standard error | `01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b` |
+
+The prior real Windows smoke used CalculiX 2.23. The hardened Windows command
+has not yet been rerun after adding full result-evidence verification, so that
+external gate remains pending. No YUBI solver run has been executed, and no
+YUBI pass, fail, or structural finding exists.
+
 ## Checkpoint 2: real bracket meshing
 
 The exact bracket has now completed the meshing-only portion of checkpoint 2:
@@ -106,11 +134,13 @@ convergence.
 
 ## Next checkpoint
 
-1. Mesh the exact bracket through an isolated Gmsh invocation and retain the
+1. Produce stable named boundary groups for the exact bracket and retain the
    exact mesh plus diagnostics.
-2. Present mesh statistics and face groups for human restraint/load selection.
+2. Present mesh statistics and selectable face groups for human restraint/load
+   review.
 3. Obtain reviewed elastic properties for the exact A2024 applicability state.
 4. Define one bounded load and requirement without inferring them from bolt
    torque or servo identity.
 5. Execute known-pass and known-fail cases, a refinement comparison, and an
    independent analytic benchmark before evaluating the real bracket.
+6. Rerun the hardened real CalculiX smoke on Windows before any YUBI solve.
