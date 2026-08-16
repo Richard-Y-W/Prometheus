@@ -89,6 +89,10 @@ Require-Condition ($env:OS -eq 'Windows_NT') `
   'The deployable outside-user package must be built on Windows.'
 Require-Condition ($Preset -cmatch '^[A-Za-z0-9._-]+$') `
   "Unsafe CMake preset name: '$Preset'."
+$ucrtBinaryDirectory = 'C:\msys64\ucrt64\bin'
+if (Test-Path -LiteralPath $ucrtBinaryDirectory -PathType Container) {
+  $env:Path = "$ucrtBinaryDirectory;$env:Path"
+}
 
 $repo = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $repo 'out/outside-user'

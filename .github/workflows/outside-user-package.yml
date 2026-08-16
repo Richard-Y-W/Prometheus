@@ -1,0 +1,43 @@
+name: outside-user screening package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    name: Windows participant package
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Keep repository evidence bytes on LF
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify bundle tamper detection before the large download
+        run: .\scripts\tests\outside-user-bundle-fixture.ps1
+      - name: Install the UCRT64 desktop toolchain
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          location: C:\msys64
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-opencascade
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-declarative
+            mingw-w64-ucrt-x86_64-qt6-quick3d
+      - name: Build and verify the participant ZIP
+        run: .\scripts\package-outside-user-screening.ps1
+      - name: Retain the verified participant ZIP
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: outside-user-screening-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/outside-user/*.zip
+          if-no-files-found: error
+          retention-days: 14
