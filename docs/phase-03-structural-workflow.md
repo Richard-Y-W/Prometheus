@@ -277,3 +277,22 @@ here.
 Until those items are complete, Prometheus has a bounded, fail-closed
 structural workflow—not a validated YUBI result and not proof that an arbitrary
 engineering project works.
+
+## Reconciliation release gate — 2026-08-16
+
+The local post-reconciliation gate measured:
+
+- 45 focused SQLite Phase 5 intake/migration tests passed and one
+  PostgreSQL-only case skipped as declared;
+- 70 PostgreSQL 17 migration tests passed against an isolated temporary local
+  database;
+- all 16 headless CTests passed;
+- 28 of 29 desktop CTests passed inside the managed sandbox, whose socket
+  policy prevented the remaining HTTP fixture from opening a loopback listener;
+- that exact loopback test passed 1 of 1 outside the socket sandbox; and
+- the structural controller's single-computation test passed again in
+  isolation.
+
+These results cover the consolidated native and persistence paths. They do not
+replace the still-open post-reconciliation Windows CalculiX run, reviewed YUBI
+scenario, independent component comparison, or outside-user session.

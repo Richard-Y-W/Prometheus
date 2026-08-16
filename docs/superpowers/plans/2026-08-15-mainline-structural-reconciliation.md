@@ -62,7 +62,7 @@
 - Preserve: `backend/app/manual_component_intake_v2.py`
 - Preserve: `backend/migrations/versions/f1a9c02e5b6d_manual_component_intake_v2.py`
 
-- [ ] **Step 1: Record the exact merge inputs and require a clean worktree**
+- [x] **Step 1: Record the exact merge inputs and require a clean worktree**
 
 Run:
 
@@ -75,7 +75,7 @@ git rev-parse origin/main
 Expected: branch `feature/phase3-structural-rover-gates`, no uncommitted files,
 feature tip at or after `a0172e3`, and `origin/main` at or after `0ca5112`.
 
-- [ ] **Step 2: Start the merge without committing it**
+- [x] **Step 2: Start the merge without committing it**
 
 Run:
 
@@ -86,7 +86,7 @@ git merge --no-ff --no-commit origin/main
 Expected: the twelve reviewed conflicts listed in the design investigation;
 the Phase 5 backend and migration merge without conflict.
 
-- [ ] **Step 3: Select mainline's product spine for the overlapping controller, runner, archive-facing UI, status document, and smoke script**
+- [x] **Step 3: Select mainline's product spine for the overlapping controller, runner, archive-facing UI, status document, and smoke script**
 
 Run these targeted resolutions:
 
@@ -105,7 +105,7 @@ git checkout --theirs scripts/run-calculix-smoke.ps1
 Expected: these paths contain mainline's `StructuralController`, isolated
 runner, archive/replay workflow, project integration, and single setup panel.
 
-- [ ] **Step 4: Resolve project intake as a union of the mainline archive objects and the root-independent trial digest**
+- [x] **Step 4: Resolve project intake as a union of the mainline archive objects and the root-independent trial digest**
 
 Replace the conflicted result and controller additions in
 `desktop/app/project_intake.hpp` with:
@@ -138,7 +138,7 @@ Keep both declarations:
 buildProjectInventorySnapshot(const ProjectIntakeResult &result);
 ```
 
-- [ ] **Step 5: Restore mainline-compatible versions of feature-modified files that are not textual conflicts but would activate the retired stack**
+- [x] **Step 5: Restore mainline-compatible versions of feature-modified files that are not textual conflicts but would activate the retired stack**
 
 Run:
 
@@ -153,7 +153,7 @@ git restore --source=origin/main --staged --worktree -- desktop/app/tests/qml_au
 Do not delete the unbuilt feature-only sources in this task; Tasks 3 through 9
 move their enumerated tests and behavior before Task 9 removes them.
 
-- [ ] **Step 6: Confirm every merge conflict is resolved and that Phase 5 is present**
+- [x] **Step 6: Confirm every merge conflict is resolved and that Phase 5 is present**
 
 Run:
 
@@ -165,7 +165,7 @@ test -f backend/migrations/versions/f1a9c02e5b6d_manual_component_intake_v2.py
 
 Expected: the first command prints nothing and both file checks return zero.
 
-- [ ] **Step 7: Build and run the mainline structural baseline before the merge commit**
+- [x] **Step 7: Build and run the mainline structural baseline before the merge commit**
 
 Run:
 
@@ -180,7 +180,7 @@ feature-only auto-merge prevents this baseline, restore that specific file from
 `origin/main` and record it in the merge commit message rather than patching a
 second runtime into the baseline.
 
-- [ ] **Step 8: Commit the reviewed merge baseline**
+- [x] **Step 8: Commit the reviewed merge baseline**
 
 Run:
 
@@ -204,7 +204,7 @@ Expected: one merge commit with two parents; no push.
 - Retain: `scripts/jpl-rover-trial.cmake`
 - Retain: `scripts/tests/outside-user-bundle-fixture.ps1`
 
-- [ ] **Step 1: Run the reconciled intake test directly and confirm the root-independent digest assertions are active**
+- [x] **Step 1: Run the reconciled intake test directly and confirm the root-independent digest assertions are active**
 
 Run:
 
@@ -216,7 +216,7 @@ out/build/desktop-no-occt-debug/desktop/app/prometheus_project_intake_tests
 Expected before completing this task: fail at the inventory digest assertion or
 fail to build because the unioned declaration/implementation is incomplete.
 
-- [ ] **Step 2: Keep one file scan and derive both identities from its stored artifact rows**
+- [x] **Step 2: Keep one file scan and derive both identities from its stored artifact rows**
 
 In `scanProjectFolder()`, retain this order after sorting `result.artifacts`:
 
@@ -232,7 +232,7 @@ The `inventoryDigest()` input remains sorted `relative_path`, `byte_size`, and
 content SHA-256. `buildProjectInventorySnapshot()` may add classification and
 detail to its canonical object, but it must consume the same rows.
 
-- [ ] **Step 3: Register the offline intake gates without adding the 623 MB Rover checkout to ordinary CI**
+- [x] **Step 3: Register the offline intake gates without adding the 623 MB Rover checkout to ordinary CI**
 
 Add these existing tests to `desktop/app/CMakeLists.txt` below
 `prometheus_project_intake`:
@@ -274,7 +274,7 @@ add_test(
 Retain the Windows-only PowerShell fixture registration from the feature
 branch. Do not invoke the live external Rover trial from CTest.
 
-- [ ] **Step 4: Run the focused intake gates**
+- [x] **Step 4: Run the focused intake gates**
 
 Run:
 
@@ -287,7 +287,7 @@ ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R 'prometh
 Expected: the project intake test, positive/negative summary fixtures, and two
 portable Rover preparation fixtures pass.
 
-- [ ] **Step 5: Commit the intake reconciliation**
+- [x] **Step 5: Commit the intake reconciliation**
 
 ```bash
 git add desktop/app/CMakeLists.txt desktop/app/project_intake.cpp desktop/app/project_intake.hpp desktop/app/tests/project_intake_tests.cpp cmake scripts fixtures docs/trials .github/workflows
@@ -306,7 +306,7 @@ git commit -m "Retain deterministic project intake gates"
 - Modify: `desktop/structural/CMakeLists.txt`
 - Test: `desktop/structural/tests/structural_tests.cpp`
 
-- [ ] **Step 1: Add failing prepared-mesh tests**
+- [x] **Step 1: Add failing prepared-mesh tests**
 
 Add tests that exercise the public API below:
 
@@ -363,7 +363,7 @@ void requireThrows(Function &&function, const std::string_view expected,
 }
 ```
 
-- [ ] **Step 2: Run the test and verify the new API is absent**
+- [x] **Step 2: Run the test and verify the new API is absent**
 
 Run:
 
@@ -374,7 +374,7 @@ cmake --build --preset headless-debug --target prometheus_structural_tests
 Expected: compilation fails because `prepared_mesh.hpp` and
 `prepare_gmsh_abaqus_mesh()` do not exist.
 
-- [ ] **Step 3: Define immutable prepared-mesh contracts**
+- [x] **Step 3: Define immutable prepared-mesh contracts**
 
 Create `prepared_mesh.hpp` with:
 
@@ -421,7 +421,7 @@ Extend `gmsh_mesh.hpp` with a `SourceSurfaceGroup` containing its source label,
 sorted exact face-node triples, sorted unique node IDs, area, centroid, and
 representative normal. Keep `BoundaryFace` as the volume-derived authority.
 
-- [ ] **Step 4: Implement one preparation pass**
+- [x] **Step 4: Implement one preparation pass**
 
 Move the feature branch's parsing and `mesh_validation.cpp` algorithms behind
 `prepare_gmsh_abaqus_mesh()` with this fixed operation order:
@@ -445,7 +445,7 @@ Reject signed volume at or below the scale-aware floor; do not take its
 absolute value. Derive exterior faces from C3D4 volumes even when source
 surface groups are present.
 
-- [ ] **Step 5: Build and run the strict mesh tests**
+- [x] **Step 5: Build and run the strict mesh tests**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests prometheus_structural_mesh_probe
@@ -455,7 +455,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R prometheus_stru
 Expected: all prepared-mesh, topology, source-label, and pre-existing mainline
 boundary/patch tests pass.
 
-- [ ] **Step 6: Commit the prepared-mesh authority**
+- [x] **Step 6: Commit the prepared-mesh authority**
 
 ```bash
 git add desktop/structural
@@ -473,7 +473,7 @@ git commit -m "Prepare structural meshes once"
 - Modify: `desktop/structural/src/calculix_deck.cpp`
 - Test: `desktop/structural/tests/structural_tests.cpp`
 
-- [ ] **Step 1: Add failing strict-request and compiled-setup tests**
+- [x] **Step 1: Add failing strict-request and compiled-setup tests**
 
 Port the feature-branch cases and assert these exact blocker codes:
 
@@ -516,7 +516,7 @@ require(compiled.identity.starts_with("sha256:"),
         "compiled setup has a canonical content identity");
 ```
 
-- [ ] **Step 2: Run the focused test and verify the strict cases fail**
+- [x] **Step 2: Run the focused test and verify the strict cases fail**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests
@@ -527,7 +527,7 @@ Expected: fail because mainline still accepts at least the zero-resultant,
 uppercase-hash, or injected-heading fixture and lacks
 `compile_structural_setup()`.
 
-- [ ] **Step 3: Extend the request provenance without creating a second setup type**
+- [x] **Step 3: Extend the request provenance without creating a second setup type**
 
 Append these fields to the existing `StructuralRequest`:
 
@@ -554,7 +554,7 @@ Extend mainline's existing reviewed material, requirement, and mesh-control
 objects so `compile_structural_setup()` populates every field rather than
 defaulting it.
 
-- [ ] **Step 4: Define the one compiled setup consumed downstream**
+- [x] **Step 4: Define the one compiled setup consumed downstream**
 
 Add to `structural_setup.hpp`:
 
@@ -575,7 +575,7 @@ validates the request once, canonicalizes setup evidence, generates the deck,
 and hashes a canonical object containing the evidence hash and deck hash. The
 desktop stores this object; it does not call `generate_calculix_deck()` again.
 
-- [ ] **Step 5: Implement strict request rules and keep the public deck API fail-closed**
+- [x] **Step 5: Implement strict request rules and keep the public deck API fail-closed**
 
 Port the feature validator's strict SHA, safe text, positive signed volume,
 nonzero resultant, unique loaded-node, reviewed-force reproduction, unit
@@ -585,7 +585,7 @@ external callers; add an internal `generate_validated_calculix_deck()` used by
 `compile_structural_setup()` so its already validated request is not checked a
 second time.
 
-- [ ] **Step 6: Run the structural tests**
+- [x] **Step 6: Run the structural tests**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests
@@ -595,7 +595,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R prometheus_stru
 Expected: all strict request, compiled setup, existing surface-selection, and
 benchmark-construction tests pass.
 
-- [ ] **Step 7: Commit the compiled setup boundary**
+- [x] **Step 7: Commit the compiled setup boundary**
 
 ```bash
 git add desktop/structural
@@ -614,7 +614,7 @@ git commit -m "Compile reviewed structural setups once"
 - Modify: `desktop/structural/tests/solver_fixture.cpp`
 - Test: `desktop/structural/tests/structural_tests.cpp`
 
-- [ ] **Step 1: Add failing complete/incomplete solver-evidence tests**
+- [x] **Step 1: Add failing complete/incomplete solver-evidence tests**
 
 Use the checked-in `.sta`, `.dat`, stdout, and stderr fixtures to assert:
 
@@ -673,7 +673,7 @@ target_compile_definitions(prometheus_structural_tests PRIVATE
 )
 ```
 
-- [ ] **Step 2: Run the test and verify the mainline parser is insufficient**
+- [x] **Step 2: Run the test and verify the mainline parser is insufficient**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests
@@ -682,7 +682,7 @@ cmake --build --preset headless-debug --target prometheus_structural_tests
 Expected: compilation fails because `CompiledCalculixResult`, convergence, and
 artifact/backend identity fields are absent.
 
-- [ ] **Step 3: Consolidate result types**
+- [x] **Step 3: Consolidate result types**
 
 Use one public result model:
 
@@ -733,7 +733,7 @@ Keep one pure `parse_calculix_dat()` returning typed rows. Remove the separate
 mainline binding validator after its exact coverage checks are part of
 `compile_calculix_result()`.
 
-- [ ] **Step 4: Make the runner consume `CompiledStructuralSetup` and compile evidence once**
+- [x] **Step 4: Make the runner consume `CompiledStructuralSetup` and compile evidence once**
 
 Change the runner entry point to:
 
@@ -755,7 +755,7 @@ in `SolverRunResult`. `completed` requires
 `validated_result->complete()`. No controller or archive method calls the
 compiler again.
 
-- [ ] **Step 5: Run process and evidence tests**
+- [x] **Step 5: Run process and evidence tests**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests prometheus_run_calculix_job
@@ -765,7 +765,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R prometheus_stru
 Expected: success, nonzero exit, missing output, timeout, completion, STA,
 solver identity, deck binding, and exact result coverage cases pass.
 
-- [ ] **Step 6: Commit the one-pass solver evidence boundary**
+- [x] **Step 6: Commit the one-pass solver evidence boundary**
 
 ```bash
 git add desktop/structural
@@ -782,7 +782,7 @@ git commit -m "Compile CalculiX evidence once"
 - Modify: `desktop/structural/src/structural_benchmarks.cpp`
 - Test: `desktop/structural/tests/structural_tests.cpp`
 
-- [ ] **Step 1: Add failing scope, equality, and refinement tests**
+- [x] **Step 1: Add failing scope, equality, and refinement tests**
 
 ```cpp
 constexpr std::string_view coarseHash =
@@ -811,7 +811,7 @@ require(unrefined.evaluated_obligations == 0 && unrefined.findings.empty(),
         "missing refinement evidence produces no pass or violation");
 ```
 
-- [ ] **Step 2: Run the focused test and verify current mainline behavior fails**
+- [x] **Step 2: Run the focused test and verify current mainline behavior fails**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests
@@ -820,7 +820,7 @@ cmake --build --preset headless-debug --target prometheus_structural_tests
 Expected: fail because mainline treats equality as no violation and does not
 gate findings on refinement.
 
-- [ ] **Step 3: Add refinement and evidence identities to the one mainline finding model**
+- [x] **Step 3: Add refinement and evidence identities to the one mainline finding model**
 
 ```cpp
 struct StructuralRefinementEvidence final {
@@ -850,14 +850,14 @@ struct StructuralFinding final {
 all declared obligations unevaluated. A non-violation requires a strictly
 positive margin.
 
-- [ ] **Step 4: Make analytic benchmark/refinement tools produce the same evidence type**
+- [x] **Step 4: Make analytic benchmark/refinement tools produce the same evidence type**
 
 Adapt `run_structural_benchmark.cpp` and `run_structural_refinement.cpp` to
 construct `StructuralRefinementEvidence` from exact coarse/fine result
 identities and the predeclared change criterion. They must call the same
 finding compiler; no benchmark-only pass logic may bypass it.
 
-- [ ] **Step 5: Run structural tests and the checked-in benchmark fixture path**
+- [x] **Step 5: Run structural tests and the checked-in benchmark fixture path**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests prometheus_run_structural_benchmark prometheus_run_structural_refinement
@@ -867,7 +867,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R prometheus_stru
 Expected: known-pass, known-fail, equality, missing-refinement, invalid-result,
 and analytic tolerance cases pass.
 
-- [ ] **Step 6: Commit the refined finding authority**
+- [x] **Step 6: Commit the refined finding authority**
 
 ```bash
 git add desktop/structural
@@ -886,7 +886,7 @@ git commit -m "Gate structural findings on refinement evidence"
 - Test: `desktop/run_store/tests/run_store_transaction_tests.cpp`
 - Test: `desktop/structural/tests/structural_tests.cpp`
 
-- [ ] **Step 1: Add failing v1/v2 compatibility and no-replay publication tests**
+- [x] **Step 1: Add failing v1/v2 compatibility and no-replay publication tests**
 
 Add tests that assert:
 
@@ -908,7 +908,7 @@ require(ps::verify_structural_archive(archive.manifest_path).valid,
 In the desktop publication fixture, make a counting backend assert that commit
 does not increment result-parser or finding-compiler calls.
 
-- [ ] **Step 2: Run the tests and verify archive creation/publication currently replays work**
+- [x] **Step 2: Run the tests and verify archive creation/publication currently replays work**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests prometheus_run_store_transaction_tests
@@ -919,7 +919,7 @@ Expected: fail because the v2 contract and active validated-result identity are
 absent. Task 8 proves the call-count guarantee through the injected desktop
 backend after this contract exists.
 
-- [ ] **Step 3: Add registered v1 and v2 structural archive identities**
+- [x] **Step 3: Add registered v1 and v2 structural archive identities**
 
 In `project_v2.hpp`, retain the current v1 constant and add:
 
@@ -934,7 +934,7 @@ New writers use v2. Readers and project-reference validators accept exactly v1
 or v2 and dispatch to a version-specific closed key set. Do not reinterpret a
 v1 archive as containing solver hashes, convergence, or refinement evidence.
 
-- [ ] **Step 4: Serialize the active validated objects without reparsing them**
+- [x] **Step 4: Serialize the active validated objects without reparsing them**
 
 Extend the archive handle in `structural_archive.hpp`:
 
@@ -964,7 +964,7 @@ The writer may write canonical manifest/setup/stream bytes, but it cannot call
 `parse_calculix_dat()`, `compile_calculix_result()`, or
 `compile_structural_findings()`.
 
-- [ ] **Step 5: Keep replay as the explicit persisted-byte trust boundary**
+- [x] **Step 5: Keep replay as the explicit persisted-byte trust boundary**
 
 `verify_structural_archive()` dispatches by schema version. The v2 verifier
 rehashes declared artifacts, rebuilds the compiled setup/deck identity, parses
@@ -973,14 +973,14 @@ identities to the manifest. Cache the returned
 `StructuralArchiveVerification` in the restore operation so the controller
 does not verify the same archive again.
 
-- [ ] **Step 6: Remove the controller's pre-publication structural replay**
+- [x] **Step 6: Remove the controller's pre-publication structural replay**
 
 Project publication accepts the trusted `StructuralArchive` handle created in
 the same active run. `build_structural_archive_objects()` still validates file
 lengths and hashes while installing immutable chunks, but neither it nor the
 controller invokes structural parsing or finding compilation.
 
-- [ ] **Step 7: Run structural and run-store compatibility tests**
+- [x] **Step 7: Run structural and run-store compatibility tests**
 
 ```bash
 cmake --build --preset headless-debug --target prometheus_structural_tests prometheus_run_store_transaction_tests prometheus_replay_structural_run
@@ -990,7 +990,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R 'prometheus_str
 Expected: v1 read, v2 write/replay, tamper rejection, project embedding,
 relocation, and single active-run parse tests pass.
 
-- [ ] **Step 8: Commit the archive boundary**
+- [x] **Step 8: Commit the archive boundary**
 
 ```bash
 git add desktop/structural desktop/run_store
@@ -1010,7 +1010,7 @@ git commit -m "Version strengthened structural archives"
 - Test: `desktop/app/tests/structural_controller_tests.cpp`
 - Test: `desktop/app/tests/qml_authority_tests.cpp`
 
-- [ ] **Step 1: Add a counting-backend integration test before the adapter exists**
+- [x] **Step 1: Add a counting-backend integration test before the adapter exists**
 
 Define a test backend that delegates to real Qt-free functions and increments
 atomic counters for `prepareMesh`, `groupPatches`, `compileSetup`, and
@@ -1110,7 +1110,7 @@ Then edit only the force and assert `prepare_mesh` remains one. Change only the
 patch angle and assert `group_patches` increments while `prepare_mesh` remains
 one. Repeated property reads must not change any counter.
 
-- [ ] **Step 2: Run the controller test and verify injection/counters are absent**
+- [x] **Step 2: Run the controller test and verify injection/counters are absent**
 
 ```bash
 cmake --build --preset desktop-no-occt-debug --target prometheus_structural_controller_tests
@@ -1119,7 +1119,7 @@ cmake --build --preset desktop-no-occt-debug --target prometheus_structural_cont
 Expected: compilation fails because `StructuralBackend` injection does not
 exist.
 
-- [ ] **Step 3: Add the injectable non-QObject backend**
+- [x] **Step 3: Add the injectable non-QObject backend**
 
 Create:
 
@@ -1154,7 +1154,7 @@ makeLocalStructuralBackend();
 `LocalStructuralBackend` delegates directly to the authoritative Qt-free
 functions. The interface contains no alternate formulas or validators.
 
-- [ ] **Step 4: Store immutable stage outputs in `StructuralController`**
+- [x] **Step 4: Store immutable stage outputs in `StructuralController`**
 
 Replace separate recomputation-prone state with:
 
@@ -1181,7 +1181,7 @@ QML getters map stored values only. A reviewed-field edit clears
 `compiled_setup_` and `completed_run_` but not `prepared_mesh_`. Patch-angle
 change rebuilds only `patches_`. Mesh-byte or scale change clears all stages.
 
-- [ ] **Step 5: Port the useful feature-panel behavior into the one mainline panel**
+- [x] **Step 5: Port the useful feature-panel behavior into the one mainline panel**
 
 Retain mainline's run, commit, stored-run, restore, and result visualization.
 Add prepared-mesh display/highlighting and these stored properties:
@@ -1205,7 +1205,7 @@ Display selected area, compiled resultant, mesh quality, mesh/source identities,
 and exact blocker codes. Do not restore the feature branch's separate Run or
 Export path.
 
-- [ ] **Step 6: Add QML authority assertions**
+- [x] **Step 6: Add QML authority assertions**
 
 Extend `qml_authority_tests.cpp` to require exactly one
 `StructuralSetupPanel`, one `structuralController` property, and no references
@@ -1213,7 +1213,7 @@ to `StructuralSetupController`, `readyToExport`, or the removed feature-only
 export action. Instantiate the QML with the mock controller and read every
 property twice; the counting backend test remains unchanged.
 
-- [ ] **Step 7: Build and run desktop structural/QML tests**
+- [x] **Step 7: Build and run desktop structural/QML tests**
 
 ```bash
 cmake --preset desktop-no-occt-debug
@@ -1224,7 +1224,7 @@ ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R 'prometh
 Expected: one-pass counter assertions, setup invalidation, async execution,
 archive commit/restore, stale-source handling, and QML authority tests pass.
 
-- [ ] **Step 8: Commit the consolidated desktop**
+- [x] **Step 8: Commit the consolidated desktop**
 
 ```bash
 git add desktop/app desktop/ui
@@ -1259,7 +1259,7 @@ git commit -m "Consolidate structural desktop execution"
 - Modify: `scripts/run-calculix-smoke.ps1`
 - Modify: `docs/phase-03-structural-workflow.md`
 
-- [ ] **Step 1: Add a source-tree authority check before deleting files**
+- [x] **Step 1: Add a source-tree authority check before deleting files**
 
 Add `cmake/AssertSingleStructuralAuthority.cmake` and register it as
 `prometheus_structural_single_authority`. The script fails while any retired
@@ -1307,7 +1307,7 @@ prometheus_export_structural_case
 prometheus_verify_structural_case
 ```
 
-- [ ] **Step 2: Run the authority test and verify it fails while retired files remain in the tree**
+- [x] **Step 2: Run the authority test and verify it fails while retired files remain in the tree**
 
 ```bash
 ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R prometheus_structural_single_authority
@@ -1315,7 +1315,7 @@ ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R promethe
 
 Expected: fail and name at least one retired authority.
 
-- [ ] **Step 3: Remove duplicate sources after their tests have moved**
+- [x] **Step 3: Remove duplicate sources after their tests have moved**
 
 Delete every path enumerated in this task. Move the feature branch's tested
 surface-force distribution implementation into mainline's
@@ -1335,14 +1335,14 @@ prometheus_replay_structural_run
 prometheus_export_structural_archive
 ```
 
-- [ ] **Step 4: Make the smoke script execute the authoritative runner and parser**
+- [x] **Step 4: Make the smoke script execute the authoritative runner and parser**
 
 `run-calculix-smoke.ps1` must generate the compiled setup/deck, invoke
 `prometheus_run_calculix_job`, and fail unless the runner reports completed
 validated evidence. It must not invoke `ccx` directly or call a second verifier
 over the same active outputs.
 
-- [ ] **Step 5: Reconcile Phase 3 documentation with exact claims and limits**
+- [x] **Step 5: Reconcile Phase 3 documentation with exact claims and limits**
 
 Document one controller, one result compiler, v1 read/v2 write archives, the
 single-computation invariant, the retained analytic and external gates, and
@@ -1350,7 +1350,7 @@ the still-open reviewed YUBI scenario/independent comparison. Preserve the
 Phase 5 non-claim: manually entered component packages are not yet consumed by
 structural analysis.
 
-- [ ] **Step 6: Run the authority, structural, and fixture tests**
+- [x] **Step 6: Run the authority, structural, and fixture tests**
 
 ```bash
 cmake --preset headless-debug
@@ -1361,7 +1361,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure -R 'prometheus_str
 Expected: all selected tests pass and the authority scanner finds no retired
 runtime.
 
-- [ ] **Step 7: Commit duplicate removal and documentation**
+- [x] **Step 7: Commit duplicate removal and documentation**
 
 ```bash
 git add --all
@@ -1376,7 +1376,7 @@ git commit -m "Remove parallel structural authority"
 - Modify if results changed: `docs/phase-04-persistence-and-portability.md`
 - Modify: `docs/superpowers/plans/2026-08-15-mainline-structural-reconciliation.md` (check completed boxes only)
 
-- [ ] **Step 1: Verify the pulled Phase 5 backend on SQLite**
+- [x] **Step 1: Verify the pulled Phase 5 backend on SQLite**
 
 Run from `backend/`:
 
@@ -1386,7 +1386,7 @@ uv run pytest -q tests/test_manual_component_intake_v2.py tests/test_migrations_
 
 Expected: all selected Phase 5 intake and migration tests pass.
 
-- [ ] **Step 2: Verify PostgreSQL migration invariants when the configured local test database is available**
+- [x] **Step 2: Verify PostgreSQL migration invariants when the configured local test database is available**
 
 Run from `backend/` with the existing project test URL:
 
@@ -1398,7 +1398,7 @@ Expected: all PostgreSQL migration tests pass. If the configured service is not
 running, report that external prerequisite rather than converting it into a
 pass.
 
-- [ ] **Step 3: Run the complete headless build and test suite**
+- [x] **Step 3: Run the complete headless build and test suite**
 
 ```bash
 cmake --preset headless-debug
@@ -1408,7 +1408,7 @@ ctest --test-dir out/build/headless-debug --output-on-failure
 
 Expected: zero failed tests.
 
-- [ ] **Step 4: Run the complete no-OCCT desktop build and test suite**
+- [x] **Step 4: Run the complete no-OCCT desktop build and test suite**
 
 ```bash
 cmake --preset desktop-no-occt-debug
@@ -1420,7 +1420,7 @@ Expected: zero failed tests, except that an environment-blocked loopback test
 must be rerun outside the socket sandbox and reported separately with its exact
 result.
 
-- [ ] **Step 5: Re-run the single-computation test in isolation**
+- [x] **Step 5: Re-run the single-computation test in isolation**
 
 ```bash
 ctest --test-dir out/build/desktop-no-occt-debug --output-on-failure -R prometheus_structural_controller
@@ -1431,7 +1431,7 @@ compilation per reviewed snapshot, and one execution. The execution stage owns
 exactly one result compilation and one finding compilation internally;
 view/save/publication cause no backend-stage increments.
 
-- [ ] **Step 6: Validate repository and contract hygiene**
+- [x] **Step 6: Validate repository and contract hygiene**
 
 ```bash
 git diff --check origin/main...HEAD
@@ -1445,7 +1445,7 @@ git log --oneline --decorate origin/main..HEAD
 Expected: no whitespace errors, all presets parse, no uncommitted files, and a
 reviewable local commit series. Do not push.
 
-- [ ] **Step 7: Record only measured verification results**
+- [x] **Step 7: Record only measured verification results**
 
 Update the Phase 3/4 status documents only when a command above produced new
 evidence. Keep the YUBI real-scenario and physically separate clean-machine
