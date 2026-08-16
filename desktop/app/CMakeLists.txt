@@ -44,6 +44,23 @@ if(BUILD_TESTING)
     NAME prometheus_project_intake
     COMMAND prometheus_project_intake_tests
   )
+  add_test(
+    NAME prometheus_project_intake_summary_good
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-good.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  add_test(
+    NAME prometheus_project_intake_summary_bad
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-bad.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  set_tests_properties(prometheus_project_intake_summary_bad PROPERTIES
+    WILL_FAIL TRUE
+  )
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp

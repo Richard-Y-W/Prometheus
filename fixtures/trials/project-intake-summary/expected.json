@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "error": "",
+  "root_path": "/ignored/expected/root",
+  "inventory_sha256": "sha256:535ec79d19a301352ee1d10176bddd0e1080b4dea36241fc51daab29c34c296c",
+  "total_files": 4,
+  "ready_files": 1,
+  "not_evaluated_files": 2,
+  "unsupported_files": 1,
+  "unreadable_files": 0,
+  "duplicate_copies": 0,
+  "primary_step_path": "",
+  "elapsed_ms": 999
+}
