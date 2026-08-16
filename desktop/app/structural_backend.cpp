@@ -50,6 +50,46 @@ public:
     }
     return result;
   }
+
+  DesktopStructuralSampleResult executeSample(
+      ps::SolverRunOptions options,
+      ps::CompiledStructuralSetup setup,
+      const ps::StructuralSampleRole role,
+      ps::StructuralRefinementCriterion criterion) const override {
+    DesktopStructuralSampleResult result;
+    auto run = ps::run_calculix(options, setup);
+    if (run.status != ps::SolverRunStatus::completed) {
+      result.error = run.detail;
+      result.failed_run = std::move(run);
+      return result;
+    }
+    result.sample = ps::compile_completed_structural_sample(
+        role, std::move(criterion), std::move(options), std::move(setup),
+        std::move(run));
+    return result;
+  }
+
+  DesktopStructuralRefinementResult finalizeRefinement(
+      ps::CompletedStructuralSamplePtr coarse,
+      ps::CompletedStructuralSamplePtr fine,
+      const ps::ReviewedBoundaryCorrespondence &correspondence) const override {
+    DesktopStructuralRefinementResult result;
+    auto compiled = ps::compile_structural_refinement(
+        std::move(coarse), std::move(fine), correspondence);
+    if (!compiled.complete()) {
+      result.issues = compiled.issues();
+      return result;
+    }
+    result.comparison = compiled.value();
+    result.evaluation = ps::compile_structural_findings(*result.comparison);
+    try {
+      result.archive = ps::write_structural_refinement_archive(
+          *result.comparison, result.evaluation);
+    } catch (const std::exception &error) {
+      result.archive_error = error.what();
+    }
+    return result;
+  }
 };
 
 } // namespace

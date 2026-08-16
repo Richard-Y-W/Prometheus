@@ -30,6 +30,8 @@ struct StageCounts final {
   int group_patches{};
   int compile_setup{};
   int execute{};
+  int execute_sample{};
+  int finalize_refinement{};
 };
 
 class CountingStructuralBackend final : public StructuralBackend {
@@ -63,8 +65,28 @@ public:
     return delegate_->execute(options, setup);
   }
 
+  DesktopStructuralSampleResult executeSample(
+      ps::SolverRunOptions options,
+      ps::CompiledStructuralSetup setup,
+      const ps::StructuralSampleRole role,
+      ps::StructuralRefinementCriterion criterion) const override {
+    ++execute_sample_;
+    return delegate_->executeSample(
+        std::move(options), std::move(setup), role, std::move(criterion));
+  }
+
+  DesktopStructuralRefinementResult finalizeRefinement(
+      ps::CompletedStructuralSamplePtr coarse,
+      ps::CompletedStructuralSamplePtr fine,
+      const ps::ReviewedBoundaryCorrespondence &correspondence) const override {
+    ++finalize_refinement_;
+    return delegate_->finalizeRefinement(
+        std::move(coarse), std::move(fine), correspondence);
+  }
+
   [[nodiscard]] StageCounts counts() const {
-    return {prepare_mesh_, group_patches_, compile_setup_, execute_};
+    return {prepare_mesh_, group_patches_, compile_setup_, execute_,
+            execute_sample_, finalize_refinement_};
   }
 
   [[nodiscard]] ps::CompiledStructuralSetup lastSetup() const {
@@ -77,6 +99,8 @@ private:
   mutable std::atomic<int> group_patches_{};
   mutable std::atomic<int> compile_setup_{};
   mutable std::atomic<int> execute_{};
+  mutable std::atomic<int> execute_sample_{};
+  mutable std::atomic<int> finalize_refinement_{};
   mutable std::optional<ps::CompiledStructuralSetup> last_setup_;
 };
 
@@ -172,6 +196,78 @@ int main(int argc, char **argv) {
       QString::fromStdWString(projectPath.wstring())));
   require(project.currentProjectPath().size() > 0,
           "structural project fixture opens");
+
+  auto coarseReviewed =
+      ps::cantilever_benchmark(8, 2, 2).setup.reviewed_setup;
+  auto fineReviewed =
+      ps::cantilever_benchmark(12, 3, 3).setup.reviewed_setup;
+  fineReviewed.analysis_id = coarseReviewed.analysis_id;
+  fineReviewed.component_name = coarseReviewed.component_name;
+  fineReviewed.geometry_sha256 = coarseReviewed.geometry_sha256;
+  const auto coarseSetup = ps::compile_structural_setup(coarseReviewed);
+  const auto fineSetup = ps::compile_structural_setup(fineReviewed);
+  const auto correspondence = ps::review_structural_boundary_correspondence(
+      coarseSetup, fineSetup, true, true);
+  const auto backendSolverFixture =
+      std::filesystem::path(PROMETHEUS_SOLVER_FIXTURE_PATH);
+
+  const auto runBackendRefinement =
+      [&](const std::shared_ptr<CountingStructuralBackend> &backend,
+          const std::filesystem::path &studyDirectory,
+          const ps::StructuralRefinementCriterion criterion) {
+        require(std::filesystem::create_directory(studyDirectory),
+                "backend refinement study directory is created");
+        const ps::SolverRunOptions coarseOptions{
+            backendSolverFixture, studyDirectory, "backend_cantilever_coarse",
+            std::chrono::seconds(5)};
+        const ps::SolverRunOptions fineOptions{
+            backendSolverFixture, studyDirectory, "backend_cantilever_fine",
+            std::chrono::seconds(5)};
+        const auto coarse = backend->executeSample(
+            coarseOptions, coarseSetup, ps::StructuralSampleRole::coarse,
+            criterion);
+        const auto fine = backend->executeSample(
+            fineOptions, fineSetup, ps::StructuralSampleRole::fine,
+            criterion);
+        require(coarse.sample && fine.sample &&
+                    coarse.run().status == ps::SolverRunStatus::completed &&
+                    fine.run().status == ps::SolverRunStatus::completed,
+                "backend retains two immutable completed samples");
+        return backend->finalizeRefinement(coarse.sample, fine.sample,
+                                           correspondence);
+      };
+
+  auto acceptedBackend = std::make_shared<CountingStructuralBackend>();
+  const auto completed = runBackendRefinement(
+      acceptedBackend,
+      std::filesystem::path(temporary.path().toStdWString()) /
+          "accepted-backend-refinement",
+      ps::compile_structural_refinement_criterion(0.10));
+  require(acceptedBackend->counts().execute_sample == 2 &&
+              acceptedBackend->counts().finalize_refinement == 1,
+          "one refinement study executes exactly two samples and finalizes once");
+  require(completed.comparison && completed.archive &&
+              completed.archive->schema_version == "3.0.0" &&
+              completed.evaluation.comparison.has_value(),
+          "backend finalization returns the typed pair, evaluation, and v3 archive");
+
+  auto strictBackend = std::make_shared<CountingStructuralBackend>();
+  const auto strictCriterion =
+      ps::compile_structural_refinement_criterion(0.01);
+  const auto indeterminate = runBackendRefinement(
+      strictBackend,
+      std::filesystem::path(temporary.path().toStdWString()) /
+          "indeterminate-backend-refinement",
+      strictCriterion);
+  require(strictBackend->counts().execute_sample == 2 &&
+              strictBackend->counts().finalize_refinement == 1 &&
+              indeterminate.comparison && indeterminate.archive &&
+              indeterminate.comparison->status() ==
+                  ps::StructuralRefinementStatus::indeterminate &&
+              indeterminate.evaluation.evaluated_obligations == 0 &&
+              indeterminate.evaluation.findings.empty(),
+          "a predeclared strict criterion archives one honest indeterminate pair");
+
   auto countingBackend = std::make_shared<CountingStructuralBackend>();
   StructuralController controller(&project, nullptr, countingBackend);
   controller.loadMesh(QUrl::fromLocalFile(mesh.fileName()), 0.001, 1.0);
