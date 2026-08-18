@@ -210,20 +210,64 @@ the exact expected consumer-hash reference and publishes `ready`; a draft
 declaring any other capability (the existing default) still gets `blocked`
 with no references — the allow-list is opt-in, not a blanket unblock.
 
+## Checkpoint 5: named/linked component acquisition (fetch, retain, propose identity)
+
+A user supplies a URL to a manufacturer product page instead of typing a
+component's identity by hand. This was the feature idea that started the
+work session this checkpoint shipped in, and it is genuinely new,
+security-sensitive surface: before this, no code anywhere in
+`backend/app` made an outbound network request. See
+[the threat model](threat-model.md)'s new SSRF row for the full control
+list; in summary, `outbound_fetch.fetch_url_safely` restricts scheme,
+validates every resolved address is public before connecting, never
+follows redirects, allow-lists `Content-Type: text/html`, streams with a
+hard byte cap, and never sends credentials — with a documented, accepted
+residual risk (no DNS-rebinding-proof IP pinning yet).
+
+Investigation found the honestly extractable scope is narrower than "full
+acquisition": `schema.org/Product` JSON-LD — the most common
+machine-readable data manufacturer/e-commerce pages embed — yields
+identity fields (manufacturer, part number) via `jsonld_extraction.py`'s
+bounded, dependency-free scan, not engineering parameters like torque or
+current limits. So `POST /api/v2/component-acquisitions` fetches, retains
+the exact bytes as an immutable artifact via the same
+`store_submitted_artifact` the manual-entry path already uses, and
+proposes only identity candidates — it does not create a component draft.
+A human still submits the full engineering spec through the existing
+`POST /api/v2/component-drafts` path, now optionally pre-filled with this
+identity. Wiring the retained artifact in as real claim evidence on that
+subsequent draft is separately scoped future work: `EvidenceRecordV2`
+already has a `source_uri` column and a `manufacturer_document` evidence
+class ready for it, but `ManualComponentDraftRequestV2`'s parameter shape
+today only supports `measurement_method`/`observed_at`-based
+user-measurement evidence, not document-sourced claims.
+
+This checkpoint is backend-only, matching checkpoint 1's own precedent —
+there is no desktop UI yet for manual component drafts at all, so none was
+added here either. `httpx` moved from a dev-only to a runtime dependency
+(the first outbound HTTP client the backend has ever needed); no new
+HTML-parsing dependency was added.
+
+Tests cover: `validate_public_address` against loopback/private/
+link-local/multicast/reserved/public examples with no network involved;
+`fetch_url_safely` against a mocked transport for scheme, content-type,
+oversized-body, non-200, and redirect rejection, plus the happy path, and
+against the *real* resolver for a loopback target with no mocking at all;
+JSON-LD extraction across plain/`@graph`/array shapes, multiple `@type`
+values, malformed JSON, non-Product types, and a bounded-scan-count proof;
+and the full create → fetch → retain → extract → job round trip,
+idempotency replay/conflict, and that a fetch failure leaves no job row
+(matching the existing fixture/manual-draft precedent of never persisting
+a record for a rejected attempt).
+
 ## Remaining Phase 5 evidence
 
 1. Structured CSV/BOM import and manufacturer datasheet attachment.
-2. Named/linked component acquisition: a user supplies a manufacturer part
-   name or a URL to a product page or datasheet instead of typing every
-   field by hand. Prometheus fetches the source artifact, retains its exact
-   bytes and locator, and runs a bounded extractor (structured-page parser
-   first; PDF/table extraction and any machine-assisted, e.g. LLM-based,
-   extraction land only as a deliberately small, documented set per the
-   deployment plan's "what add any available component should mean"
-   section) to propose typed parameter candidates. Every proposed value is a
-   `candidate` with its source locator attached — identical in trust
-   standing to a manually typed value before review, never auto-published.
-   Conflicting or unextractable fields remain visible as unknown rather than
-   silently guessed. This path reuses the same draft/review/publish
-   pipeline as checkpoint 1; it only changes how the draft's parameters are
-   first proposed.
+2. PDF/table extraction and any machine-assisted (e.g. LLM-based)
+   extraction for named/linked acquisition — deliberately deferred from
+   checkpoint 5's structured-page-first scope.
+3. Wiring an acquired artifact as real claim evidence on a manual
+   component draft (needs `ManualComponentDraftRequestV2`'s parameter
+   shape extended beyond user-measurement-only evidence, noted above).
+4. DNS-rebinding-proof IP pinning for outbound fetch, and any desktop UI
+   for manual component drafts or named/linked acquisition at all.

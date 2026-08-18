@@ -12,7 +12,11 @@ The present codebase provides:
 
 - real Open Cascade STEP/XDE import and assembly inspection;
 - a separate synthetic motor-arm conformance fixture;
-- exact lookup of one synthetic component source, not public component research;
+- exact lookup of one synthetic component source; bounded, security-reviewed
+  fetch-and-retain of a user-supplied product-page URL with identity-only
+  (manufacturer/part-number) extraction exists as of Phase 5 checkpoint 5
+  (see `docs/phase-05-component-intake.md`) — not general public component
+  research, and not yet wired to any desktop UI;
 - revision-scoped candidate claims, typed evidence, append-only claim-ID review, and capability gates;
 - exact RFC 8785 published component-input bytes with external SHA-256 identity, verified stored-byte export, durable publication replay, and independent C++ integrity verification;
 - fixed C++ motor-arm conformance calculations that do not yet consume the published package;
