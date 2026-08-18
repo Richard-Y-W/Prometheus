@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QUrl>
 #include "cad_controller.hpp"
+#include "component_binding_controller.hpp"
 #include "engineering_controller.hpp"
 #include "execution_controller.hpp"
 #include "project_intake.hpp"
@@ -25,6 +26,15 @@ int main(int argc, char* argv[]) {
   ProjectIntakeController intake;
   ExecutionController execution(&project,&service);
   StructuralController structural(&project);
+  ComponentBindingController componentBinding(service.baseUrl(), &project);
+  QObject::connect(&cad, &CadController::componentBindingRequested,
+                   &componentBinding, &ComponentBindingController::bindRevision);
+  QObject::connect(&componentBinding,
+                   &ComponentBindingController::componentBindingVerified,
+                   &cad, &CadController::applyVerifiedComponentBinding);
+  QObject::connect(&componentBinding,
+                   &ComponentBindingController::componentBindingFailed,
+                   &cad, &CadController::failVerifiedComponentBinding);
   const auto anchorInventory = [&intake, &project] {
     if (!intake.result().ok || !project.project().has_value()) return;
     auto source = QString::fromStdString(project.project()->cad_source);
@@ -91,6 +101,7 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("projectIntakeController",&intake);
   engine.rootContext()->setContextProperty("executionController",&execution);
   engine.rootContext()->setContextProperty("structuralController",&structural);
+  engine.rootContext()->setContextProperty("componentBindingController",&componentBinding);
   engine.rootContext()->setContextProperty("demoResearch",demo_research);
   engine.rootContext()->setContextProperty("demoEngineering",demo_engineering);
   engine.rootContext()->setContextProperty("demoCadInspect",demo_cad_inspect);

@@ -144,6 +144,13 @@ class EvidenceSummaryResponseV2(ContractV2):
     limitations: list[NonEmptyText] = Field(max_length=1_000)
 
 
+class SupersedingRevisionResponseV2(ContractV2):
+    revision_id: UuidV4
+    revision: str
+    object_hash: HashId
+    published_at: UtcDatetime
+
+
 class RevisionResponseV2(ContractV2):
     id: UuidV4
     status: Literal["draft", "published"]
@@ -157,6 +164,7 @@ class RevisionResponseV2(ContractV2):
     capability_gates: list[CapabilityGateResponseV2]
     publication_integrity: Literal["v2_draft", "sealed_v2"]
     object_hash: HashId | None
+    superseded_by: SupersedingRevisionResponseV2 | None
     published_at: UtcDatetime | None
 
 
@@ -381,6 +389,38 @@ def _revision_value(db: Session, revision_id: str) -> dict[str, object]:
         "publication_integrity": revision.publication_integrity,
         "object_hash": revision.published_object_hash,
         "published_at": revision.published_at,
+        "superseded_by": _superseding_revision_value(db, revision),
+    }
+
+
+def _superseding_revision_value(
+    db: Session, revision: ComponentRevision
+) -> dict[str, object] | None:
+    latest_sibling = db.scalar(
+        sa.select(ComponentRevision)
+        .where(
+            ComponentRevision.component_id == revision.component_id,
+            ComponentRevision.id != revision.id,
+            ComponentRevision.status == "published",
+            ComponentRevision.published_at.is_not(None),
+        )
+        .order_by(ComponentRevision.published_at.desc())
+        .limit(1)
+    )
+    if (
+        latest_sibling is None
+        or latest_sibling.published_object_hash is None
+        or (
+            revision.published_at is not None
+            and latest_sibling.published_at <= revision.published_at
+        )
+    ):
+        return None
+    return {
+        "revision_id": latest_sibling.id,
+        "revision": latest_sibling.revision,
+        "object_hash": latest_sibling.published_object_hash,
+        "published_at": latest_sibling.published_at,
     }
 
 

@@ -1,4 +1,5 @@
 #include "cad_controller.hpp"
+#include "component_binding_controller.hpp"
 #include "engineering_controller.hpp"
 #include "execution_controller.hpp"
 #include "project_controller.hpp"
@@ -9,20 +10,75 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QGuiApplication>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <iostream>
 #include <functional>
+#include <memory>
 #include <string_view>
 
 namespace {
 bool waitUntil(const std::function<bool()>& predicate){QElapsedTimer timer;timer.start();while(!predicate()&&timer.elapsed()<10000){QCoreApplication::processEvents(QEventLoop::AllEvents,20);QThread::msleep(2);}return predicate();}
 QByteArray readFixture(const QString& path){QFile file(path);if(!file.open(QIODevice::ReadOnly))return {};return file.readAll();}
 QString hash(const QByteArray& value){return QString::fromStdString(prometheus::integrity::object_hash(std::string_view(value.constData(),static_cast<std::size_t>(value.size()))));}
+
+constexpr auto packageMediaType="application/vnd.prometheus.execution-component+json;version=2.0.0";
+
+// A minimal fake service backend for one revision id: serves the given
+// package bytes for its execution-package path and an empty supersession
+// record for its plain metadata path, mirroring the routing already proven
+// in component_binding_controller_tests.cpp's RevisionPackageServer.
+class FakeRevisionServer final : public QObject {
+  Q_OBJECT
+public:
+  FakeRevisionServer(QByteArray packageBytes, QByteArray packageHash)
+      : bytes_(std::move(packageBytes)), hash_(std::move(packageHash)) {
+    connect(&server_, &QTcpServer::newConnection, this, [this] {
+      while (server_.hasPendingConnections()) {
+        auto* socket = server_.nextPendingConnection();
+        auto request = std::make_shared<QByteArray>();
+        auto responded = std::make_shared<bool>(false);
+        connect(socket, &QTcpSocket::readyRead, socket,
+            [this, socket, request, responded] {
+              *request += socket->readAll();
+              if (*responded || !request->contains("\r\n\r\n")) return;
+              *responded = true;
+              if (request->contains("/execution-package")) {
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: "
+                    + QByteArray(packageMediaType) + "\r\nETag: \"" + hash_
+                    + "\"\r\nContent-Length: "
+                    + QByteArray::number(bytes_.size())
+                    + "\r\nConnection: close\r\n\r\n" + bytes_);
+              } else {
+                const QByteArray body = "{\"superseded_by\":null}";
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                    "Content-Length: " + QByteArray::number(body.size())
+                    + "\r\nConnection: close\r\n\r\n" + body);
+              }
+              socket->flush();
+              socket->disconnectFromHost();
+            });
+      }
+    });
+    server_.listen(QHostAddress::LocalHost, 0);
+  }
+  QUrl baseUrl() const {
+    return QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server_.serverPort()));
+  }
+private:
+  QTcpServer server_;
+  QByteArray bytes_;
+  QByteArray hash_;
+};
 }
 
 int main(int argc,char** argv){
@@ -44,7 +100,7 @@ int main(int argc,char** argv){
   if(first.placementAnchors(2).size()!=7){std::cerr<<"placement anchor generation failed\n";return 5;}QTimer::singleShot(5000,&placement_loop,&QEventLoop::quit);if(!first.snapPlacementAnchors(2,"x_min",0,"x_max")){std::cerr<<"placement anchor snap rejected\n";return 5;}placement_loop.exec();const auto moving_anchor=first.placementAnchors(2)[1].toMap(),target_anchor=first.placementAnchors(0)[2].toMap();if(std::abs(moving_anchor.value("x").toDouble()-target_anchor.value("x").toDouble())>1e-9||std::abs(moving_anchor.value("y").toDouble()-target_anchor.value("y").toDouble())>1e-9||std::abs(moving_anchor.value("z").toDouble()-target_anchor.value("z").toDouble())>1e-9){std::cerr<<"placement anchors did not coincide\n";return 5;}QTimer::singleShot(5000,&placement_loop,&QEventLoop::quit);first.undoPlacement();placement_loop.exec();
   QTimer::singleShot(5000,&placement_loop,&QEventLoop::quit);if(!first.confirmAnchorConnection(2,"x_min",0,"x_max","fixed")){std::cerr<<"semantic anchor connection rejected\n";return 5;}placement_loop.exec();if(first.connections().size()!=1||first.connections().front().toMap().value("semantic_status")!="provisional_geometry_anchor"){std::cerr<<"semantic anchor connection missing\n";return 5;}const double saved_translation_x=placed->translationX();
   QStringList ids;for(const auto& value:first.parts())ids<<qobject_cast<CadPart*>(value.value<QObject*>())->persistentId();
-  first.bindComponent(1,{{"id","revision-123"},{"manufacturer","Fixture Works"},{"part_number","PM-36"}});ProjectController first_project(&first,&checks);
+  first.bindProvisionalCandidate(1,{{"id","revision-123"},{"manufacturer","Fixture Works"},{"part_number","PM-36"}});if(qobject_cast<CadPart*>(first.parts()[1].value<QObject*>())->componentVerified()){std::cerr<<"provisional candidate binding must not be verified\n";return 5;}ProjectController first_project(&first,&checks);
   first_project.saveAsVersion2(QUrl::fromLocalFile(project));if(first_project.errorCode()!=""){std::cerr<<"atomic Save As failed\n";return 6;}
   QFile file(project);if(!file.open(QIODevice::ReadOnly)||QJsonDocument::fromJson(file.readAll()).object().value("schema_version")!="2.0.0"){std::cerr<<"manifest invalid\n";return 7;}file.close();
   auto unresolved=prometheus::run_store::open_read_only(project.toStdString());if(!unresolved.has_value()){std::cerr<<"saved project did not reopen for unresolved-state fixture\n";return 7;}unresolved.value().name="Reviewed arm project";unresolved.value().component_bindings.push_back({"retired-motor","revision-retired","Retired motor"});unresolved.value().placement_overrides.push_back({"retired-arm",0.02,0,0,0,0,5,"extrinsic_X_then_Y_then_Z_about_imported_bounds_center"});unresolved.value().connections.push_back({"retired-arm:x_min->base:x_max","retired-arm","Retired arm","x_min","base","Base plate","x_max","fixed",true,"derived_bounds","provisional_geometry_anchor"});const auto unresolved_save=prometheus::run_store::save_project_snapshot(project.toStdString(),unresolved.value());if(!unresolved_save.has_value()){std::cerr<<"unresolved-state fixture did not save: "<<unresolved_save.diagnostic().code<<": "<<unresolved_save.diagnostic().message<<"\n";return 7;}
@@ -52,6 +108,7 @@ int main(int argc,char** argv){
   if(!success||reopened.parts().size()!=3||reopened.sourceName()!="motor-arm.step"){std::cerr<<"reopen failed\n";return 8;}
   QStringList reopened_ids;for(const auto& value:reopened.parts())reopened_ids<<qobject_cast<CadPart*>(value.value<QObject*>())->persistentId();if(ids!=reopened_ids){std::cerr<<"persistent CAD identifiers changed\n";return 9;}
   if(qobject_cast<CadPart*>(reopened.parts()[1].value<QObject*>())->componentRevisionId()!="revision-123"){std::cerr<<"component binding was not restored\n";return 10;}
+  if(qobject_cast<CadPart*>(reopened.parts()[1].value<QObject*>())->componentVerified()){std::cerr<<"restored binding must require reverification, not silently trust stored text\n";return 10;}
   if(!reopened_checks.jointConfigured()||reopened_checks.findings().size()!=2||reopened_project.committedRunCount()!=0){std::cerr<<"geometry-only engineering state was not restored\n";return 11;}
   if(reopened.interferences().front().toMap().value("classification")!="intended_engagement"){std::cerr<<"interference classification was not restored\n";return 12;}
   if(std::abs(qobject_cast<CadPart*>(reopened.parts()[2].value<QObject*>())->translationX()-saved_translation_x)>1e-9){std::cerr<<"placement override was not restored\n";return 13;}
@@ -59,5 +116,43 @@ int main(int argc,char** argv){
   if(reopened.connections().size()!=1||reopened.connections().front().toMap().value("connection_type")!="fixed"){std::cerr<<"semantic connection was not restored\n";return 15;}
   ExecutionController execution(&reopened_project);const auto motor_entity=qobject_cast<CadPart*>(reopened.parts()[1].value<QObject*>())->persistentId();execution.setPendingCadEntityId(motor_entity);const QString contracts=QStringLiteral(PROMETHEUS_SOURCE_DIR)+"/fixtures/contracts/";const auto motor_a=readFixture(contracts+"execution-component-v2.motor-a.jcs");if(motor_a.isEmpty()){std::cerr<<"motor package fixture missing\n";return 16;}execution.acceptExactPackage(motor_a,hash(motor_a));execution.setScenarioDraft({{"payload_mass_kg",8.0},{"arm_radius_m",0.2},{"rotation_degrees",90.0},{"move_duration_s",1.2},{"hold_duration_s",4.0},{"cycle_duration_s",10.0},{"ambient_temperature_c",35.0}});execution.previewScenarioDegrees();execution.confirmScenario("Evaluate the bound motor for the reviewed motor-arm operating cycle.");execution.runAnalysis();if(!waitUntil([&execution]{return !execution.busy();})||!execution.errorCode().isEmpty()||execution.runHistory().size()!=1){std::cerr<<"OCCT package-driven execution failed: "<<execution.status().toStdString()<<"/"<<execution.errorCode().toStdString()<<" "<<execution.error().toStdString()<<" history="<<execution.runHistory().size()<<"\n";return 16;}execution.selectRun(0);execution.replaySelected();if(!waitUntil([&execution]{return !execution.busy();})||execution.replayState()!="Exact match"){std::cerr<<"OCCT package-driven replay failed: "<<execution.status().toStdString()<<"/"<<execution.errorCode().toStdString()<<" "<<execution.error().toStdString()<<" replay="<<execution.replayState().toStdString()<<"\n";return 16;}if(reopened_checks.findings().size()!=2){std::cerr<<"motor execution altered geometry findings\n";return 16;}
   reopened_project.saveCurrentProject();if(!reopened_project.errorCode().isEmpty()){std::cerr<<"reopened project did not resave\n";return 16;}const auto preserved=prometheus::run_store::open_read_only(project.toStdString());if(!preserved.has_value()||preserved.value().component_bindings.size()!=2||preserved.value().placement_overrides.size()!=2||preserved.value().connections.size()!=2){std::cerr<<"unresolved CAD relationships disappeared on save\n";return 17;}if(preserved.value().name!="Reviewed arm project"){std::cerr<<"CAD source name overwrote project identity\n";return 18;}
+
+  // Phase 6 checkpoint 1: a verified CAD-panel binding persists as a real,
+  // append-only graph edge in the same execution.package_bindings chain
+  // acceptExactPackage already anchored above for this entity -- not a
+  // second, disconnected mechanism.
+  const auto motor_b=readFixture(contracts+"execution-component-v2.motor-b.jcs");
+  if(motor_b.isEmpty()){std::cerr<<"motor B package fixture missing\n";return 19;}
+  FakeRevisionServer serverB(motor_b,hash(motor_b).toUtf8());
+  ComponentBindingController bindingCtrl(serverB.baseUrl(),&reopened_project);
+  QObject::connect(&bindingCtrl,&ComponentBindingController::componentBindingVerified,&reopened,&CadController::applyVerifiedComponentBinding);
+  QObject::connect(&bindingCtrl,&ComponentBindingController::componentBindingFailed,&reopened,&CadController::failVerifiedComponentBinding);
+  bool verifiedB=false,failedB=false;
+  QObject::connect(&bindingCtrl,&ComponentBindingController::componentBindingVerified,[&](QString,QVariantMap){verifiedB=true;});
+  QObject::connect(&bindingCtrl,&ComponentBindingController::componentBindingFailed,[&](QString,QString message,QString){failedB=true;std::cerr<<"CAD-panel bind unexpectedly failed: "<<message.toStdString()<<"\n";});
+  bindingCtrl.bindRevision(motor_entity,"any-revision-id");
+  if(!waitUntil([&]{return verifiedB||failedB;})||failedB){std::cerr<<"CAD-panel verified bind did not complete\n";return 19;}
+  auto* motor_part=qobject_cast<CadPart*>(reopened.parts()[1].value<QObject*>());
+  if(!motor_part->componentVerified()||motor_part->componentPackageHash()!=hash(motor_b)){std::cerr<<"CAD-panel bind did not update the live CadPart as verified\n";return 19;}
+  const auto after_first_edge=prometheus::run_store::open_read_only(project.toStdString());
+  if(!after_first_edge.has_value()||after_first_edge.value().execution.package_bindings.size()!=2){std::cerr<<"CAD-panel bind did not append a graph edge onto the existing chain\n";return 19;}
+  const auto& edge_two=after_first_edge.value().execution.package_bindings.back();
+  if(edge_two.cad_entity_id!=motor_entity.toStdString()||!edge_two.supersedes_binding_revision.has_value()||*edge_two.supersedes_binding_revision!=after_first_edge.value().execution.package_bindings.front().binding_revision){std::cerr<<"appended graph edge did not supersede the prior binding for this entity\n";return 19;}
+
+  FakeRevisionServer serverC(motor_a,hash(motor_a).toUtf8());
+  ComponentBindingController rebindingCtrl(serverC.baseUrl(),&reopened_project);
+  QObject::connect(&rebindingCtrl,&ComponentBindingController::componentBindingVerified,&reopened,&CadController::applyVerifiedComponentBinding);
+  QObject::connect(&rebindingCtrl,&ComponentBindingController::componentBindingFailed,&reopened,&CadController::failVerifiedComponentBinding);
+  bool verifiedC=false;
+  QObject::connect(&rebindingCtrl,&ComponentBindingController::componentBindingVerified,[&](QString,QVariantMap){verifiedC=true;});
+  rebindingCtrl.bindRevision(motor_entity,"any-revision-id-2");
+  if(!waitUntil([&]{return verifiedC;})){std::cerr<<"second CAD-panel rebind did not complete\n";return 20;}
+  const auto after_second_edge=prometheus::run_store::open_read_only(project.toStdString());
+  if(!after_second_edge.has_value()||after_second_edge.value().execution.package_bindings.size()!=3){std::cerr<<"rebinding a third time did not extend the graph edge history\n";return 20;}
+  const auto& edges=after_second_edge.value().execution.package_bindings;
+  if(edges[0].package.object_hash!=hash(motor_a).toStdString()||edges[1].package.object_hash!=hash(motor_b).toStdString()||edges[2].package.object_hash!=hash(motor_a).toStdString()){std::cerr<<"graph edge history lost the exact package identity at some step\n";return 20;}
+  if(edges[2].supersedes_binding_revision!=edges[1].binding_revision||edges[1].supersedes_binding_revision!=edges[0].binding_revision){std::cerr<<"graph edge history chain is not linearly ordered\n";return 20;}
   return 0;
 }
+
+#include "project_tests.moc"

@@ -103,6 +103,123 @@ def _sample_request(**overrides: object) -> ManualComponentDraftRequestV2:
     return ManualComponentDraftRequestV2.model_validate(_sample_body(**overrides))
 
 
+def _gearmotor_parameter(name, quantity, dimension, required, value, unit,
+                         original_value, original_unit) -> dict[str, object]:
+    return {
+        "name": name,
+        "quantity": quantity,
+        "dimension": dimension,
+        "required_for_execution": required,
+        "value": value,
+        "unit": unit,
+        "original_value": original_value,
+        "original_unit": original_unit,
+        "validity_conditions": [],
+        "measurement_method": "read from the manufacturer nameplate",
+        "observed_at": "2026-08-17T00:00:00Z",
+    }
+
+
+def _sample_gearmotor_body(**overrides: object) -> dict[str, object]:
+    """A manually entered component declaring the shared DC-gearmotor
+    capability with the full parameter set `consume_motor_component`
+    requires -- proves a real analysis can consume manually entered values
+    (Phase 5 checkpoint 4), reusing the same 17-slot contract shape as the
+    Motor A/B fixtures."""
+    body: dict[str, object] = {
+        "schema_version": SCHEMA_VERSION,
+        "manufacturer": "Northline Motion Co.",
+        "part_number": "NM-42-GM",
+        "component_class": "dc_gearmotor",
+        "revision": "nameplate-1",
+        "capability_id": "component_input.dc_gearmotor_v1",
+        "limitations": ["manually entered, not independently verified"],
+        "parameters": [
+            _gearmotor_parameter(
+                "continuous_torque_nm", "torque", "torque", True,
+                {"kind": "scalar", "value": 0.31}, "N*m", "0.31", "N*m"),
+            _gearmotor_parameter(
+                "driver_current_limit_a", "electric_current_limit",
+                "electric_current", True, {"kind": "scalar", "value": 6.0},
+                "A", "6.0", "A"),
+            _gearmotor_parameter(
+                "gear_ratio", "ratio", "dimensionless", True,
+                {"kind": "scalar", "value": 64.0}, "1", "64:1", "1"),
+            _gearmotor_parameter(
+                "gearbox_efficiency_nominal", "efficiency", "dimensionless",
+                True, {"kind": "scalar", "value": 0.72}, "1", "72", "%"),
+            _gearmotor_parameter(
+                "gearbox_efficiency_range", "efficiency", "dimensionless",
+                True, {"kind": "range", "minimum": 0.60, "maximum": 0.85},
+                "1", "60-85", "%"),
+            {
+                "name": "gearbox_lifetime",
+                "quantity": "service_life",
+                "dimension": "time",
+                "required_for_execution": False,
+                "unknown_reason": "no gearbox lifetime data was available at entry time",
+                "validity_conditions": [],
+            },
+            _gearmotor_parameter(
+                "maximum_temperature_c", "temperature_limit", "temperature",
+                True, {"kind": "scalar", "value": 130.0}, "degC", "130", "degC"),
+            _gearmotor_parameter(
+                "no_load_current_a", "electric_current", "electric_current",
+                True, {"kind": "scalar", "value": 0.22}, "A", "0.22", "A"),
+            _gearmotor_parameter(
+                "no_load_speed_rad_s", "angular_velocity", "angle/time",
+                True, {"kind": "scalar", "value": 345.6}, "rad/s", "3300", "rpm"),
+            _gearmotor_parameter(
+                "nominal_voltage_v", "voltage", "electric_potential", False,
+                {"kind": "scalar", "value": 24.0}, "V", "24", "V"),
+            _gearmotor_parameter(
+                "stall_torque_nm", "torque", "torque", True,
+                {"kind": "scalar", "value": 2.85}, "N*m", "2.85", "N*m"),
+            _gearmotor_parameter(
+                "supply_current_limit_a", "electric_current_limit",
+                "electric_current", False, {"kind": "scalar", "value": 8.0},
+                "A", "8.0", "A"),
+            _gearmotor_parameter(
+                "thermal_capacitance_j_k", "heat_capacity",
+                "energy/temperature", True, {"kind": "scalar", "value": 95.0},
+                "J/K", "95", "J/K"),
+            _gearmotor_parameter(
+                "thermal_resistance_k_w", "thermal_resistance",
+                "temperature/power", True, {"kind": "scalar", "value": 3.8},
+                "K/W", "3.8", "K/W"),
+            _gearmotor_parameter(
+                "torque_constant_nm_a", "torque_constant",
+                "torque/electric_current", True,
+                {"kind": "scalar", "value": 0.0781}, "N*m/A", "0.0781", "N*m/A"),
+            {
+                "name": "torque_speed_curve",
+                "quantity": "torque_by_angular_velocity",
+                "dimension": "torque",
+                "required_for_execution": True,
+                "value": {
+                    "kind": "curve",
+                    "independent_quantity": "angular_velocity",
+                    "independent_unit": "rad/s",
+                    "interpolation": "linear",
+                    "points": [{"x": 0.0, "y": 2.85}, {"x": 345.6, "y": 0.0}],
+                },
+                "unit": "N*m",
+                "original_value": "(0,2.85);(345.6,0)",
+                "original_unit": "rad/s,N*m",
+                "validity_conditions": [],
+                "measurement_method": "read from the manufacturer torque-speed chart",
+                "observed_at": "2026-08-17T00:00:00Z",
+            },
+            _gearmotor_parameter(
+                "winding_resistance_ohm", "electrical_resistance",
+                "electric_resistance", True, {"kind": "scalar", "value": 1.1},
+                "ohm", "1.1", "ohm"),
+        ],
+    }
+    body.update(overrides)
+    return body
+
+
 def _claim_semantic_value(db, claim: CandidateClaimV2) -> dict[str, object]:
     evidence_ids = list(
         db.scalars(
@@ -419,3 +536,146 @@ def test_manual_draft_not_found_returns_404():
         response = client.get("/api/v2/component-drafts/does-not-exist")
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "manual_component_draft_not_found"
+
+
+def _publish_manual_draft(
+    client: TestClient, body: dict[str, object], create_key: str, publish_key: str
+) -> dict[str, object]:
+    create_response = client.post(
+        "/api/v2/component-drafts",
+        headers={"Idempotency-Key": create_key},
+        json=body,
+    )
+    assert create_response.status_code == 201, create_response.text
+    revision = create_response.json()["revision"]
+    decisions = [
+        {
+            "claim_id": parameter["selected_claim"]["claim_id"],
+            "status": "accepted",
+            "note": "manually entered value",
+        }
+        for parameter in revision["parameters"]
+    ]
+    review_response = client.post(
+        f"/api/v2/revisions/{revision['id']}/reviews",
+        json={
+            "expected_draft_version": revision["draft_version"],
+            "reviewed_by": "http-reviewer",
+            "decisions": decisions,
+        },
+    )
+    assert review_response.status_code == 200, review_response.text
+    reviewed = review_response.json()
+    publish_response = client.post(
+        f"/api/v2/revisions/{revision['id']}/publication",
+        headers={"Idempotency-Key": publish_key},
+        json={
+            "expected_draft_version": reviewed["draft_version"],
+            "schema_id": SCHEMA_ID,
+            "schema_version": SCHEMA_VERSION,
+        },
+    )
+    assert publish_response.status_code == 201, publish_response.text
+    return publish_response.json()
+
+
+def test_get_revision_reports_a_newer_published_sibling_as_superseding():
+    with TestClient(app) as client:
+        older = _publish_manual_draft(
+            client,
+            _sample_body(revision="nameplate-1"),
+            create_key="manual-supersede-older-0001",
+            publish_key="manual-supersede-older-publish-0001",
+        )
+        newer = _publish_manual_draft(
+            client,
+            _sample_body(revision="nameplate-2"),
+            create_key="manual-supersede-newer-0001",
+            publish_key="manual-supersede-newer-publish-0001",
+        )
+
+        older_get = client.get(f"/api/v2/revisions/{older['revision_id']}")
+        assert older_get.status_code == 200
+        older_value = older_get.json()
+        assert older_value["superseded_by"] is not None
+        assert older_value["superseded_by"]["revision_id"] == newer["revision_id"]
+        assert older_value["superseded_by"]["revision"] == "nameplate-2"
+        assert older_value["superseded_by"]["object_hash"] == newer["object_hash"]
+
+        newer_get = client.get(f"/api/v2/revisions/{newer['revision_id']}")
+        assert newer_get.status_code == 200
+        assert newer_get.json()["superseded_by"] is None
+
+
+def test_manual_draft_declaring_the_shared_gearmotor_capability_is_execution_ready():
+    """Phase 5 checkpoint 4: a manually entered component that declares the
+    same capability Motor A/B already run against gets a real, satisfied
+    package_consumer gate and compiles to a `ready` package -- not just a
+    gate flip, proven end-to-end against the unmodified C++ consumer in
+    desktop/execution/tests/package_consumer_tests.cpp
+    (test_manual_motor_consumption)."""
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v2/component-drafts",
+            headers={"Idempotency-Key": "manual-gearmotor-0001"},
+            json=_sample_gearmotor_body(),
+        )
+        assert create_response.status_code == 201, create_response.text
+        revision = create_response.json()["revision"]
+        consumer_gate = next(
+            gate
+            for gate in revision["capability_gates"]
+            if gate["required_review_type"] == "package_consumer"
+        )
+        assert consumer_gate["state"] == "satisfied"
+        assert consumer_gate["reason"] is None
+        assert consumer_gate["satisfying_reference_ids"] == [
+            "sha256:e185ee08c987b30cf20d69af06a8754224f25068e499b052a49566c137bd0155"
+        ]
+
+        decisions = [
+            {
+                "claim_id": parameter["selected_claim"]["claim_id"],
+                "status": "accepted",
+                "note": "manually entered value",
+            }
+            for parameter in revision["parameters"]
+        ]
+        review_response = client.post(
+            f"/api/v2/revisions/{revision['id']}/reviews",
+            json={
+                "expected_draft_version": revision["draft_version"],
+                "reviewed_by": "http-reviewer",
+                "decisions": decisions,
+            },
+        )
+        assert review_response.status_code == 200, review_response.text
+        reviewed = review_response.json()
+        publish_response = client.post(
+            f"/api/v2/revisions/{revision['id']}/publication",
+            headers={"Idempotency-Key": "manual-gearmotor-publish-0001"},
+            json={
+                "expected_draft_version": reviewed["draft_version"],
+                "schema_id": SCHEMA_ID,
+                "schema_version": SCHEMA_VERSION,
+            },
+        )
+        assert publish_response.status_code == 201, publish_response.text
+        assert publish_response.json()["execution_readiness"] == "ready"
+
+
+def test_manual_draft_with_an_unconsumable_capability_stays_blocked():
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v2/component-drafts",
+            headers={"Idempotency-Key": "manual-unconsumable-0001"},
+            json=_sample_body(),
+        )
+        assert create_response.status_code == 201, create_response.text
+        consumer_gate = next(
+            gate
+            for gate in create_response.json()["revision"]["capability_gates"]
+            if gate["required_review_type"] == "package_consumer"
+        )
+        assert consumer_gate["state"] == "blocked"
+        assert consumer_gate["satisfying_reference_ids"] == []

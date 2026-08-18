@@ -34,6 +34,12 @@ class CadPart final : public QObject {
   Q_PROPERTY(QString componentRevisionId READ componentRevisionId NOTIFY
                  bindingChanged)
   Q_PROPERTY(QString componentLabel READ componentLabel NOTIFY bindingChanged)
+  Q_PROPERTY(bool componentVerified READ componentVerified NOTIFY
+                 bindingChanged)
+  Q_PROPERTY(QString componentPackageHash READ componentPackageHash NOTIFY
+                 bindingChanged)
+  Q_PROPERTY(QString componentSupersededByRevisionId READ
+                 componentSupersededByRevisionId NOTIFY bindingChanged)
   Q_PROPERTY(double centerX READ centerX CONSTANT)
   Q_PROPERTY(double centerY READ centerY CONSTANT)
   Q_PROPERTY(double centerZ READ centerZ CONSTANT)
@@ -72,9 +78,19 @@ public:
   }
   QString componentRevisionId() const { return revision_id_; }
   QString componentLabel() const { return component_label_; }
-  void bindComponent(QString revision, QString label) {
+  bool componentVerified() const { return component_verified_; }
+  QString componentPackageHash() const { return component_package_hash_; }
+  QString componentSupersededByRevisionId() const {
+    return component_superseded_by_revision_id_;
+  }
+  void bindComponent(QString revision, QString label, bool verified,
+                     QString packageHash = {},
+                     QString supersededByRevisionId = {}) {
     revision_id_ = std::move(revision);
     component_label_ = std::move(label);
+    component_verified_ = verified;
+    component_package_hash_ = std::move(packageHash);
+    component_superseded_by_revision_id_ = std::move(supersededByRevisionId);
     emit bindingChanged();
   }
   double centerX() const { return (bounds_.min_x + bounds_.max_x) / 2; }
@@ -117,6 +133,9 @@ private:
   QString id_;
   QString revision_id_;
   QString component_label_;
+  bool component_verified_{false};
+  QString component_package_hash_;
+  QString component_superseded_by_revision_id_;
   prometheus::cad::BoundingBox bounds_;
   double volume_m3_{};
   double surface_area_m2_{};
@@ -196,7 +215,10 @@ public:
   Q_INVOKABLE void toggleVisible(int index);
   Q_INVOKABLE void isolate(int index);
   Q_INVOKABLE void showAll();
-  Q_INVOKABLE void bindComponent(int index, const QVariantMap &revision);
+  Q_INVOKABLE void bindProvisionalCandidate(int index,
+                                            const QVariantMap &candidate);
+  Q_INVOKABLE void bindComponentRevision(int index, const QString &revisionId);
+  Q_INVOKABLE void reverifyComponentBinding(int index);
   Q_INVOKABLE QVariantMap measureBetween(int first, int second) const;
   Q_INVOKABLE void classifyInterference(const QString &firstId,
                                         const QString &secondId,
@@ -239,6 +261,13 @@ public:
                                            const QString &connectionType);
   Q_INVOKABLE void removeConnection(int index);
 
+public slots:
+  void applyVerifiedComponentBinding(const QString &cadEntityId,
+                                     const QVariantMap &component);
+  void failVerifiedComponentBinding(const QString &cadEntityId,
+                                    const QString &message,
+                                    const QString &code);
+
 signals:
   void partsChanged();
   void connectionsChanged();
@@ -250,6 +279,7 @@ signals:
   void sweepFinished();
   void geometryFinished();
   void importFinished(bool success);
+  void componentBindingRequested(QString cadEntityId, QString revisionId);
 
 private:
   QVariantList parts_;

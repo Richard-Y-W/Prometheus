@@ -963,6 +963,16 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersedingRevisionResponseV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -978,6 +988,7 @@
           "capability_gates",
           "publication_integrity",
           "object_hash",
+          "superseded_by",
           "published_at"
         ],
         "title": "RevisionResponseV2",
@@ -1184,6 +1195,39 @@
           "evidence_ids"
         ],
         "title": "SelectedClaimResponseV2",
+        "type": "object"
+      },
+      "SupersedingRevisionResponseV2": {
+        "additionalProperties": false,
+        "properties": {
+          "object_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Object Hash",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "title": "Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "revision",
+          "object_hash",
+          "published_at"
+        ],
+        "title": "SupersedingRevisionResponseV2",
         "type": "object"
       },
       "UnknownValueV2": {

@@ -91,5 +91,40 @@ int main(int argc, char** argv)
         "restored matching bytes must verify again");
     require(controller.error() == "Open Cascade adapter is not enabled",
         "successful hashing clears only its own prior mismatch error");
+
+    QSignalSpy bindingRequests(
+        &controller, &CadController::componentBindingRequested);
+    controller.bindComponentRevision(0, "revision-123");
+    require(bindingRequests.count() == 0,
+        "an out-of-range index must never request a component binding fetch");
+    controller.reverifyComponentBinding(0);
+    require(bindingRequests.count() == 0,
+        "reverify on an out-of-range index must never request a fetch");
+    controller.bindProvisionalCandidate(
+        0, {{"id", "candidate-1"}, {"manufacturer", "Acme"}});
+    require(controller.parts().isEmpty(),
+        "binding calls on an out-of-range index must not synthesize parts");
+
+    controller.failVerifiedComponentBinding(
+        "missing-entity", "Verification failed.", "package_hash_mismatch");
+    require(
+        controller.error() ==
+            "Verification failed. [package_hash_mismatch]",
+        "a failed verified binding must surface its message and code");
+
+    controller.applyVerifiedComponentBinding(
+        "missing-entity",
+        {{"revision_id", "revision-123"},
+         {"manufacturer", "Acme"},
+         {"part_number", "Widget"},
+         {"revision", "1"},
+         {"package_hash", "sha256:0000"}});
+    require(
+        controller.error() !=
+            "Verification failed. [package_hash_mismatch]",
+        "a verified binding applied against a missing CAD entity must "
+        "report its own failure, not stale prior text");
+    require(controller.parts().isEmpty(),
+        "applying a verified binding must never synthesize a CAD part");
     return 0;
 }

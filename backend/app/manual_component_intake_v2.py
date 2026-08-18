@@ -10,11 +10,16 @@ document was attached. Unknown values retain a reason and no evidence,
 matching the fixture pipeline's known/unknown split.
 
 This intake path never marks a claim reviewed or publishable on its own:
-the `claim_review` gate starts `pending` and the `package_consumer`
-execution gate starts `blocked`, because no Prometheus capability yet
-consumes a manually entered component. Review, publication, and export
-reuse the existing `review_service_v2` / `publication_service_v2` routes
-unchanged.
+the `claim_review` gate always starts `pending`. The `package_consumer`
+execution gate starts `satisfied` only when the submitted `capability_id`
+names a capability with a real, versioned C++ consumer (see
+`_MANUALLY_CONSUMABLE_CAPABILITIES`, Phase 5 checkpoint 4); every other
+capability starts `blocked`, because no Prometheus capability consumes it.
+A satisfied gate is a claim that a consumer exists for the capability, not
+that this submission's specific values will pass -- the C++ decision layer
+still independently determines execution readiness from the actual bound
+claims. Review, publication, and export reuse the existing
+`review_service_v2` / `publication_service_v2` routes unchanged.
 """
 
 from __future__ import annotations
@@ -27,9 +32,15 @@ from pydantic import Field, StrictStr, model_validator
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from .artifact_store import store_submitted_artifact
+from .artifact_store import ingest_local_artifact, store_submitted_artifact
 from .canonical_json import canonicalize_value, object_hash
 from .claim_identity_v2 import fingerprint_claim_fields
+from .fixture_catalog_v2 import (
+    CONSUMER_HASH,
+    CONSUMER_MEDIA_TYPE,
+    CONSUMER_PATH,
+    DC_GEARMOTOR_CAPABILITY,
+)
 from .contracts_v2 import (
     SCHEMA_ID,
     SCHEMA_VERSION,
@@ -68,6 +79,55 @@ NO_CONSUMER_REASON = (
     "No Prometheus execution capability consumes manually entered "
     "components yet."
 )
+
+# Capabilities with a real, versioned C++ consumer that a manually entered
+# component may also declare. This mirrors FixtureDefinition.consumer_hash
+# in fixture_catalog_v2.py: naming a capability here is a claim that a
+# compiled consumer exists for it, not that any specific submission's
+# parameters will satisfy that consumer -- the C++ decision layer still
+# independently determines execution readiness from the actual bound
+# values, exactly as it already does for the Motor A/B fixtures.
+_MANUALLY_CONSUMABLE_CAPABILITIES: dict[str, str] = {
+    DC_GEARMOTOR_CAPABILITY: CONSUMER_HASH,
+}
+
+
+def _package_consumer_gate(
+    db: Session, revision_id: str, capability_id: str
+) -> CapabilityGateV2:
+    consumer_hash = _MANUALLY_CONSUMABLE_CAPABILITIES.get(capability_id)
+    if consumer_hash is None:
+        return CapabilityGateV2(
+            revision_id=revision_id,
+            capability_id=capability_id,
+            phase="execution",
+            required_review_type="package_consumer",
+            state="blocked",
+            satisfying_references=[],
+            reason=NO_CONSUMER_REASON,
+        )
+    # The package compiler binds every satisfied package_consumer reference
+    # to a real ArtifactObjectV2 row (the versioned consumer-contract
+    # document), exactly as fixture ingestion already does for Motor A/B.
+    # This idempotently installs that same well-known artifact so a manual
+    # draft's compiled package carries the identical supporting_input the
+    # fixture path already proved works, rather than a dangling reference.
+    ingest_local_artifact(
+        db,
+        source_path=CONSUMER_PATH,
+        allowed_root=CONSUMER_PATH.parent,
+        expected_hash=consumer_hash,
+        media_type=CONSUMER_MEDIA_TYPE,
+    )
+    return CapabilityGateV2(
+        revision_id=revision_id,
+        capability_id=capability_id,
+        phase="execution",
+        required_review_type="package_consumer",
+        state="satisfied",
+        satisfying_references=[consumer_hash],
+        reason=None,
+    )
 
 
 def _normalize_identity(value: str) -> str:
@@ -535,15 +595,7 @@ def _create_graph(
             satisfying_references=[],
             reason="Every selected claim requires an effective accepted review.",
         ),
-        CapabilityGateV2(
-            revision_id=revision.id,
-            capability_id=request.capability_id,
-            phase="execution",
-            required_review_type="package_consumer",
-            state="blocked",
-            satisfying_references=[],
-            reason=NO_CONSUMER_REASON,
-        ),
+        _package_consumer_gate(db, revision.id, request.capability_id),
     ]
     db.add_all(gates)
     db.flush()

@@ -568,13 +568,62 @@ void CadController::showAll() {
   for (const auto &item : parts_)
     qobject_cast<CadPart *>(item.value<QObject *>())->setVisible(true);
 }
-void CadController::bindComponent(int index, const QVariantMap &revision) {
+void CadController::bindProvisionalCandidate(int index,
+                                              const QVariantMap &candidate) {
   if (index < 0 || index >= parts_.size())
     return;
   auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
-  part->bindComponent(revision.value("id").toString(),
-                      revision.value("manufacturer").toString() + " " +
-                          revision.value("part_number").toString());
+  part->bindComponent(candidate.value("id").toString(),
+                      "(unpublished candidate) " +
+                          candidate.value("manufacturer").toString() + " " +
+                          candidate.value("part_number").toString(),
+                      /*verified=*/false);
+}
+
+void CadController::bindComponentRevision(int index,
+                                          const QString &revisionId) {
+  if (index < 0 || index >= parts_.size() || revisionId.trimmed().isEmpty())
+    return;
+  const auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  emit componentBindingRequested(part->persistentId(), revisionId);
+}
+
+void CadController::reverifyComponentBinding(int index) {
+  if (index < 0 || index >= parts_.size())
+    return;
+  const auto *part = qobject_cast<CadPart *>(parts_[index].value<QObject *>());
+  if (part->componentRevisionId().isEmpty())
+    return;
+  emit componentBindingRequested(part->persistentId(),
+                                 part->componentRevisionId());
+}
+
+void CadController::applyVerifiedComponentBinding(
+    const QString &cadEntityId, const QVariantMap &component) {
+  for (const auto &value : parts_) {
+    auto *part = qobject_cast<CadPart *>(value.value<QObject *>());
+    if (part->persistentId() != cadEntityId)
+      continue;
+    part->bindComponent(
+        component.value("revision_id").toString(),
+        component.value("manufacturer").toString() + " " +
+            component.value("part_number").toString() + " rev " +
+            component.value("revision").toString(),
+        /*verified=*/true, component.value("package_hash").toString(),
+        component.value("superseded_by_revision_id").toString());
+    return;
+  }
+  error_ = "The CAD entity for the verified component binding no longer "
+           "exists in the current assembly.";
+  emit errorChanged();
+}
+
+void CadController::failVerifiedComponentBinding(const QString &cadEntityId,
+                                                  const QString &message,
+                                                  const QString &code) {
+  Q_UNUSED(cadEntityId);
+  error_ = message + (code.isEmpty() ? QString() : " [" + code + "]");
+  emit errorChanged();
 }
 QVariantMap CadController::measureBetween(int first, int second) const {
   if (first < 0 || second < 0 || first >= parts_.size() ||
@@ -705,7 +754,8 @@ void CadController::applyBindings() {
       auto *part = qobject_cast<CadPart *>(part_value.value<QObject *>());
       if (part->persistentId() == binding.value("cad_entity_id").toString()) {
         part->bindComponent(binding.value("revision_id").toString(),
-                            binding.value("label").toString());
+                            binding.value("label").toString(),
+                            /*verified=*/false);
         matched = true;
       }
     }
