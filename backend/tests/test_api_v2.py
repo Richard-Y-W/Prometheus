@@ -123,6 +123,7 @@ def test_complete_v2_fixture_review_publication_and_exact_export_path(
             "publication_integrity",
             "object_hash",
             "published_at",
+            "superseded_by",
         }
         assert revision["status"] == "draft"
         assert revision["draft_version"] == 0

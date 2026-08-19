@@ -51,8 +51,11 @@ public:
     QString publicationIntegrity() const { return publication_integrity_; }
     QVariantList fixtureChoices() const;
 
+    QUrl baseUrl() const { return service_base_url_; }
+
     Q_INVOKABLE void checkHealth();
     Q_INVOKABLE void loadFixture(const QString& fixtureId);
+    Q_INVOKABLE void loadPublishedRevision(const QString& revisionId);
     Q_INVOKABLE void submitReview(
         const QVariantList& decisions, const QString& reviewer);
     Q_INVOKABLE void publish();

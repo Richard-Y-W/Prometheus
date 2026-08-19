@@ -150,7 +150,7 @@ void ServiceController::fail(
     if (message.isEmpty()) {
         message = fallbackMessage + ": " + reply->errorString();
     }
-    if (status_ == "loading_fixture") {
+    if (status_ == "loading_fixture" || status_ == "loading_revision") {
         status_ = "error";
     }
     setError(message, code);
@@ -252,6 +252,41 @@ void ServiceController::acquireExactPackage()
         QString::fromLatin1(QUrl::toPercentEncoding(revisionId));
     exact_package_download_.acquire(request(
         "/api/v2/revisions/" + encodedRevision + "/execution-package"));
+}
+
+void ServiceController::loadPublishedRevision(const QString& revisionId)
+{
+    if (busy_) {
+        setError("Another service operation is already active.",
+            "service_busy", false);
+        return;
+    }
+    if (revisionId.trimmed().isEmpty()) {
+        setError(
+            "Enter a published revision id to look up.",
+            "revision_id_required");
+        return;
+    }
+    reset();
+    setBusy(true);
+    status_ = "loading_revision";
+    emit changed();
+
+    const auto encodedRevision =
+        QString::fromLatin1(QUrl::toPercentEncoding(revisionId));
+    auto* reply = network_.get(request("/api/v2/revisions/" + encodedRevision));
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (reply->error() != QNetworkReply::NoError) {
+            fail(reply, "Revision lookup failed");
+            reply->deleteLater();
+            return;
+        }
+        consumeRevision(QJsonDocument::fromJson(reply->readAll()).object());
+        clearError();
+        setBusy(false);
+        emit changed();
+        reply->deleteLater();
+    });
 }
 
 void ServiceController::consumeRevision(const QJsonObject& revision)

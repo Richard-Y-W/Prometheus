@@ -1,5 +1,6 @@
 #include "execution_controller.hpp"
 
+#include "execution_component_variant.hpp"
 #include "project_controller.hpp"
 #include "service_controller.hpp"
 
@@ -36,12 +37,6 @@ namespace execution = prometheus::execution;
 namespace replay = prometheus::replay;
 namespace run_store = prometheus::run_store;
 
-constexpr std::string_view packageMediaType =
-    "application/vnd.prometheus.execution-component+json;version=2.0.0";
-constexpr std::string_view packageSchemaId =
-    "urn:prometheus:schema:execution-component:2.0.0";
-constexpr std::string_view packageSchemaVersion = "2.0.0";
-
 QString text(const std::string_view value) {
   return QString::fromUtf8(value.data(), static_cast<qsizetype>(value.size()));
 }
@@ -57,42 +52,6 @@ std::string bytes(const QByteArray &value) {
 
 QByteArray bytes(const std::string_view value) {
   return QByteArray(value.data(), static_cast<qsizetype>(value.size()));
-}
-
-QVariantList strings(const std::vector<std::string> &values) {
-  QVariantList result;
-  result.reserve(static_cast<qsizetype>(values.size()));
-  for (const auto &value : values) {
-    result.append(text(value));
-  }
-  return result;
-}
-
-QVariantMap packageMap(const execution::PackageInspection &inspection) {
-  return {
-      {"package_hash", text(inspection.package_hash)},
-      {"revision_id", text(inspection.revision_id)},
-      {"component_id", text(inspection.component_id)},
-      {"manufacturer", text(inspection.manufacturer)},
-      {"part_number", text(inspection.part_number)},
-      {"revision", text(inspection.revision)},
-      {"component_class", text(inspection.component_class)},
-      {"package_kind", text(inspection.package_kind)},
-      {"capability_id", text(inspection.capability_id)},
-      {"execution_readiness", text(inspection.execution_readiness)},
-      {"limitations", strings(inspection.limitations)},
-      {"blocked_reason", inspection.blocked_reason.has_value()
-                             ? text(*inspection.blocked_reason)
-                             : QString{}},
-  };
-}
-
-run_store::StoredObjectReference
-packageReference(const execution::PackageInspection &inspection,
-                 const std::size_t byteLength) {
-  return {inspection.package_hash, static_cast<std::uint64_t>(byteLength),
-          std::string(packageMediaType), std::string(packageSchemaId),
-          std::string(packageSchemaVersion)};
 }
 
 run_store::StoredObjectReference
@@ -487,8 +446,8 @@ void ExecutionController::acceptExactPackage(QByteArray packageBytes,
              "cad_entity_not_found");
     return;
   }
-  const auto reference =
-      packageReference(inspection.value(), storedBytes.size());
+  const auto reference = prometheus::executionComponentReference(
+      inspection.value(), storedBytes.size());
   const auto installed = run_store::install_package_binding(
       project_->projectPath(), text(pending_cad_entity_id_), reference,
       storedBytes);
@@ -499,7 +458,7 @@ void ExecutionController::acceptExactPackage(QByteArray packageBytes,
   }
   project_->acceptProject(installed.value());
   active_package_reference_ = reference;
-  active_package_ = packageMap(inspection.value());
+  active_package_ = prometheus::executionComponentVariant(inspection.value());
   clearPendingSaveAsAction();
   clearSelection();
   clearError();
@@ -887,7 +846,7 @@ void ExecutionController::loadActiveBinding() {
     };
     return;
   }
-  active_package_ = packageMap(inspection.value());
+  active_package_ = prometheus::executionComponentVariant(inspection.value());
 }
 
 void ExecutionController::loadCurrentScenario() {

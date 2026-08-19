@@ -526,6 +526,34 @@ void test_typed_slot_mutations_and_optional_extension() {
           "additional optional unknown does not influence calculation input");
 }
 
+// Phase 5 checkpoint 4: proves the existing, unmodified motor-arm consumer
+// genuinely runs on a component that was manually typed by a user (not a
+// pinned fixture) and published through the manual-draft intake path, using
+// the exact same package-consumer contract Motor A/B already validate
+// against. This fixture is a static, one-time export of a real HTTP
+// create/review/publish/export round trip -- see
+// scripts note in docs/phase-05-component-intake.md checkpoint 4.
+void test_manual_motor_consumption() {
+  const auto manual_motor =
+      load_package("execution-component-v2.manual-motor-c");
+  const auto &input = require_success(
+      consume_motor_component(manual_motor.bytes, manual_motor.object_hash),
+      "consume a manually entered, non-fixture motor component");
+  require(input.package.package_hash == manual_motor.object_hash,
+          "manually entered input retains exact package identity");
+  require(input.package.capability_id == "component_input.dc_gearmotor_v1",
+          "manually entered component declares the shared DC gearmotor capability");
+  require(input.package.execution_readiness == "ready",
+          "a fully specified manual entry is execution-ready, not just gate-satisfied");
+  require(input.continuous_torque_nm == 0.31 && input.stall_torque_nm == 2.85 &&
+              input.gear_ratio == 64.0 &&
+              input.driver_current_limit_a == 6.0,
+          "manually typed engineering values reach the authoritative calculation input");
+  require(input.calculation_inputs.size() == 12U &&
+              input.validation_inputs.size() == 2U,
+          "manual entry satisfies the same 12 calculation + 2 validation slot contract");
+}
+
 void test_nonfinite_and_limit_paths() {
   const auto source = load_package("execution-component-v2.motor-a");
   auto nonfinite = source.bytes;
@@ -550,6 +578,7 @@ int main() {
     test_gate_and_consumer_artifact_mutations();
     test_graph_and_review_mutations();
     test_typed_slot_mutations_and_optional_extension();
+    test_manual_motor_consumption();
     test_nonfinite_and_limit_paths();
     std::cout << "All typed package-consumer tests passed.\n";
     return 0;

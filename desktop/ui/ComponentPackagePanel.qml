@@ -8,6 +8,9 @@ Item {
 
     property var serviceController
     property var executionController
+    property var cadController
+    property var componentBindingController
+    property int targetPartIndex: -1
     property string selectedEntityId: ""
     property string selectedEntityName: ""
     property color panelColor: "#20262c"
@@ -297,6 +300,33 @@ Item {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            visible: !root.hasCandidate
+            ColumnLayout {
+                Layout.fillWidth: true
+                Label { text: "OR LOOK UP A PUBLISHED REVISION BY ID"; color: root.mutedColor; font.bold: true; font.pixelSize: 10 }
+                TextField {
+                    id: revisionIdField
+                    Layout.fillWidth: true
+                    placeholderText: "Published revision id"
+                }
+                Label {
+                    text: "Any revision that has cleared review and publication—not limited to the fixed catalog above."
+                    color: root.mutedColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+            Button {
+                text: "Look up revision"
+                enabled: root.serviceController && !root.serviceController.busy
+                         && revisionIdField.text.trim() !== ""
+                Layout.alignment: Qt.AlignBottom
+                onClicked: root.serviceController.loadPublishedRevision(revisionIdField.text.trim())
+            }
+        }
+
         ColumnLayout {
             Layout.fillWidth: true
             visible: root.serviceController && root.serviceController.busy
@@ -515,6 +545,39 @@ Item {
                 color: "#e0ac62"
                 wrapMode: Text.WordWrap
                 verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        Label {
+            visible: !!(root.componentBindingController && root.componentBindingController.error !== "")
+            text: root.componentBindingController
+                  ? root.componentBindingController.error
+                    + (root.componentBindingController.errorCode !== "" ? " [" + root.componentBindingController.errorCode + "]" : "")
+                  : ""
+            color: "#e87972"
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: !!(root.hasCandidate && root.cadController && root.targetPartIndex >= 0)
+            Label {
+                text: "Bind this reviewed, hash-verified revision directly to the selected CAD entity (separate from the fixed-catalog execution binding above)."
+                color: root.mutedColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            BusyIndicator {
+                running: !!(root.componentBindingController && root.componentBindingController.busy)
+                visible: running
+            }
+            Button {
+                text: "Bind to selected CAD entity"
+                highlighted: true
+                enabled: !!(root.componentBindingController && !root.componentBindingController.busy)
+                onClicked: root.cadController.bindComponentRevision(
+                               root.targetPartIndex, root.serviceController.candidate.id)
             }
         }
 

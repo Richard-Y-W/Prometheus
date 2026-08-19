@@ -3,8 +3,8 @@
 ## Document status
 
 - **Purpose:** Define the product Prometheus is intended to become, record the capabilities already established, and provide an evidence-driven path from the current prototype to a usable deployed product.
-- **Current implementation reference:** `main` at `519e06c` as verified on 2026-08-15.
-- **Current maturity:** Phase 1 Windows real-folder screening is complete; Phase 2 multi-project evidence is active. The prototype has a strong trust boundary, real STEP/XDE import, one synthetic package-driven C++ analysis backend, and two materially different open-source project inputs under trial.
+- **Current implementation reference:** `main` as of 2026-08-17 (uncommitted at time of writing; see [docs/phase-05-component-intake.md](phase-05-component-intake.md) for the latest checkpoint evidence).
+- **Current maturity:** Phase 1 (real-folder screening) and Phase 5 (reviewed component and evidence intake) are complete against their exit gates. Phase 2 (multi-project evidence), Phase 3 (CalculiX structural workflow), and Phase 4 (persistence/portability) have substantial checkpoint evidence recorded in their own `docs/phase-0N-*.md` files but remain open pending outside-user/physical-hardware trial evidence. The prototype has a strong trust boundary, real STEP/XDE import, a package-driven C++ motor-arm analysis backend that now also consumes manually entered (non-fixture) components, hash-verified CAD-to-component binding with supersede detection, and multiple materially different open-source project inputs under trial.
 - **First deployable target:** A bounded Windows mechanical-design screening application. It is not initially a universal engineering authority.
 - **Long-term target:** A local CAD-centered engineering project compiler and solver-orchestration environment that can assemble reviewed real-world component data, model operating scenarios, run appropriate bounded analyses, and reveal failures, unknowns, and incomplete coverage before an expensive physical prototype is built.
 
@@ -477,7 +477,12 @@ Allow work to survive interruption, relocation, and source changes without silen
 - interrupted saves recover the last valid state;
 - a project bundle opens on another supported clean machine.
 
-## Phase 5: Add reviewed component and evidence intake
+## Phase 5: Add reviewed component and evidence intake — exit gate met
+
+See [docs/phase-05-component-intake.md](phase-05-component-intake.md) for
+checkpoint-by-checkpoint evidence. Structured CSV/BOM import and
+named/linked acquisition remain open as additional intake paths but are not
+exit-gate blockers.
 
 ### Objective
 
@@ -486,6 +491,7 @@ Allow users to add components beyond the synthetic catalog while retaining trust
 ### First intake paths
 
 - manual typed component entry;
+- named/linked component acquisition: a manufacturer part name or a URL to a product page or datasheet, fetched and retained as an exact source artifact, with a bounded extractor proposing typed candidate parameters for review;
 - structured CSV or BOM import;
 - local manufacturer datasheet attachment;
 - a deliberately small set of deterministic PDF/table extractors based on actual pilot documents;
@@ -515,7 +521,12 @@ Allow users to add components beyond the synthetic catalog while retaining trust
 - a supported analysis consumes the reviewed values;
 - conflicting or missing values remain visible and block unsupported claims.
 
-## Phase 6: Build the first semantic engineering graph
+## Phase 6: Build the first semantic engineering graph — checkpoint 1 landed
+
+See [docs/phase-06-semantic-engineering-graph.md](phase-06-semantic-engineering-graph.md)
+for evidence. Checkpoint 1 promotes the CAD-to-component binding into a
+real, persisted, append-only graph edge; the other eight entity families
+remain future work, added only as real workflows need them.
 
 ### Objective
 

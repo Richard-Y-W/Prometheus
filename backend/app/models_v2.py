@@ -448,6 +448,47 @@ class ManualComponentDraftJobV2(V2MutableRecord):
     )
 
 
+class ComponentAcquisitionJobV2(V2MutableRecord):
+    __tablename__ = "component_acquisition_jobs_v2"
+
+    idempotency_key: Mapped[str] = mapped_column(String, unique=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(71))
+    url: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String)
+    source_artifact_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("artifact_objects_v2.object_hash"), nullable=True
+    )
+    extracted_manufacturer: Mapped[str | None] = mapped_column(String, nullable=True)
+    extracted_part_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    extraction_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    __table_args__ = (
+        CheckConstraint(
+            HASH_CHECK.format(column="request_fingerprint"),
+            name="ck_acquisition_fingerprint",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled','timed_out')",
+            name="ck_acquisition_status",
+        ),
+        CheckConstraint(
+            "(status IN ('queued','running') AND source_artifact_hash IS NULL AND "
+            "extracted_manufacturer IS NULL AND extracted_part_number IS NULL AND "
+            "extraction_method IS NULL AND error_code IS NULL AND "
+            "error_message IS NULL) OR "
+            "(status = 'succeeded' AND source_artifact_hash IS NOT NULL AND "
+            "extraction_method IS NOT NULL AND error_code IS NULL AND "
+            "error_message IS NULL) OR (status IN "
+            "('failed','cancelled','timed_out') AND source_artifact_hash IS NULL AND "
+            "extracted_manufacturer IS NULL AND extracted_part_number IS NULL AND "
+            "extraction_method IS NULL AND error_code IS NOT NULL AND "
+            "error_message IS NOT NULL)",
+            name="ck_acquisition_state_shape",
+        ),
+    )
+
+
 class PublicationRequestV2(V2MutableRecord):
     __tablename__ = "publication_requests"
 

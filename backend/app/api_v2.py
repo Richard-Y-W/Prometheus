@@ -15,6 +15,11 @@ from starlette.responses import Response as StarletteResponse
 
 from .canonical_json import canonicalize_value
 from .claim_identity_v2 import claim_evidence_ids
+from .component_acquisition_v2 import (
+    ComponentAcquisitionError,
+    ComponentAcquisitionRequestV2,
+    create_component_acquisition,
+)
 from .contracts_v2 import (
     PACKAGE_MEDIA_TYPE,
     SCHEMA_ID,
@@ -48,6 +53,7 @@ from .models_v2 import (
     CandidateClaimV2,
     CapabilityGateV2,
     ClaimSelectionV2,
+    ComponentAcquisitionJobV2,
     EvidenceRecordV2,
     FixtureIngestionJobV2,
     ManualComponentDraftJobV2,
@@ -144,6 +150,13 @@ class EvidenceSummaryResponseV2(ContractV2):
     limitations: list[NonEmptyText] = Field(max_length=1_000)
 
 
+class SupersedingRevisionResponseV2(ContractV2):
+    revision_id: UuidV4
+    revision: str
+    object_hash: HashId
+    published_at: UtcDatetime
+
+
 class RevisionResponseV2(ContractV2):
     id: UuidV4
     status: Literal["draft", "published"]
@@ -157,6 +170,7 @@ class RevisionResponseV2(ContractV2):
     capability_gates: list[CapabilityGateResponseV2]
     publication_integrity: Literal["v2_draft", "sealed_v2"]
     object_hash: HashId | None
+    superseded_by: SupersedingRevisionResponseV2 | None
     published_at: UtcDatetime | None
 
 
@@ -171,6 +185,16 @@ class ManualComponentDraftResponseV2(ContractV2):
     id: UuidV4
     state: Literal["succeeded"]
     revision: RevisionResponseV2
+
+
+class ComponentAcquisitionResponseV2(ContractV2):
+    id: UuidV4
+    state: Literal["succeeded"]
+    url: NonEmptyText
+    source_artifact_hash: HashId
+    extracted_manufacturer: NonEmptyText | None
+    extracted_part_number: NonEmptyText | None
+    extraction_method: Literal["jsonld", "none"]
 
 
 class PublicationSuccessResponseV2(ContractV2):
@@ -381,6 +405,38 @@ def _revision_value(db: Session, revision_id: str) -> dict[str, object]:
         "publication_integrity": revision.publication_integrity,
         "object_hash": revision.published_object_hash,
         "published_at": revision.published_at,
+        "superseded_by": _superseding_revision_value(db, revision),
+    }
+
+
+def _superseding_revision_value(
+    db: Session, revision: ComponentRevision
+) -> dict[str, object] | None:
+    latest_sibling = db.scalar(
+        sa.select(ComponentRevision)
+        .where(
+            ComponentRevision.component_id == revision.component_id,
+            ComponentRevision.id != revision.id,
+            ComponentRevision.status == "published",
+            ComponentRevision.published_at.is_not(None),
+        )
+        .order_by(ComponentRevision.published_at.desc())
+        .limit(1)
+    )
+    if (
+        latest_sibling is None
+        or latest_sibling.published_object_hash is None
+        or (
+            revision.published_at is not None
+            and latest_sibling.published_at <= revision.published_at
+        )
+    ):
+        return None
+    return {
+        "revision_id": latest_sibling.id,
+        "revision": latest_sibling.revision,
+        "object_hash": latest_sibling.published_object_hash,
+        "published_at": latest_sibling.published_at,
     }
 
 
@@ -572,6 +628,72 @@ def get_component_draft(draft_id: str, db: Session = Depends(get_db)):
             "The manual component draft does not exist.",
         )
     return _manual_draft_value(db, job)
+
+
+def _acquisition_value(job: ComponentAcquisitionJobV2) -> dict[str, object]:
+    if job.status != "succeeded" or job.source_artifact_hash is None:
+        raise _error(
+            409,
+            "component_acquisition_incomplete",
+            "The component acquisition has no retained source artifact.",
+        )
+    return {
+        "id": job.id,
+        "state": job.status,
+        "url": job.url,
+        "source_artifact_hash": job.source_artifact_hash,
+        "extracted_manufacturer": job.extracted_manufacturer,
+        "extracted_part_number": job.extracted_part_number,
+        "extraction_method": job.extraction_method,
+    }
+
+
+@router.post(
+    "/component-acquisitions",
+    status_code=201,
+    response_model=ComponentAcquisitionResponseV2,
+)
+def create_component_acquisition_http(
+    body: ComponentAcquisitionRequestV2,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    db: Session = Depends(get_db),
+):
+    key = _validated_key(idempotency_key)
+    try:
+        job = create_component_acquisition(db, request=body, idempotency_key=key)
+    except ComponentAcquisitionError as exc:
+        status = 422 if exc.code in {
+            "invalid_idempotency_key",
+            "unsupported_schema",
+            "unsupported_scheme",
+            "url_invalid",
+            "dns_resolution_failed",
+            "address_invalid",
+            "address_not_public",
+            "redirect_not_supported",
+            "fetch_status_error",
+            "content_type_unsupported",
+            "content_too_large",
+            "fetch_timeout",
+            "fetch_network_error",
+        } else 409
+        raise _error(status, exc.code, str(exc)) from exc
+    return _acquisition_value(job)
+
+
+@router.get(
+    "/component-acquisitions/{acquisition_id}",
+    response_model=ComponentAcquisitionResponseV2,
+)
+def get_component_acquisition(acquisition_id: str, db: Session = Depends(get_db)):
+    job = db.get(ComponentAcquisitionJobV2, acquisition_id)
+    if job is None:
+        raise _error(
+            404,
+            "component_acquisition_not_found",
+            "The component acquisition does not exist.",
+        )
+    return _acquisition_value(job)
 
 
 @router.get("/revisions/{revision_id}", response_model=RevisionResponseV2)

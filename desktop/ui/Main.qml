@@ -419,7 +419,10 @@ ApplicationWindow {
                             }
                             Label {
                                 text: modelData.componentLabel !== "" ? modelData.componentLabel : modelData.persistentId
-                                color: modelData.componentLabel !== "" ? "#70c99a" : muted
+                                color: modelData.componentLabel === "" ? muted
+                                       : !modelData.componentVerified ? "#e0ac62"
+                                       : modelData.componentSupersededByRevisionId !== "" ? "#e87972"
+                                       : "#70c99a"
                                 font.pixelSize: 10
                             }
                         }
@@ -1128,9 +1131,48 @@ ApplicationWindow {
                         font.pixelSize: 9
                     }
                 }
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    Label {
+                        text: hasSelection ? (selectedPart.componentLabel !== "" ? selectedPart.componentLabel : "Geometry model") : "Select an assembly entity."
+                        color: !hasSelection || selectedPart.componentLabel === "" ? muted
+                               : !selectedPart.componentVerified ? "#e0ac62"
+                               : selectedPart.componentSupersededByRevisionId !== "" ? "#e87972"
+                               : "#70c99a"
+                    }
+                    Label {
+                        visible: hasSelection && selectedPart.componentLabel !== "" && !selectedPart.componentVerified
+                        text: "cached — unverified since last reopen"
+                        color: "#e0ac62"
+                        font.pixelSize: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Label {
+                        visible: hasSelection && selectedPart.componentVerified && selectedPart.componentSupersededByRevisionId !== ""
+                        text: "superseded by a newer published revision — rebind to update"
+                        color: "#e87972"
+                        font.pixelSize: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Button {
+                        visible: hasSelection && selectedPart.componentLabel !== "" && !selectedPart.componentVerified && !componentBindingController.busy
+                        text: "Reverify"
+                        onClicked: cadController.reverifyComponentBinding(window.selectedIndex)
+                    }
+                    BusyIndicator {
+                        visible: componentBindingController.busy
+                        running: componentBindingController.busy
+                        implicitWidth: 18
+                        implicitHeight: 18
+                    }
+                }
                 Label {
-                    text: hasSelection ? (selectedPart.componentLabel !== "" ? selectedPart.componentLabel : "Geometry model") : "Select an assembly entity."
-                    color: hasSelection && selectedPart.componentLabel !== "" ? "#70c99a" : muted
+                    visible: componentBindingController.error !== ""
+                    width: parent.width
+                    text: componentBindingController.error
+                    color: "#e87972"
+                    wrapMode: Text.WordWrap
                 }
                 Label {
                     visible: cadController.sourceName !== ""
@@ -1529,6 +1571,9 @@ ApplicationWindow {
             anchors.margins: 20
             serviceController: window.serviceApi
             executionController: window.executionApi
+            cadController: cadController
+            componentBindingController: componentBindingController
+            targetPartIndex: window.selectedIndex
             selectedEntityId: window.executionApi.pendingCadEntityId
             selectedEntityName: window.hasSelection && window.selectedPart.persistentId === window.executionApi.pendingCadEntityId ? window.selectedPart.name : "Selected CAD entity"
             panelColor: panel
@@ -1567,7 +1612,7 @@ ApplicationWindow {
             }
             onBindCandidateRequested: function (candidate) {
                 if (window.hasSelection)
-                    cadController.bindComponent(window.selectedIndex, candidate);
+                    cadController.bindProvisionalCandidate(window.selectedIndex, candidate);
             }
             onCloseRequested: inventoryDialog.close()
         }

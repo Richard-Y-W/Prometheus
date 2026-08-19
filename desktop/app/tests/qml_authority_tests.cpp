@@ -1,4 +1,5 @@
 #include "cad_controller.hpp"
+#include "component_binding_controller.hpp"
 #include "engineering_controller.hpp"
 #include "execution_controller.hpp"
 #include "project_intake.hpp"
@@ -604,6 +605,7 @@ void verifyOffscreenWorkflow() {
   ProjectIntakeController intake;
   ExecutionController execution(&project, &service);
   StructuralControllerProbe structural;
+  ComponentBindingController componentBinding;
   project.openProject(QUrl::fromLocalFile(projectPath));
   require(project.errorCode().isEmpty(), "QML workflow project opens");
   execution.setPendingCadEntityId("motor");
@@ -626,6 +628,7 @@ void verifyOffscreenWorkflow() {
   engine.rootContext()->setContextProperty("projectIntakeController", &intake);
   engine.rootContext()->setContextProperty("executionController", &execution);
   engine.rootContext()->setContextProperty("structuralController", &structural);
+  engine.rootContext()->setContextProperty("componentBindingController", &componentBinding);
   engine.rootContext()->setContextProperty("demoResearch", false);
   engine.rootContext()->setContextProperty("demoEngineering", false);
   engine.rootContext()->setContextProperty("demoCadInspect", false);
@@ -660,6 +663,8 @@ void verifyOffscreenWorkflow() {
   std::unique_ptr<QObject> packagePanelRoot(packagePanel.createWithInitialProperties({
       {"serviceController", QVariant::fromValue<QObject *>(&fixtureCatalog)},
       {"executionController", QVariant::fromValue<QObject *>(&execution)},
+      {"cadController", QVariant::fromValue<QObject *>(&cad)},
+      {"componentBindingController", QVariant::fromValue<QObject *>(&componentBinding)},
       {"selectedEntityId", "motor"},
       {"selectedEntityName", "Motor"},
   }));
@@ -690,6 +695,8 @@ void verifyOffscreenWorkflow() {
   std::unique_ptr<QObject> reviewPanelRoot(reviewPanel.createWithInitialProperties({
       {"serviceController", QVariant::fromValue<QObject *>(&reviewCatalog)},
       {"executionController", QVariant::fromValue<QObject *>(&execution)},
+      {"cadController", QVariant::fromValue<QObject *>(&cad)},
+      {"componentBindingController", QVariant::fromValue<QObject *>(&componentBinding)},
       {"selectedEntityId", "motor"},
       {"selectedEntityName", "Motor"},
       {"width", 1040},
