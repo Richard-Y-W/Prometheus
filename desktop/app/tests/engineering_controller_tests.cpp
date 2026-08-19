@@ -100,6 +100,28 @@ void existingCollisionBehaviorRemainsAuthoritative() {
           "evaluated motion replaces only the motion unknown");
 }
 
+// Phase 6 checkpoint 2: defining a joint stores the stable CAD entity ids
+// additively alongside the existing index-based identity, and -- with no
+// ProjectController ever attached via setProjectController, exactly like a
+// session with no project open -- persistJointBindingEdge's best-effort,
+// silent contract must not crash or alter the in-session joint state.
+void defineRevoluteJointStoresAdditiveEntityIdsAndIsSafeWithoutAProject() {
+  EngineeringController controller;
+  controller.defineRevoluteJoint(1, 2, "Z", 0, 90, 0.01, 0.02, 0.03, "arm",
+                                 "base");
+  const auto joint = controller.joint();
+  require(controller.jointConfigured(), "defining a joint marks it configured");
+  require(joint.value("source_index").toInt() == 1 &&
+              joint.value("target_index").toInt() == 2 &&
+              joint.value("axis").toString() == "Z" &&
+              joint.value("confirmed_by_user").toBool(),
+          "joint retains its existing index-based fields unchanged");
+  require(joint.value("source_entity_id").toString() == "arm" &&
+              joint.value("target_entity_id").toString() == "base",
+          "joint additively stores the stable CAD entity ids for graph-edge "
+          "persistence");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -107,5 +129,6 @@ int main(int argc, char **argv) {
   clearStaticScreenIsBounded();
   deferredStaticScreenCannotPass();
   existingCollisionBehaviorRemainsAuthoritative();
+  defineRevoluteJointStoresAdditiveEntityIdsAndIsSafeWithoutAProject();
   return 0;
 }

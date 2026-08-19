@@ -95,6 +95,18 @@ save_project_snapshot(const std::filesystem::path &project_path,
     const StoredObjectReference &package_reference,
     std::string_view package_bytes, TransactionOptions options = {}) noexcept;
 
+// Appends a new, append-only JointBinding graph edge for a confirmed
+// revolute joint between two CAD entities, superseding the prior active
+// binding for the same (unordered) entity pair, if any. Unlike
+// install_package_binding, there is no associated content-addressed object
+// to install -- the joint's parameters are inline in the project index.
+[[nodiscard]] Result<ProjectV2> install_joint_binding(
+    const std::filesystem::path &project_path,
+    std::string source_cad_entity_id, std::string target_cad_entity_id,
+    std::string joint_type, std::string axis, double minimum_deg,
+    double maximum_deg, double pivot_x, double pivot_y, double pivot_z,
+    TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

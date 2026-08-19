@@ -1,5 +1,9 @@
 #include "engineering_controller.hpp"
 
+#include "project_controller.hpp"
+
+#include <prometheus/run_store/run_store.hpp>
+
 #include <utility>
 
 namespace {
@@ -67,19 +71,58 @@ void addCommonUnknowns(QVariantList &unknowns, const bool sweepEvaluated) {
 void EngineeringController::defineRevoluteJoint(
     const int source, const int target, const QString &axis,
     const double minimumDeg, const double maximumDeg, const double pivotX,
-    const double pivotY, const double pivotZ) {
+    const double pivotY, const double pivotZ, const QString &sourceEntityId,
+    const QString &targetEntityId) {
   joint_ = {
       {"type", "revolute"},        {"source_index", source},
       {"target_index", target},    {"axis", axis},
       {"minimum_deg", minimumDeg}, {"maximum_deg", maximumDeg},
       {"pivot_x", pivotX},         {"pivot_y", pivotY},
       {"pivot_z", pivotZ},         {"confirmed_by_user", true},
+      // Additive, for graph-edge persistence only: source_index/target_index
+      // above remain the array-index identity the QML rendering and sweep
+      // wiring already key on. These stable CAD entity ids are never
+      // consulted by run_store::RevoluteJoint's display-snapshot parsing
+      // (ProjectController::typedEngineering reads only the named fields it
+      // already knew about), so their presence here is harmless when empty.
+      {"source_entity_id", sourceEntityId},
+      {"target_entity_id", targetEntityId},
   };
   findings_.clear();
   unknowns_.clear();
   coverage_.clear();
   geometry_status_ = "not_evaluated";
+  persistJointBindingEdge(sourceEntityId, targetEntityId, axis, minimumDeg,
+                          maximumDeg, pivotX, pivotY, pivotZ);
   emit changed();
+}
+
+void EngineeringController::persistJointBindingEdge(
+    const QString &sourceEntityId, const QString &targetEntityId,
+    const QString &axis, const double minimumDeg, const double maximumDeg,
+    const double pivotX, const double pivotY, const double pivotZ) {
+  // Phase 6 checkpoint 2: promotes the confirmed joint from transient display
+  // state into a real, persisted, append-only graph edge -- the JointBinding
+  // analogue of ComponentBindingController::persistBindingEdge. Best-effort
+  // and silent by the same contract: a project that is not open, not
+  // writable, or a CAD entity id that is unrecognized or was never supplied
+  // (a QML call site not yet updated to pass real ids) must never discard
+  // the confirmed joint this session already established in joint_, and
+  // must never surface an error of its own.
+  if (project_ == nullptr || !project_->project().has_value() ||
+      project_->saveAsRequired() || !project_->executionStoreAvailable() ||
+      sourceEntityId.trimmed().isEmpty() || targetEntityId.trimmed().isEmpty() ||
+      !project_->hasCadEntityId(sourceEntityId) ||
+      !project_->hasCadEntityId(targetEntityId)) {
+    return;
+  }
+  const auto installed = prometheus::run_store::install_joint_binding(
+      project_->projectPath(), sourceEntityId.toStdString(),
+      targetEntityId.toStdString(), "revolute", axis.toStdString(),
+      minimumDeg, maximumDeg, pivotX, pivotY, pivotZ);
+  if (installed.has_value()) {
+    project_->acceptProject(installed.value());
+  }
 }
 
 void EngineeringController::runGeometryChecks(const QVariantList &interferences,

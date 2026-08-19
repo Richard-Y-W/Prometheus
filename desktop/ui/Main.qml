@@ -139,7 +139,7 @@ ApplicationWindow {
             cadController.setPartPlacement(2, 0, 0.08, 0, 0, 0, 30);
         }
         if (demoEngineering && cadController.parts.length > 2) {
-            engineeringController.defineRevoluteJoint(1, 2, "Z", 0, 90, cadController.parts[1].centerX, cadController.parts[1].centerY, cadController.parts[1].centerZ);
+            engineeringController.defineRevoluteJoint(1, 2, "Z", 0, 90, cadController.parts[1].centerX, cadController.parts[1].centerY, cadController.parts[1].centerZ, cadController.parts[1].persistentId, cadController.parts[2].persistentId);
             cadController.runJointSweepAsync(2, 1, engineeringController.joint.pivot_x, engineeringController.joint.pivot_y, engineeringController.joint.pivot_z, "Z", 0, 90);
         }
         if (typeof demoStructural !== "undefined" && demoStructural)
@@ -2406,7 +2406,8 @@ ApplicationWindow {
                     highlighted: true
                     onClicked: {
                         const p = cadController.parts[jointSource.currentIndex];
-                        engineeringController.defineRevoluteJoint(jointSource.currentIndex, jointTarget.currentIndex, jointAxis.currentText, Number(jointMin.text), Number(jointMax.text), p.centerX, p.centerY, p.centerZ);
+                        const t = cadController.parts[jointTarget.currentIndex];
+                        engineeringController.defineRevoluteJoint(jointSource.currentIndex, jointTarget.currentIndex, jointAxis.currentText, Number(jointMin.text), Number(jointMax.text), p.centerX, p.centerY, p.centerZ, p.persistentId, t.persistentId);
                         jointDialog.close();
                     }
                 }

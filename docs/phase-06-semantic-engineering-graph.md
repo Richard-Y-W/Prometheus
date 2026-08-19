@@ -124,3 +124,124 @@ to append — not replace — onto the same chain:
 - The persisted edges are provably queryable (`run_store::open_read_only` →
   `execution.package_bindings`) — a desktop history *panel* remains future
   work, but the "not just its current label" data is real.
+
+## Checkpoint 2: promote the confirmed revolute joint to a real graph edge
+
+The second entity pair with a real, human-reviewed relationship already
+built and proven is CAD part ↔ CAD part, connected by a confirmed revolute
+joint.
+
+### What already exists, informally
+
+- **CAD part ↔ CAD part**: `EngineeringController::defineRevoluteJoint`
+  records a single, human-confirmed (`confirmed_by_user: true`) joint
+  between two CAD parts, and `runGeometryChecks`'s `sampled_joint_sweep`
+  finding is a real, tested downstream consumer of it (exercised in
+  `desktop/app/tests/project_tests.cpp`'s real-STEP integration test and in
+  `desktop/app/tests/engineering_controller_tests.cpp`).
+- Until this checkpoint, the joint was keyed by `source_index`/`target_index`
+  — array indices into `cadController.parts`, not the stable
+  `CadPart::persistentId` identity the CAD-to-component edge already uses —
+  and stored in `run_store::EngineeringState.joint`, a single overwritable
+  slot exactly like `CadPart::componentRevisionId` was before checkpoint 1.
+  Redefining a joint silently replaced the old one, with no record of
+  when or why it changed, and nothing outside `EngineeringController` could
+  query "what joint, if any, connects entity X and Y."
+
+### What shipped — unlike checkpoint 1, this genuinely needed a small new record type
+
+Checkpoint 1 found that Program 01B's `PackageBinding`/`package_bindings`
+already existed for a different reason and could be reused unchanged. A
+joint has no analogous existing storage: it has no content-addressed byte
+blob to embed (no downloaded package, no hash-verified artifact — just
+inline parameters a human confirmed), so `install_package_binding`'s
+object-store step does not apply, and no other append-only, provenanced
+record in the codebase shares a joint's shape. This checkpoint is honest
+about that: it adds a new `JointBinding` record
+(`binding_revision`, `supersedes_binding_revision`,
+`source_cad_entity_id`, `target_cad_entity_id`, `type`, `axis`,
+`minimum_deg`, `maximum_deg`, `pivot_x`, `pivot_y`, `pivot_z`) to
+`ExecutionIndex.joint_bindings`, with its own parse/validate/serialize
+support in `project_v2.cpp` and its own `run_store::install_joint_binding`
+in `run_store.cpp` — mirroring `install_package_binding`'s supersession
+mechanics exactly, minus the object-store step, since the edge is
+self-contained and inline.
+
+One deliberate design choice: a package binding's supersession chain is
+keyed by a single `cad_entity_id`, because a package is bound *to* one
+entity. A joint connects *two* entities symmetrically, so its chain is keyed
+by the **unordered pair** of `source_cad_entity_id`/`target_cad_entity_id` —
+rebinding the same physical joint with source and target swapped supersedes
+the same chain rather than opening a second, parallel one. This is
+documented as a comment at both the validation site
+(`project_v2.cpp`'s `joint_pair_key`) and the install site
+(`run_store.cpp`'s `install_joint_binding`).
+
+- `EngineeringController::defineRevoluteJoint` gained two additive
+  `QString` parameters, `sourceEntityId`/`targetEntityId`, alongside its
+  existing `source`/`target` array-index parameters — the indices remain
+  the identity the QML rendering and sweep wiring already key on; the
+  entity ids are additive, for graph-edge persistence only. `Main.qml`'s two
+  call sites now also pass `cadController.parts[...].persistentId`.
+  `EngineeringController` gained a `setProjectController(ProjectController*)`
+  setter (main.cpp constructs `EngineeringController` before
+  `ProjectController`, so constructor injection — checkpoint 1's approach
+  for `ComponentBindingController` — was not directly available in the same
+  order) and a private `persistJointBindingEdge`, called after `joint_` is
+  set with `confirmed_by_user: true`.
+- The persist step is best-effort and silent, matching
+  `ComponentBindingController::persistBindingEdge`'s contract exactly: no
+  project open, not writable, no execution store, an empty or unrecognized
+  CAD entity id on either side — the confirmed joint already established in
+  the session's `joint_` display state is never discarded over this, and no
+  error of the controller's own is surfaced.
+
+### Proof
+
+- `desktop/run_store/tests/project_v2_tests.cpp`'s
+  `joint_binding_revision_graph_is_strict` proves the same supersession-chain
+  integrity rules checkpoint 1 proved for package bindings — duplicate/
+  non-contiguous revisions reject, cross-pair supersession rejects, two
+  simultaneously unsuperseded bindings on one pair reject, self-joints
+  reject — plus the pair-symmetry rule: a bind with source and target
+  swapped still supersedes the prior chain for the same unordered pair.
+- `desktop/run_store/tests/run_store_transaction_tests.cpp`'s
+  `test_joint_binding_supersession` proves `install_joint_binding`
+  end-to-end: a first bind on (arm, base) appends revision one with no
+  supersession; a second bind on the same pair appends revision two,
+  superseding the first; a third bind with source/target swapped still
+  supersedes revision two; a bind on an unrelated pair (arm, driver) opens
+  its own chain without disturbing the arm/base chain.
+- `desktop/app/tests/project_tests.cpp` extends its real-STEP,
+  open → bind → save → reopen integration flow: after wiring a real
+  `EngineeringController` to a real `ProjectController` via
+  `setProjectController`, a confirmed `defineRevoluteJoint` call between the
+  imported motor and arm CAD entities appends one `execution.joint_bindings`
+  entry with no supersession, and a second confirmed call on the same two
+  entities appends a second entry that supersedes the first — read back via
+  `run_store::open_read_only`, independent of `EngineeringController`.
+
+### Explicitly out of scope for checkpoint 2
+
+- The remaining seven entity families (BOM row, material, load/restraint,
+  requirement/scenario, analysis request/finding, source document/evidence
+  claim beyond what Phase 5 already anchors) — added only when a real
+  workflow needs them.
+- A general graph query/traversal engine, or a query for "what joint
+  connects entity X to any other entity" — only the per-pair active-binding
+  resolution `install_joint_binding` itself performs exists.
+- A desktop UI for joint-binding history — the data is persisted and
+  provably queryable, but no panel renders it yet, same as checkpoint 1.
+- Confidence scoring for inferred edges — this edge is always
+  human-confirmed, never inferred.
+
+### Exit gate for this checkpoint — met
+
+- A confirmed CAD-to-CAD joint is a persisted graph edge, keyed by stable
+  `CadPart::persistentId` identity, not transient display state keyed by
+  array index.
+- Redefining a joint between the same two entities appends a new edge and
+  preserves the prior one's record instead of discarding it.
+- The persisted edges are provably queryable
+  (`run_store::open_read_only` → `execution.joint_bindings`) independent of
+  `EngineeringController` — a desktop history panel remains future work.

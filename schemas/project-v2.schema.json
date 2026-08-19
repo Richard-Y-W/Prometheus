@@ -336,6 +336,41 @@
         "package": {"$ref": "#/$defs/PackageReferenceV2"}
       }
     },
+    "JointBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "source_cad_entity_id",
+        "target_cad_entity_id",
+        "type",
+        "axis",
+        "minimum_deg",
+        "maximum_deg",
+        "pivot_x",
+        "pivot_y",
+        "pivot_z"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "source_cad_entity_id": {"$ref": "#/$defs/Identifier"},
+        "target_cad_entity_id": {"$ref": "#/$defs/Identifier"},
+        "type": {"const": "revolute"},
+        "axis": {"enum": ["X", "Y", "Z"]},
+        "minimum_deg": {"type": "number"},
+        "maximum_deg": {"type": "number"},
+        "pivot_x": {"type": "number"},
+        "pivot_y": {"type": "number"},
+        "pivot_z": {"type": "number"}
+      }
+    },
     "EventV1": {
       "type": "object",
       "additionalProperties": false,
@@ -368,7 +403,7 @@
     "ExecutionIndexV1": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_bindings", "current_scenario", "committed_runs", "events"],
+      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings"],
       "properties": {
         "package_bindings": {
           "type": "array",
@@ -387,6 +422,11 @@
           "type": "array",
           "maxItems": 256,
           "items": {"$ref": "#/$defs/EventV1"}
+        },
+        "joint_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/JointBindingV1"}
         }
       }
     }

@@ -152,6 +152,28 @@ int main(int argc,char** argv){
   const auto& edges=after_second_edge.value().execution.package_bindings;
   if(edges[0].package.object_hash!=hash(motor_a).toStdString()||edges[1].package.object_hash!=hash(motor_b).toStdString()||edges[2].package.object_hash!=hash(motor_a).toStdString()){std::cerr<<"graph edge history lost the exact package identity at some step\n";return 20;}
   if(edges[2].supersedes_binding_revision!=edges[1].binding_revision||edges[1].supersedes_binding_revision!=edges[0].binding_revision){std::cerr<<"graph edge history chain is not linearly ordered\n";return 20;}
+
+  // Phase 6 checkpoint 2: a confirmed revolute joint persists as a real,
+  // append-only JointBinding graph edge, keyed by the two CAD entities'
+  // stable persistentId strings -- not the array indices Main.qml's dialog
+  // still passes alongside them for its own rendering/sweep wiring.
+  reopened_checks.setProjectController(&reopened_project);
+  const auto arm_entity=qobject_cast<CadPart*>(reopened.parts()[2].value<QObject*>())->persistentId();
+  const auto before_joint_edge=prometheus::run_store::open_read_only(project.toStdString());
+  if(!before_joint_edge.has_value()||!before_joint_edge.value().execution.joint_bindings.empty()){std::cerr<<"joint bindings should start empty\n";return 21;}
+  reopened_checks.defineRevoluteJoint(1,2,"Z",0,90,0,0,0,motor_entity,arm_entity);
+  const auto after_joint_edge=prometheus::run_store::open_read_only(project.toStdString());
+  if(!after_joint_edge.has_value()||after_joint_edge.value().execution.joint_bindings.size()!=1){std::cerr<<"confirmed joint did not append a graph edge\n";return 21;}
+  const auto& joint_edge_one=after_joint_edge.value().execution.joint_bindings.front();
+  const bool edge_one_matches=(joint_edge_one.source_cad_entity_id==motor_entity.toStdString()&&joint_edge_one.target_cad_entity_id==arm_entity.toStdString())||(joint_edge_one.source_cad_entity_id==arm_entity.toStdString()&&joint_edge_one.target_cad_entity_id==motor_entity.toStdString());
+  if(!edge_one_matches||joint_edge_one.supersedes_binding_revision.has_value()){std::cerr<<"first joint graph edge has the wrong entities or an unexpected supersession\n";return 21;}
+
+  reopened_checks.defineRevoluteJoint(1,2,"Z",-10,45,0,0,0,motor_entity,arm_entity);
+  const auto after_second_joint_edge=prometheus::run_store::open_read_only(project.toStdString());
+  if(!after_second_joint_edge.has_value()||after_second_joint_edge.value().execution.joint_bindings.size()!=2){std::cerr<<"second confirmed joint did not append onto the existing chain\n";return 22;}
+  const auto& joint_edges=after_second_joint_edge.value().execution.joint_bindings;
+  if(!joint_edges.back().supersedes_binding_revision.has_value()||*joint_edges.back().supersedes_binding_revision!=joint_edges.front().binding_revision){std::cerr<<"second joint graph edge did not supersede the first\n";return 22;}
+
   return 0;
 }
 

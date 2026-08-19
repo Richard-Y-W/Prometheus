@@ -17,6 +17,7 @@
     "package_bindings": [],
     "current_scenario": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "committed_runs": [],
-    "events": []
+    "events": [],
+    "joint_bindings": []
   }
 }

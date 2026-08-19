@@ -51,14 +51,13 @@ if(BUILD_TESTING)
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp
-    engineering_controller.cpp
-    engineering_controller.hpp
   )
   target_include_directories(prometheus_engineering_controller_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
   )
   target_link_libraries(prometheus_engineering_controller_tests PRIVATE
     Qt6::Core
+    prometheus_desktop_support
   )
   add_test(
     NAME prometheus_engineering_controller

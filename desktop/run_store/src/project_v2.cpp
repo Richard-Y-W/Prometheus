@@ -587,6 +587,128 @@ PackageBinding parse_package_binding(const Json &value,
                           ReferenceKind::package)};
 }
 
+JointBinding parse_joint_binding(const Json &value, const std::size_t index) {
+  const auto field = "execution.joint_bindings[" + std::to_string(index) + "]";
+  require_exact_members(
+      value,
+      {"binding_revision", "supersedes_binding_revision",
+       "source_cad_entity_id", "target_cad_entity_id", "type", "axis",
+       "minimum_deg", "maximum_deg", "pivot_x", "pivot_y", "pivot_z"},
+      field);
+  std::optional<std::uint64_t> supersedes;
+  if (!value.at("supersedes_binding_revision").is_null()) {
+    supersedes = require_unsigned(value, "supersedes_binding_revision",
+                                  field + ".supersedes_binding_revision");
+  }
+  const auto &source =
+      require_string(value, "source_cad_entity_id",
+                     field + ".source_cad_entity_id", maximum_identity_bytes);
+  const auto &target =
+      require_string(value, "target_cad_entity_id",
+                     field + ".target_cad_entity_id", maximum_identity_bytes);
+  if (source == target) {
+    reject("invalid_joint_binding_entities",
+           "joint binding endpoints must differ", field);
+  }
+  const auto &type = require_string(value, "type", field + ".type", 32U);
+  if (type != "revolute") {
+    reject("invalid_joint_binding_type", "only revolute joints are supported",
+           field + ".type");
+  }
+  const auto &axis = require_string(value, "axis", field + ".axis", 8U);
+  if (!contains({"X", "Y", "Z"}, axis)) {
+    reject("invalid_joint_binding_axis", "joint binding axis is unsupported",
+           field + ".axis");
+  }
+  const auto minimum =
+      require_finite_number(value, "minimum_deg", field + ".minimum_deg");
+  const auto maximum =
+      require_finite_number(value, "maximum_deg", field + ".maximum_deg");
+  if (minimum > maximum) {
+    reject("invalid_joint_binding_range",
+           "joint binding minimum exceeds maximum", field);
+  }
+  return {require_unsigned(value, "binding_revision",
+                           field + ".binding_revision"),
+          supersedes,
+          source,
+          target,
+          type,
+          axis,
+          minimum,
+          maximum,
+          require_finite_number(value, "pivot_x", field + ".pivot_x"),
+          require_finite_number(value, "pivot_y", field + ".pivot_y"),
+          require_finite_number(value, "pivot_z", field + ".pivot_z")};
+}
+
+// Two CAD entities joined by a confirmed joint form a single, symmetric
+// physical relationship -- a rebind with source and target swapped is still
+// the same joint, not a second one. The supersession chain is therefore keyed
+// by the unordered pair of entity ids, unlike a package binding's single
+// cad_entity_id key.
+std::string joint_pair_key(const std::string &first,
+                           const std::string &second) {
+  return first <= second ? first + '\x01' + second
+                         : second + '\x01' + first;
+}
+
+void validate_joint_binding_graph(const std::vector<JointBinding> &bindings) {
+  struct Revision final {
+    std::string pair_key;
+    bool superseded{false};
+  };
+  std::unordered_map<std::uint64_t, Revision> revisions;
+  std::unordered_set<std::string> active_pairs;
+  revisions.reserve(bindings.size());
+  active_pairs.reserve(bindings.size());
+  for (std::size_t index = 0U; index < bindings.size(); ++index) {
+    const auto &binding = bindings[index];
+    const auto expected = static_cast<std::uint64_t>(index) + 1U;
+    if (binding.binding_revision != expected) {
+      reject("joint_binding_revision_order_invalid",
+             "joint binding revisions must be unique, contiguous, and "
+             "ordered",
+             "execution.joint_bindings[" + std::to_string(index) +
+                 "].binding_revision");
+    }
+    const auto pair_key = joint_pair_key(binding.source_cad_entity_id,
+                                         binding.target_cad_entity_id);
+    if (binding.supersedes_binding_revision.has_value()) {
+      const auto prior = revisions.find(*binding.supersedes_binding_revision);
+      if (prior == revisions.end()) {
+        reject("joint_binding_supersession_invalid",
+               "joint binding supersession must identify an earlier "
+               "revision",
+               "execution.joint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.pair_key != pair_key) {
+        reject("joint_binding_supersession_cross_pair",
+               "a joint binding cannot supersede a different CAD entity "
+               "pair",
+               "execution.joint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.superseded) {
+        reject("joint_binding_supersession_invalid",
+               "a joint binding revision cannot be superseded twice",
+               "execution.joint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      prior->second.superseded = true;
+      active_pairs.erase(pair_key);
+    } else if (active_pairs.contains(pair_key)) {
+      reject("multiple_active_joint_bindings",
+             "a CAD entity pair may have only one unsuperseded joint "
+             "binding",
+             "execution.joint_bindings[" + std::to_string(index) + "]");
+    }
+    active_pairs.insert(pair_key);
+    revisions.emplace(binding.binding_revision, Revision{pair_key, false});
+  }
+}
+
 void validate_binding_graph(const std::vector<PackageBinding> &bindings) {
   struct Revision final {
     std::string entity;
@@ -675,7 +797,9 @@ Event parse_event(const Json &value, const std::size_t index) {
 
 ExecutionIndex parse_execution(const Json &value) {
   require_exact_members(
-      value, {"package_bindings", "current_scenario", "committed_runs", "events"},
+      value,
+      {"package_bindings", "current_scenario", "committed_runs", "events",
+       "joint_bindings"},
       "execution");
   ExecutionIndex execution;
   const auto &bindings = require_array(value, "package_bindings",
@@ -687,6 +811,16 @@ ExecutionIndex parse_execution(const Json &value) {
         parse_package_binding(bindings[index], index));
   }
   validate_binding_graph(execution.package_bindings);
+
+  const auto &joint_bindings = require_array(value, "joint_bindings",
+                                             "execution.joint_bindings",
+                                             maximum_joint_bindings);
+  execution.joint_bindings.reserve(joint_bindings.size());
+  for (std::size_t index = 0U; index < joint_bindings.size(); ++index) {
+    execution.joint_bindings.push_back(
+        parse_joint_binding(joint_bindings[index], index));
+  }
+  validate_joint_binding_graph(execution.joint_bindings);
 
   if (!value.at("current_scenario").is_null()) {
     execution.current_scenario =
@@ -911,6 +1045,24 @@ Json project_json(const ProjectV2 &project) {
              {"cad_entity_id", binding.cad_entity_id},
              {"package", reference_json(binding.package)}});
   }
+  Json joint_bindings = Json::array();
+  for (const auto &binding : project.execution.joint_bindings) {
+    joint_bindings.push_back(
+        Json{{"binding_revision", binding.binding_revision},
+             {"supersedes_binding_revision",
+              binding.supersedes_binding_revision.has_value()
+                  ? Json(*binding.supersedes_binding_revision)
+                  : Json(nullptr)},
+             {"source_cad_entity_id", binding.source_cad_entity_id},
+             {"target_cad_entity_id", binding.target_cad_entity_id},
+             {"type", binding.type},
+             {"axis", binding.axis},
+             {"minimum_deg", binding.minimum_deg},
+             {"maximum_deg", binding.maximum_deg},
+             {"pivot_x", binding.pivot_x},
+             {"pivot_y", binding.pivot_y},
+             {"pivot_z", binding.pivot_z}});
+  }
   Json current_scenario = nullptr;
   if (project.execution.current_scenario.has_value()) {
     current_scenario = reference_json(*project.execution.current_scenario);
@@ -954,7 +1106,8 @@ Json project_json(const ProjectV2 &project) {
        Json{{"package_bindings", std::move(package_bindings)},
             {"current_scenario", std::move(current_scenario)},
             {"committed_runs", std::move(committed_runs)},
-            {"events", std::move(events)}}}};
+            {"events", std::move(events)},
+            {"joint_bindings", std::move(joint_bindings)}}}};
 }
 
 } // namespace

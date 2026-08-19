@@ -23,6 +23,7 @@ int main(int argc, char* argv[]) {
   ServiceController service;
   EngineeringController engineering;
   ProjectController project(&cad,&engineering);
+  engineering.setProjectController(&project);
   ProjectIntakeController intake;
   ExecutionController execution(&project,&service);
   StructuralController structural(&project);

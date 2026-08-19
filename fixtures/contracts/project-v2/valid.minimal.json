@@ -34,6 +34,7 @@
     ],
     "current_scenario": null,
     "committed_runs": [],
-    "events": []
+    "events": [],
+    "joint_bindings": []
   }
 }

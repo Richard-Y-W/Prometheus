@@ -26,6 +26,7 @@ inline constexpr std::string_view execution_store_version = "1.0.0";
 inline constexpr std::size_t maximum_project_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_package_bindings = 10000U;
+inline constexpr std::size_t maximum_joint_bindings = 10000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
 inline constexpr std::string_view structural_manifest_media_type =
@@ -168,6 +169,24 @@ struct PackageBinding final {
   StoredObjectReference package;
 };
 
+// Phase 6 checkpoint 2: the append-only, content-free counterpart of
+// PackageBinding for a confirmed CAD-to-CAD joint. Unlike a package binding,
+// a joint has no associated content-addressed byte blob to embed -- its
+// parameters are inline and the edge is self-contained.
+struct JointBinding final {
+  std::uint64_t binding_revision;
+  std::optional<std::uint64_t> supersedes_binding_revision;
+  std::string source_cad_entity_id;
+  std::string target_cad_entity_id;
+  std::string type;
+  std::string axis;
+  double minimum_deg;
+  double maximum_deg;
+  double pivot_x;
+  double pivot_y;
+  double pivot_z;
+};
+
 struct Event final {
   std::uint64_t sequence;
   std::string event_kind;
@@ -182,6 +201,7 @@ struct ExecutionIndex final {
   std::optional<StoredObjectReference> current_scenario;
   std::vector<StoredObjectReference> committed_runs;
   std::vector<Event> events;
+  std::vector<JointBinding> joint_bindings;
 };
 
 struct ProjectV2 final {
