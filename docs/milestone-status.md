@@ -1,5 +1,7 @@
 # Milestone status
 
+For the reconciled current implementation, see the [Prometheus master project status](master-project-status.md), last audited 2026-08-18. The milestone record below preserves the narrower evidence available when each gate closed.
+
 The earlier numbered milestones record how the rough electromechanical vertical was built. They are implementation checkpoints, not evidence that the general Prometheus product exists or that a physical design is correct. The capability-gated [master roadmap](program/00-master-roadmap.md) now governs forward work.
 
 ## Current truth boundary

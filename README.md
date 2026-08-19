@@ -1,5 +1,7 @@
 # Prometheus
 
+Current audited implementation status: [Prometheus master project status](docs/master-project-status.md), last audited 2026-08-18. That dated status supersedes older current-capability statements when historical plans or completion records conflict with later work.
+
 Product goal: Prometheus is a local project compiler and solver-orchestration environment for heterogeneous engineering projects. It is intended to inventory project files, reconstruct a reviewable system model, compile requirements and scenarios into proof obligations, run bounded local analyses, and report failures, scoped successes, unknowns, and coverage with reproducible provenance.
 
 Current repository: this codebase is a Windows-first mechanical-project screening prototype with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It can inventory an arbitrary local folder and screen one STEP assembly, but it cannot determine whether an arbitrary engineering project works.
