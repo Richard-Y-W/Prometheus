@@ -206,7 +206,7 @@ No second physics or structural execution path was introduced.
 | Pinned YUBI external import | `roots=1`, `leaves=90`, `triangles=37367`, `interferences=deferred` | The finite-bounds loading fix survived the mainline merge |
 | PostgreSQL 17 local rerun | Not executed | The configured local server at `127.0.0.1:55432` was not running; connection was refused before test setup |
 | Current external CalculiX gate | Not executed in this audit | The strengthened Windows workflow remains a required evidence item |
-| GitHub Actions for the final merged/status commit | Pending publication | Automatic CI can be evaluated only after the final push |
+| GitHub Actions for the final merged/status commit | [Run 32219192928](https://github.com/Richard-Y-W/Prometheus/actions/runs/32219192928) was blocked before execution | All nine jobs were rejected before their first step because GitHub reported failed account payments or an exhausted spending limit; this is not test evidence |
 
 The loopback split is not a product exemption. CI and normal developer hosts
 must run those tests where local listeners are permitted.
@@ -276,20 +276,26 @@ must run those tests where local listeners are permitted.
 17. **Clean-machine evidence remains incomplete.** Bundle export/restore is
     automated, but the supported project has not completed a physically
     separate clean-machine recovery trial or a signed installer flow.
-18. **Automatic CI does not exercise Open Cascade or CalculiX on every push.**
+18. **The automatic CI matrix is blocked by GitHub billing.** Run 32219192928
+    created all nine expected jobs, but GitHub rejected every job before its
+    first step because recent account payments failed or the spending limit
+    needs to be increased. No runner started and no test failed. Billing must be
+    restored and the same commit rerun before this branch has remote matrix
+    evidence.
+19. **Automatic CI does not exercise Open Cascade or CalculiX on every push.**
     The required matrix covers the no-OCCT desktop; structural validation and
     participant packaging are manual Windows workflows. This is acceptable for
     prototype checkpoints but remains a release-evidence boundary.
-19. **Living documentation has drifted.** `README.md`, `product-scope.md`,
+20. **Living documentation has drifted.** `README.md`, `product-scope.md`,
     `architecture.md`, `validation-plan.md`, and `validation-policy.md` retain
     pre-01B, pre-structural, or pre-Phase-4 statements. Historical completion
     records should stay immutable, but living documents need a focused
     harmonization pass.
-20. **Implementation-plan checkboxes are not reliable status.** Several plan
+21. **Implementation-plan checkboxes are not reliable status.** Several plan
     files retain unchecked execution steps after their commits landed. Plans
     describe the intended sequence; this document and phase evidence records
     describe current completion.
-21. **Minor dependency/UI warnings remain.** The backend emits a Starlette
+22. **Minor dependency/UI warnings remain.** The backend emits a Starlette
     deprecation warning for the current test-client bridge, and manual macOS
     runs have exposed Qt native-style/customization and shutdown-time QML
     warnings. They did not fail the verified workflows but should be cleaned up
@@ -299,7 +305,8 @@ must run those tests where local listeners are permitted.
 
 ### Checkpoint A: earn the first real structural result
 
-1. Publish this reconciled branch and require the automatic matrix to pass.
+1. Restore GitHub Actions billing/spending, rerun commit `0ae70ff` or its
+   documentation-only successor, and require the automatic matrix to pass.
 2. Run and retain the current Windows CalculiX smoke, analytic, known-pass,
    known-fail, and refinement evidence.
 3. Review the YUBI material applicability, load/restraint regions, load vector,
@@ -357,7 +364,8 @@ coverage. Domain labels alone do not create general engineering support.
 Do not add another general framework before obtaining the first real YUBI
 result. The shortest evidence-bearing sequence is:
 
-1. green automatic CI on the reconciled branch;
+1. restore GitHub Actions billing and obtain green automatic CI on the
+   reconciled branch;
 2. current Windows structural-validation workflow;
 3. user-reviewed YUBI setup and manual coarse/fine pair;
 4. bounded YUBI report;
