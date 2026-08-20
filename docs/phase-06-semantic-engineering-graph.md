@@ -484,3 +484,93 @@ append a redundant revision.
 - The persisted edges are provably queryable
   (`run_store::open_read_only` → `execution.material_bindings`) independent
   of `StructuralController` — a desktop history panel remains future work.
+
+## Checkpoint 5: promote the reviewed load and restraint selections to real graph edges
+
+The fifth and sixth entity pairs — `load and restraint`, the remaining
+named Phase 6 entity family this checkpoint closes — are a component's
+geometry and its reviewed surface load and fixed-restraint selections.
+Checkpoint 4 deferred these deliberately, not because they were less real
+than material, but because their `BoundarySelection` payload (exact face
+and node topology, not just a scalar) is materially more to serialize as
+provenance. This checkpoint does that work.
+
+### What already exists, informally
+
+- **Geometry ↔ reviewed load/restraint**: `validate_setup` requires each
+  selection's `BoundarySelection` to resolve to the mesh's exact boundary
+  topology (`valid_selection` in `structural_setup.cpp`) and to be reviewed
+  before compilation proceeds — exactly the same reviewed-and-provenanced
+  bar checkpoints 3 and 4 already promoted. Exactly one load selection and
+  one restraint selection govern a given analysis at a time, the same
+  single-key shape as material.
+- Until this checkpoint, both were `draft_` state only.
+
+### What shipped
+
+`LoadBinding` and `RestraintBinding` were added to `ExecutionIndex`, both
+keyed by `geometry_sha256` alone like `MaterialBinding`. Each carries
+`selection_label`, `face_node_ids` (the exact triangles a visual patch
+selection resolved to — `prometheus::structural::BoundarySelection`'s
+durable topology, not a transient patch id), `node_ids`, and `area_m2`;
+`LoadBinding` additionally carries the reviewed total force vector.
+`install_load_binding`/`install_restraint_binding` mirror
+`install_material_binding`'s single-key supersession mechanics exactly.
+New bounds (`maximum_selection_faces`/`maximum_selection_nodes = 200000`)
+cap array size independent of the overall 8 MB project-file limit, since a
+fine mesh selection can be large.
+
+`StructuralController::persistLoadBindingEdge`/`persistRestraintBindingEdge`,
+called from `reviewSetup` alongside the material/requirement persistence,
+reuse the same dedup discipline: compare the reviewed selection (including
+its exact face/node arrays, via `std::vector`/`std::array` equality)
+against the geometry's currently active binding and only append when the
+content actually differs.
+
+### Proof
+
+- `desktop/run_store/tests/project_v2_tests.cpp`'s
+  `surface_selection_binding_graphs_are_strict` runs the same
+  supersession-chain integrity rules checkpoints 1–4 proved against both
+  `LoadBindingV1` and `RestraintBindingV1` in one parametrized pass, plus
+  selection-specific validation: an empty face list, a malformed
+  (non-triangular) face, and a non-positive area all reject.
+- `desktop/run_store/tests/run_store_transaction_tests.cpp`'s
+  `test_surface_selection_binding_supersession` proves
+  `install_load_binding`/`install_restraint_binding` end-to-end, including
+  that a geometry's load and restraint chains are independent of each other.
+- `desktop/app/tests/structural_controller_tests.cpp` extends its real
+  open→review→run→archive→commit→reopen flow: reviewing a setup appends one
+  `LoadBinding` and one `RestraintBinding`; re-reviewing with an unchanged
+  selection does not append redundant revisions; re-reviewing with a
+  changed load force appends a second `LoadBinding` revision without
+  disturbing the restraint chain — all read back via
+  `run_store::open_read_only`, independent of `StructuralController`.
+
+### Explicitly out of scope for checkpoint 5
+
+- The remaining entity families (BOM row, scenario as its own entity,
+  analysis request/finding, source document/evidence claim beyond what
+  Phase 5 already anchors) — added only when a real workflow needs them.
+  With this checkpoint, every structural setup field with real reviewed
+  data (material, load, restraint, requirement) is now a persisted graph
+  edge; mesh controls and scenario description remain `draft_` state, not
+  yet demonstrated as needing graph-edge provenance the way limits and
+  selections did.
+- The motor-arm workflow — unchanged for the same reason as checkpoints 3
+  and 4.
+- A desktop UI for load/restraint-binding history — the data is persisted
+  and provably queryable, but no panel renders it yet, same as checkpoints
+  1–4.
+
+### Exit gate for this checkpoint — met
+
+- A reviewed load and restraint selection are each a persisted graph edge,
+  keyed by geometry, carrying their exact durable boundary topology, not
+  transient `draft_` display state.
+- Re-reviewing either with changed content appends a new edge; re-reviewing
+  with unchanged content does not spam the chain with redundant revisions.
+- The persisted edges are provably queryable
+  (`run_store::open_read_only` → `execution.load_bindings` /
+  `execution.restraint_bindings`) independent of `StructuralController` —
+  a desktop history panel remains future work.

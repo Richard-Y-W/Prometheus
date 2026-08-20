@@ -963,6 +963,250 @@ void validate_material_binding_graph(
   }
 }
 
+// Shared by parse_load_binding and parse_restraint_binding: the exact
+// durable boundary topology a visual patch selection resolved to
+// (prometheus::structural::BoundarySelection), not a transient patch id.
+std::vector<std::array<int, 3>> parse_selection_faces(
+    const Json &value, const std::string &field) {
+  const auto &faces = require_array(value, "face_node_ids",
+                                    field + ".face_node_ids",
+                                    maximum_selection_faces);
+  if (faces.empty()) {
+    reject("invalid_selection_faces",
+           "a surface selection needs at least one face",
+           field + ".face_node_ids");
+  }
+  std::vector<std::array<int, 3>> result;
+  result.reserve(faces.size());
+  for (std::size_t index = 0U; index < faces.size(); ++index) {
+    const auto &face = faces[index];
+    if (!face.is_array() || face.size() != 3U) {
+      reject("invalid_selection_face",
+             "a selection face must have exactly three node ids",
+             field + ".face_node_ids[" + std::to_string(index) + "]");
+    }
+    std::array<int, 3> triangle{};
+    for (std::size_t component = 0U; component < 3U; ++component) {
+      if (!face[component].is_number_integer()) {
+        reject("invalid_selection_face",
+               "a selection face node id must be an integer",
+               field + ".face_node_ids[" + std::to_string(index) + "]");
+      }
+      triangle[component] = face[component].get<int>();
+    }
+    result.push_back(triangle);
+  }
+  return result;
+}
+
+std::vector<int> parse_selection_nodes(const Json &value,
+                                       const std::string &field) {
+  const auto &nodes = require_array(value, "node_ids", field + ".node_ids",
+                                    maximum_selection_nodes);
+  if (nodes.empty()) {
+    reject("invalid_selection_nodes",
+           "a surface selection needs at least one node",
+           field + ".node_ids");
+  }
+  std::vector<int> result;
+  result.reserve(nodes.size());
+  for (std::size_t index = 0U; index < nodes.size(); ++index) {
+    if (!nodes[index].is_number_integer()) {
+      reject("invalid_selection_nodes", "a selection node id must be an integer",
+             field + ".node_ids[" + std::to_string(index) + "]");
+    }
+    result.push_back(nodes[index].get<int>());
+  }
+  return result;
+}
+
+double parse_selection_area(const Json &value, const std::string &field) {
+  const auto area = require_finite_number(value, "area_m2", field + ".area_m2");
+  if (area <= 0.0) {
+    reject("invalid_selection_area",
+           "a surface selection needs a positive area", field + ".area_m2");
+  }
+  return area;
+}
+
+LoadBinding parse_load_binding(const Json &value, const std::size_t index) {
+  const auto field = "execution.load_bindings[" + std::to_string(index) + "]";
+  require_exact_members(
+      value,
+      {"binding_revision", "supersedes_binding_revision", "geometry_sha256",
+       "analysis_id", "selection_label", "face_node_ids", "node_ids",
+       "area_m2", "force_x_n", "force_y_n", "force_z_n"},
+      field);
+  std::optional<std::uint64_t> supersedes;
+  if (!value.at("supersedes_binding_revision").is_null()) {
+    supersedes = require_unsigned(value, "supersedes_binding_revision",
+                                  field + ".supersedes_binding_revision");
+  }
+  const auto &geometry =
+      require_string(value, "geometry_sha256", field + ".geometry_sha256",
+                     maximum_identity_bytes);
+  const auto &analysis_id = require_string(
+      value, "analysis_id", field + ".analysis_id", maximum_identity_bytes);
+  const auto &label = require_string(value, "selection_label",
+                                     field + ".selection_label", 512U);
+  auto faces = parse_selection_faces(value, field);
+  auto nodes = parse_selection_nodes(value, field);
+  const auto area = parse_selection_area(value, field);
+  return {require_unsigned(value, "binding_revision",
+                           field + ".binding_revision"),
+          supersedes,
+          geometry,
+          analysis_id,
+          label,
+          std::move(faces),
+          std::move(nodes),
+          area,
+          require_finite_number(value, "force_x_n", field + ".force_x_n"),
+          require_finite_number(value, "force_y_n", field + ".force_y_n"),
+          require_finite_number(value, "force_z_n", field + ".force_z_n")};
+}
+
+RestraintBinding parse_restraint_binding(const Json &value,
+                                         const std::size_t index) {
+  const auto field =
+      "execution.restraint_bindings[" + std::to_string(index) + "]";
+  require_exact_members(
+      value,
+      {"binding_revision", "supersedes_binding_revision", "geometry_sha256",
+       "analysis_id", "selection_label", "face_node_ids", "node_ids",
+       "area_m2"},
+      field);
+  std::optional<std::uint64_t> supersedes;
+  if (!value.at("supersedes_binding_revision").is_null()) {
+    supersedes = require_unsigned(value, "supersedes_binding_revision",
+                                  field + ".supersedes_binding_revision");
+  }
+  const auto &geometry =
+      require_string(value, "geometry_sha256", field + ".geometry_sha256",
+                     maximum_identity_bytes);
+  const auto &analysis_id = require_string(
+      value, "analysis_id", field + ".analysis_id", maximum_identity_bytes);
+  const auto &label = require_string(value, "selection_label",
+                                     field + ".selection_label", 512U);
+  auto faces = parse_selection_faces(value, field);
+  auto nodes = parse_selection_nodes(value, field);
+  const auto area = parse_selection_area(value, field);
+  return {require_unsigned(value, "binding_revision",
+                           field + ".binding_revision"),
+          supersedes,
+          geometry,
+          analysis_id,
+          label,
+          std::move(faces),
+          std::move(nodes),
+          area};
+}
+
+void validate_load_binding_graph(const std::vector<LoadBinding> &bindings) {
+  struct Revision final {
+    std::string geometry;
+    bool superseded{false};
+  };
+  std::unordered_map<std::uint64_t, Revision> revisions;
+  std::unordered_set<std::string> active_geometries;
+  revisions.reserve(bindings.size());
+  active_geometries.reserve(bindings.size());
+  for (std::size_t index = 0U; index < bindings.size(); ++index) {
+    const auto &binding = bindings[index];
+    const auto expected = static_cast<std::uint64_t>(index) + 1U;
+    if (binding.binding_revision != expected) {
+      reject("load_binding_revision_order_invalid",
+             "load binding revisions must be unique, contiguous, and ordered",
+             "execution.load_bindings[" + std::to_string(index) +
+                 "].binding_revision");
+    }
+    if (binding.supersedes_binding_revision.has_value()) {
+      const auto prior = revisions.find(*binding.supersedes_binding_revision);
+      if (prior == revisions.end()) {
+        reject("load_binding_supersession_invalid",
+               "load binding supersession must identify an earlier revision",
+               "execution.load_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.geometry != binding.geometry_sha256) {
+        reject("load_binding_supersession_cross_geometry",
+               "a load binding cannot supersede a different geometry",
+               "execution.load_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.superseded) {
+        reject("load_binding_supersession_invalid",
+               "a load binding revision cannot be superseded twice",
+               "execution.load_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      prior->second.superseded = true;
+      active_geometries.erase(binding.geometry_sha256);
+    } else if (active_geometries.contains(binding.geometry_sha256)) {
+      reject("multiple_active_load_bindings",
+             "a geometry may have only one unsuperseded load binding",
+             "execution.load_bindings[" + std::to_string(index) + "]");
+    }
+    active_geometries.insert(binding.geometry_sha256);
+    revisions.emplace(binding.binding_revision,
+                      Revision{binding.geometry_sha256, false});
+  }
+}
+
+void validate_restraint_binding_graph(
+    const std::vector<RestraintBinding> &bindings) {
+  struct Revision final {
+    std::string geometry;
+    bool superseded{false};
+  };
+  std::unordered_map<std::uint64_t, Revision> revisions;
+  std::unordered_set<std::string> active_geometries;
+  revisions.reserve(bindings.size());
+  active_geometries.reserve(bindings.size());
+  for (std::size_t index = 0U; index < bindings.size(); ++index) {
+    const auto &binding = bindings[index];
+    const auto expected = static_cast<std::uint64_t>(index) + 1U;
+    if (binding.binding_revision != expected) {
+      reject("restraint_binding_revision_order_invalid",
+             "restraint binding revisions must be unique, contiguous, and "
+             "ordered",
+             "execution.restraint_bindings[" + std::to_string(index) +
+                 "].binding_revision");
+    }
+    if (binding.supersedes_binding_revision.has_value()) {
+      const auto prior = revisions.find(*binding.supersedes_binding_revision);
+      if (prior == revisions.end()) {
+        reject("restraint_binding_supersession_invalid",
+               "restraint binding supersession must identify an earlier "
+               "revision",
+               "execution.restraint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.geometry != binding.geometry_sha256) {
+        reject("restraint_binding_supersession_cross_geometry",
+               "a restraint binding cannot supersede a different geometry",
+               "execution.restraint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.superseded) {
+        reject("restraint_binding_supersession_invalid",
+               "a restraint binding revision cannot be superseded twice",
+               "execution.restraint_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      prior->second.superseded = true;
+      active_geometries.erase(binding.geometry_sha256);
+    } else if (active_geometries.contains(binding.geometry_sha256)) {
+      reject("multiple_active_restraint_bindings",
+             "a geometry may have only one unsuperseded restraint binding",
+             "execution.restraint_bindings[" + std::to_string(index) + "]");
+    }
+    active_geometries.insert(binding.geometry_sha256);
+    revisions.emplace(binding.binding_revision,
+                      Revision{binding.geometry_sha256, false});
+  }
+}
+
 void validate_binding_graph(const std::vector<PackageBinding> &bindings) {
   struct Revision final {
     std::string entity;
@@ -1053,7 +1297,8 @@ ExecutionIndex parse_execution(const Json &value) {
   require_exact_members(
       value,
       {"package_bindings", "current_scenario", "committed_runs", "events",
-       "joint_bindings", "requirement_bindings", "material_bindings"},
+       "joint_bindings", "requirement_bindings", "material_bindings",
+       "load_bindings", "restraint_bindings"},
       "execution");
   ExecutionIndex execution;
   const auto &bindings = require_array(value, "package_bindings",
@@ -1096,6 +1341,25 @@ ExecutionIndex parse_execution(const Json &value) {
         parse_material_binding(material_bindings[index], index));
   }
   validate_material_binding_graph(execution.material_bindings);
+
+  const auto &load_bindings = require_array(
+      value, "load_bindings", "execution.load_bindings", maximum_load_bindings);
+  execution.load_bindings.reserve(load_bindings.size());
+  for (std::size_t index = 0U; index < load_bindings.size(); ++index) {
+    execution.load_bindings.push_back(
+        parse_load_binding(load_bindings[index], index));
+  }
+  validate_load_binding_graph(execution.load_bindings);
+
+  const auto &restraint_bindings =
+      require_array(value, "restraint_bindings", "execution.restraint_bindings",
+                    maximum_restraint_bindings);
+  execution.restraint_bindings.reserve(restraint_bindings.size());
+  for (std::size_t index = 0U; index < restraint_bindings.size(); ++index) {
+    execution.restraint_bindings.push_back(
+        parse_restraint_binding(restraint_bindings[index], index));
+  }
+  validate_restraint_binding_graph(execution.restraint_bindings);
 
   if (!value.at("current_scenario").is_null()) {
     execution.current_scenario =
@@ -1374,6 +1638,46 @@ Json project_json(const ProjectV2 &project) {
              {"youngs_modulus_pa", binding.youngs_modulus_pa},
              {"poisson_ratio", binding.poisson_ratio}});
   }
+  const auto faces_json = [](const std::vector<std::array<int, 3>> &faces) {
+    Json result = Json::array();
+    for (const auto &face : faces) {
+      result.push_back({face[0], face[1], face[2]});
+    }
+    return result;
+  };
+  Json load_bindings = Json::array();
+  for (const auto &binding : project.execution.load_bindings) {
+    load_bindings.push_back(
+        Json{{"binding_revision", binding.binding_revision},
+             {"supersedes_binding_revision",
+              binding.supersedes_binding_revision.has_value()
+                  ? Json(*binding.supersedes_binding_revision)
+                  : Json(nullptr)},
+             {"geometry_sha256", binding.geometry_sha256},
+             {"analysis_id", binding.analysis_id},
+             {"selection_label", binding.selection_label},
+             {"face_node_ids", faces_json(binding.face_node_ids)},
+             {"node_ids", binding.node_ids},
+             {"area_m2", binding.area_m2},
+             {"force_x_n", binding.force_x_n},
+             {"force_y_n", binding.force_y_n},
+             {"force_z_n", binding.force_z_n}});
+  }
+  Json restraint_bindings = Json::array();
+  for (const auto &binding : project.execution.restraint_bindings) {
+    restraint_bindings.push_back(
+        Json{{"binding_revision", binding.binding_revision},
+             {"supersedes_binding_revision",
+              binding.supersedes_binding_revision.has_value()
+                  ? Json(*binding.supersedes_binding_revision)
+                  : Json(nullptr)},
+             {"geometry_sha256", binding.geometry_sha256},
+             {"analysis_id", binding.analysis_id},
+             {"selection_label", binding.selection_label},
+             {"face_node_ids", faces_json(binding.face_node_ids)},
+             {"node_ids", binding.node_ids},
+             {"area_m2", binding.area_m2}});
+  }
   Json current_scenario = nullptr;
   if (project.execution.current_scenario.has_value()) {
     current_scenario = reference_json(*project.execution.current_scenario);
@@ -1420,7 +1724,9 @@ Json project_json(const ProjectV2 &project) {
             {"events", std::move(events)},
             {"joint_bindings", std::move(joint_bindings)},
             {"requirement_bindings", std::move(requirement_bindings)},
-            {"material_bindings", std::move(material_bindings)}}}};
+            {"material_bindings", std::move(material_bindings)},
+            {"load_bindings", std::move(load_bindings)},
+            {"restraint_bindings", std::move(restraint_bindings)}}}};
 }
 
 } // namespace

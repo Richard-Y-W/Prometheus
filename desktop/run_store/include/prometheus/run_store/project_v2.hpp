@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -29,6 +30,10 @@ inline constexpr std::size_t maximum_package_bindings = 10000U;
 inline constexpr std::size_t maximum_joint_bindings = 10000U;
 inline constexpr std::size_t maximum_requirement_bindings = 10000U;
 inline constexpr std::size_t maximum_material_bindings = 10000U;
+inline constexpr std::size_t maximum_load_bindings = 10000U;
+inline constexpr std::size_t maximum_restraint_bindings = 10000U;
+inline constexpr std::size_t maximum_selection_faces = 200000U;
+inline constexpr std::size_t maximum_selection_nodes = 200000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
 inline constexpr std::string_view structural_manifest_media_type =
@@ -226,6 +231,40 @@ struct MaterialBinding final {
   double poisson_ratio;
 };
 
+// Phase 6 checkpoint 5: the append-only, content-free counterpart of
+// MaterialBinding for a reviewed structural surface selection. Exactly one
+// load selection and one restraint selection are active for a given
+// geometry at a time, the same single-key shape as MaterialBinding.
+// face_node_ids/node_ids carry the exact durable boundary topology a
+// visual patch selection resolved to (see
+// prometheus::structural::BoundarySelection), not just a visual patch id,
+// so the reviewed selection is provenanced independent of the patches a
+// later mesh regeneration might renumber.
+struct LoadBinding final {
+  std::uint64_t binding_revision;
+  std::optional<std::uint64_t> supersedes_binding_revision;
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string selection_label;
+  std::vector<std::array<int, 3>> face_node_ids;
+  std::vector<int> node_ids;
+  double area_m2;
+  double force_x_n;
+  double force_y_n;
+  double force_z_n;
+};
+
+struct RestraintBinding final {
+  std::uint64_t binding_revision;
+  std::optional<std::uint64_t> supersedes_binding_revision;
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string selection_label;
+  std::vector<std::array<int, 3>> face_node_ids;
+  std::vector<int> node_ids;
+  double area_m2;
+};
+
 struct Event final {
   std::uint64_t sequence;
   std::string event_kind;
@@ -243,6 +282,8 @@ struct ExecutionIndex final {
   std::vector<JointBinding> joint_bindings;
   std::vector<RequirementBinding> requirement_bindings;
   std::vector<MaterialBinding> material_bindings;
+  std::vector<LoadBinding> load_bindings;
+  std::vector<RestraintBinding> restraint_bindings;
 };
 
 struct ProjectV2 final {

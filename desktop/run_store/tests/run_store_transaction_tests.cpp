@@ -651,6 +651,58 @@ void test_material_binding_supersession() {
           "binding a different geometry did not disturb the first chain");
 }
 
+// Phase 6 checkpoint 5: install_load_binding and install_restraint_binding
+// are the LoadBinding/RestraintBinding analogues of install_material_binding
+// -- the same single-key-per-geometry supersession shape, carrying the
+// exact durable boundary topology a visual patch selection resolved to.
+void test_surface_selection_binding_supersession() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "bracket-selections.prometheus";
+  create_project(project_path);
+  const std::string geometry = "sha256:" + std::string(64U, 'd');
+  const std::vector<std::array<int, 3>> faces{{1, 2, 3}};
+  const std::vector<int> nodes{1, 2, 3};
+
+  const auto &first_load = require_success(
+      run_store::install_load_binding(
+          project_path,
+          run_store::SurfaceSelectionBindingInput{
+              geometry, "bracket-analysis-1", "top face", faces, nodes, 1.0},
+          0.0, 0.0, -100.0),
+      "first load binding");
+  require(first_load.execution.load_bindings.size() == 1U &&
+              !first_load.execution.load_bindings.front()
+                   .supersedes_binding_revision.has_value(),
+          "first load binding appends revision one with no supersession");
+
+  const auto &revised_load = require_success(
+      run_store::install_load_binding(
+          project_path,
+          run_store::SurfaceSelectionBindingInput{
+              geometry, "bracket-analysis-1", "top face", faces, nodes, 1.0},
+          0.0, 0.0, -150.0),
+      "second load binding on the same geometry");
+  require(revised_load.execution.load_bindings.size() == 2U &&
+              revised_load.execution.load_bindings.back()
+                      .supersedes_binding_revision == 1U,
+          "reviewing a different load on the same geometry supersedes the "
+          "prior revision");
+
+  const auto &first_restraint = require_success(
+      run_store::install_restraint_binding(
+          project_path, run_store::SurfaceSelectionBindingInput{
+                            geometry, "bracket-analysis-1", "base face",
+                            faces, nodes, 2.0}),
+      "first restraint binding");
+  require(first_restraint.execution.restraint_bindings.size() == 1U &&
+              !first_restraint.execution.restraint_bindings.front()
+                   .supersedes_binding_revision.has_value(),
+          "the load and restraint chains for the same geometry are "
+          "independent of each other");
+  require(first_restraint.execution.load_bindings.size() == 2U,
+          "installing a restraint binding did not disturb the load chain");
+}
+
 void test_structural_manifest_anchor() {
   TemporaryRoot root;
   const auto projectPath = root.path() / "structural.prometheus";
@@ -1452,6 +1504,7 @@ int main() {
     test_joint_binding_supersession();
     test_requirement_binding_supersession();
     test_material_binding_supersession();
+    test_surface_selection_binding_supersession();
     test_structural_manifest_anchor();
     test_embedded_structural_archive_round_trip();
     test_create_failure_boundaries();

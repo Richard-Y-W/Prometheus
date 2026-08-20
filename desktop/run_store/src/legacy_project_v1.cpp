@@ -329,7 +329,9 @@ Json convert_document(const Json &legacy) {
                                  {"events", Json::array()},
                                  {"joint_bindings", Json::array()},
                                  {"requirement_bindings", Json::array()},
-                                 {"material_bindings", Json::array()}}}};
+                                 {"material_bindings", Json::array()},
+                                 {"load_bindings", Json::array()},
+                                 {"restraint_bindings", Json::array()}}}};
 }
 
 } // namespace

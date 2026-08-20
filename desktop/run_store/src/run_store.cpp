@@ -1085,6 +1085,144 @@ Result<ProjectV2> install_material_binding(
   }
 }
 
+Result<ProjectV2> install_load_binding(
+    const std::filesystem::path &project_path,
+    SurfaceSelectionBindingInput selection, const double force_x_n,
+    const double force_y_n, const double force_z_n,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    auto project_result = read_locked_project(project_path);
+    if (!project_result.has_value()) {
+      return project_result;
+    }
+    auto project = std::move(project_result.value());
+    if (project.execution.load_bindings.size() >= maximum_load_bindings) {
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "load_binding_limit_exceeded",
+          "project already has the maximum load-binding revisions"));
+    }
+    std::optional<std::uint64_t> supersedes;
+    std::unordered_set<std::uint64_t> superseded;
+    for (const auto &binding : project.execution.load_bindings) {
+      if (binding.supersedes_binding_revision.has_value()) {
+        superseded.insert(*binding.supersedes_binding_revision);
+      }
+    }
+    for (auto iterator = project.execution.load_bindings.rbegin();
+         iterator != project.execution.load_bindings.rend(); ++iterator) {
+      if (iterator->geometry_sha256 == selection.geometry_sha256 &&
+          !superseded.contains(iterator->binding_revision)) {
+        supersedes = iterator->binding_revision;
+        break;
+      }
+    }
+    std::uint64_t revision = 1U;
+    if (!project.execution.load_bindings.empty()) {
+      const auto previous =
+          project.execution.load_bindings.back().binding_revision;
+      if (previous >= maximum_safe_integer) {
+        return Result<ProjectV2>::failure(detail::store_diagnostic(
+            "load_binding_revision_exhausted",
+            "load-binding revision reached the interoperable integer limit"));
+      }
+      revision = previous + 1U;
+    }
+    project.execution.load_bindings.push_back(LoadBinding{
+        revision, supersedes, std::move(selection.geometry_sha256),
+        std::move(selection.analysis_id), std::move(selection.selection_label),
+        std::move(selection.face_node_ids), std::move(selection.node_ids),
+        selection.area_m2, force_x_n, force_y_n, force_z_n});
+    const auto candidate = serialize_project_v2(project);
+    if (!candidate.has_value()) {
+      return Result<ProjectV2>::failure(
+          normalized(candidate.diagnostic(), project_path));
+    }
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "load_binding_failed", failure.what(), std::nullopt, project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "load_binding_failed", "unknown load-binding failure", std::nullopt,
+        project_path));
+  }
+}
+
+Result<ProjectV2> install_restraint_binding(
+    const std::filesystem::path &project_path,
+    SurfaceSelectionBindingInput selection,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    auto project_result = read_locked_project(project_path);
+    if (!project_result.has_value()) {
+      return project_result;
+    }
+    auto project = std::move(project_result.value());
+    if (project.execution.restraint_bindings.size() >=
+        maximum_restraint_bindings) {
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "restraint_binding_limit_exceeded",
+          "project already has the maximum restraint-binding revisions"));
+    }
+    std::optional<std::uint64_t> supersedes;
+    std::unordered_set<std::uint64_t> superseded;
+    for (const auto &binding : project.execution.restraint_bindings) {
+      if (binding.supersedes_binding_revision.has_value()) {
+        superseded.insert(*binding.supersedes_binding_revision);
+      }
+    }
+    for (auto iterator = project.execution.restraint_bindings.rbegin();
+         iterator != project.execution.restraint_bindings.rend(); ++iterator) {
+      if (iterator->geometry_sha256 == selection.geometry_sha256 &&
+          !superseded.contains(iterator->binding_revision)) {
+        supersedes = iterator->binding_revision;
+        break;
+      }
+    }
+    std::uint64_t revision = 1U;
+    if (!project.execution.restraint_bindings.empty()) {
+      const auto previous =
+          project.execution.restraint_bindings.back().binding_revision;
+      if (previous >= maximum_safe_integer) {
+        return Result<ProjectV2>::failure(detail::store_diagnostic(
+            "restraint_binding_revision_exhausted",
+            "restraint-binding revision reached the interoperable integer "
+            "limit"));
+      }
+      revision = previous + 1U;
+    }
+    project.execution.restraint_bindings.push_back(RestraintBinding{
+        revision, supersedes, std::move(selection.geometry_sha256),
+        std::move(selection.analysis_id), std::move(selection.selection_label),
+        std::move(selection.face_node_ids), std::move(selection.node_ids),
+        selection.area_m2});
+    const auto candidate = serialize_project_v2(project);
+    if (!candidate.has_value()) {
+      return Result<ProjectV2>::failure(
+          normalized(candidate.diagnostic(), project_path));
+    }
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "restraint_binding_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "restraint_binding_failed", "unknown restraint-binding failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

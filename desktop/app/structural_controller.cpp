@@ -276,6 +276,8 @@ StructuralController::StructuralController(ProjectController *project,
       compiled_request_.reset();
       compiled_requirements_.clear();
       compiled_material_.reset();
+      compiled_load_.reset();
+      compiled_restraint_.reset();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       const auto present = std::any_of(
@@ -623,6 +625,8 @@ void StructuralController::restoreStoredRun(const int index,
       compiled_request_.reset();
       compiled_requirements_.clear();
       compiled_material_.reset();
+      compiled_load_.reset();
+      compiled_restraint_.reset();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       blockers_.append(QVariantMap{
@@ -879,6 +883,8 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   rebuildPreview();
   persistRequirementBindingEdges();
   persistMaterialBindingEdge();
+  persistLoadBindingEdge();
+  persistRestraintBindingEdge();
   emit changed();
 }
 
@@ -1005,6 +1011,102 @@ void StructuralController::persistMaterialBindingEdge() {
   }
 }
 
+void StructuralController::persistLoadBindingEdge() {
+  // Phase 6 checkpoint 5: the LoadBinding analogue of
+  // persistMaterialBindingEdge, carrying the exact durable boundary
+  // topology the reviewed load selection resolved to, not a transient
+  // visual patch id. Same best-effort, silent, dedup-against-the-active-
+  // binding contract.
+  if (!can_run_ || !compiled_request_ || !compiled_load_ ||
+      project_ == nullptr || !project_->project().has_value() ||
+      project_->saveAsRequired() || !project_->executionStoreAvailable()) {
+    return;
+  }
+  const auto geometry = compiled_request_->geometry_sha256;
+  const auto analysisId = compiled_request_->analysis_id;
+  const auto &selection = compiled_load_->selection;
+  const prometheus::run_store::LoadBinding *active = nullptr;
+  const auto &bindings = project_->project()->execution.load_bindings;
+  std::set<std::uint64_t> superseded;
+  for (const auto &binding : bindings) {
+    if (binding.supersedes_binding_revision.has_value()) {
+      superseded.insert(*binding.supersedes_binding_revision);
+    }
+  }
+  for (auto iterator = bindings.rbegin(); iterator != bindings.rend();
+       ++iterator) {
+    if (iterator->geometry_sha256 == geometry &&
+        !superseded.contains(iterator->binding_revision)) {
+      active = &*iterator;
+      break;
+    }
+  }
+  if (active != nullptr && active->analysis_id == analysisId &&
+      active->selection_label == selection.label &&
+      active->face_node_ids == selection.face_node_ids &&
+      active->node_ids == selection.node_ids &&
+      active->area_m2 == selection.area_m2 &&
+      active->force_x_n == compiled_load_->total_force_n[0] &&
+      active->force_y_n == compiled_load_->total_force_n[1] &&
+      active->force_z_n == compiled_load_->total_force_n[2]) {
+    return;
+  }
+  const auto installed = prometheus::run_store::install_load_binding(
+      project_->projectPath(),
+      prometheus::run_store::SurfaceSelectionBindingInput{
+          geometry, analysisId, selection.label, selection.face_node_ids,
+          selection.node_ids, selection.area_m2},
+      compiled_load_->total_force_n[0], compiled_load_->total_force_n[1],
+      compiled_load_->total_force_n[2]);
+  if (installed.has_value()) {
+    project_->acceptProject(installed.value());
+  }
+}
+
+void StructuralController::persistRestraintBindingEdge() {
+  // Phase 6 checkpoint 5: the RestraintBinding analogue of
+  // persistLoadBindingEdge.
+  if (!can_run_ || !compiled_request_ || !compiled_restraint_ ||
+      project_ == nullptr || !project_->project().has_value() ||
+      project_->saveAsRequired() || !project_->executionStoreAvailable()) {
+    return;
+  }
+  const auto geometry = compiled_request_->geometry_sha256;
+  const auto analysisId = compiled_request_->analysis_id;
+  const auto &selection = compiled_restraint_->selection;
+  const prometheus::run_store::RestraintBinding *active = nullptr;
+  const auto &bindings = project_->project()->execution.restraint_bindings;
+  std::set<std::uint64_t> superseded;
+  for (const auto &binding : bindings) {
+    if (binding.supersedes_binding_revision.has_value()) {
+      superseded.insert(*binding.supersedes_binding_revision);
+    }
+  }
+  for (auto iterator = bindings.rbegin(); iterator != bindings.rend();
+       ++iterator) {
+    if (iterator->geometry_sha256 == geometry &&
+        !superseded.contains(iterator->binding_revision)) {
+      active = &*iterator;
+      break;
+    }
+  }
+  if (active != nullptr && active->analysis_id == analysisId &&
+      active->selection_label == selection.label &&
+      active->face_node_ids == selection.face_node_ids &&
+      active->node_ids == selection.node_ids &&
+      active->area_m2 == selection.area_m2) {
+    return;
+  }
+  const auto installed = prometheus::run_store::install_restraint_binding(
+      project_->projectPath(),
+      prometheus::run_store::SurfaceSelectionBindingInput{
+          geometry, analysisId, selection.label, selection.face_node_ids,
+          selection.node_ids, selection.area_m2});
+  if (installed.has_value()) {
+    project_->acceptProject(installed.value());
+  }
+}
+
 void StructuralController::rebuildPreview() {
   blockers_.clear();
   request_preview_.clear();
@@ -1012,6 +1114,8 @@ void StructuralController::rebuildPreview() {
   compiled_request_.reset();
   compiled_requirements_.clear();
   compiled_material_.reset();
+  compiled_load_.reset();
+  compiled_restraint_.reset();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (mesh_.nodes.empty() || patches_.empty()) {
@@ -1122,6 +1226,8 @@ void StructuralController::rebuildPreview() {
     compiled_request_ = request;
     compiled_requirements_ = requirements;
     compiled_material_ = setup.material;
+    compiled_load_ = setup.load;
+    compiled_restraint_ = setup.restraint;
     compiled_setup_evidence_ = ps::serialize_structural_setup_evidence(setup);
     request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
                         {"component_name", QString::fromStdString(request.component_name)},
@@ -1373,6 +1479,8 @@ void StructuralController::reset() {
   compiled_request_.reset();
   compiled_requirements_.clear();
   compiled_material_.reset();
+  compiled_load_.reset();
+  compiled_restraint_.reset();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (result_geometry_) result_geometry_->deleteLater();

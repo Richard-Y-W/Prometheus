@@ -34,5 +34,5 @@
     "geometry_status": "completed"
   },
   "legacy_v1_engineering_state": null,
-  "execution": {"package_bindings": [], "current_scenario": null, "committed_runs": [], "events": [], "joint_bindings": [], "requirement_bindings": [], "material_bindings": []}
+  "execution": {"package_bindings": [], "current_scenario": null, "committed_runs": [], "events": [], "joint_bindings": [], "requirement_bindings": [], "material_bindings": [], "load_bindings": [], "restraint_bindings": []}
 }

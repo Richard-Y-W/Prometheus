@@ -492,6 +492,92 @@ void material_binding_revision_graph_is_strict() {
                   "an out-of-range Poisson ratio rejects");
 }
 
+Json surface_selection_binding(const char *kind, const std::uint64_t revision,
+                               const std::optional<std::uint64_t> supersedes,
+                               const std::string &geometry,
+                               const double area = 1.0) {
+  Json binding{{"binding_revision", revision},
+               {"supersedes_binding_revision",
+                supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
+               {"geometry_sha256", geometry},
+               {"analysis_id", "bracket-analysis-1"},
+               {"selection_label", "reviewed selection"},
+               {"face_node_ids", Json::array({Json::array({1, 2, 3})})},
+               {"node_ids", Json::array({1, 2, 3})},
+               {"area_m2", area}};
+  if (std::string(kind) == "load") {
+    binding["force_x_n"] = 0.0;
+    binding["force_y_n"] = 0.0;
+    binding["force_z_n"] = -100.0;
+  }
+  return binding;
+}
+
+void surface_selection_binding_graphs_are_strict() {
+  for (const char *kind : {"load", "restraint"}) {
+    const std::string key = std::string(kind) + "_bindings";
+    const std::string geometry =
+        "sha256:" + std::string(64U, kind[0] == 'l' ? 'b' : 'c');
+
+    auto duplicate = valid_project();
+    duplicate["execution"][key].push_back(
+        surface_selection_binding(kind, 1, std::nullopt, geometry));
+    duplicate["execution"][key].push_back(
+        surface_selection_binding(kind, 1, 1, geometry));
+    expect_rejected(duplicate.dump(), kind == std::string("load")
+                                          ? "load_binding_revision_order_invalid"
+                                          : "restraint_binding_revision_order_invalid",
+                    std::string(kind) + " duplicate binding revision rejects");
+
+    auto valid_first = valid_project();
+    valid_first["execution"][key].push_back(
+        surface_selection_binding(kind, 1, std::nullopt, geometry));
+    check(run_store::parse_project_v2(valid_first.dump()).has_value(),
+          std::string(kind) + " first binding parses");
+
+    auto two_active = valid_project();
+    two_active["execution"][key].push_back(
+        surface_selection_binding(kind, 1, std::nullopt, geometry));
+    two_active["execution"][key].push_back(
+        surface_selection_binding(kind, 2, std::nullopt, geometry));
+    expect_rejected(
+        two_active.dump(),
+        kind == std::string("load") ? "multiple_active_load_bindings"
+                                    : "multiple_active_restraint_bindings",
+        std::string(kind) + " multiple unsuperseded bindings reject");
+
+    auto valid_chain = valid_project();
+    valid_chain["execution"][key].push_back(
+        surface_selection_binding(kind, 1, std::nullopt, geometry));
+    valid_chain["execution"][key].push_back(
+        surface_selection_binding(kind, 2, 1, geometry, 2.0));
+    check(run_store::parse_project_v2(valid_chain.dump()).has_value(),
+          std::string(kind) + " re-reviewing the same geometry supersedes "
+                               "the same chain");
+
+    auto empty_faces = valid_project();
+    auto no_faces = surface_selection_binding(kind, 1, std::nullopt, geometry);
+    no_faces["face_node_ids"] = Json::array();
+    empty_faces["execution"][key].push_back(no_faces);
+    expect_rejected(empty_faces.dump(), "invalid_selection_faces",
+                    std::string(kind) + " an empty face selection rejects");
+
+    auto malformed_face = valid_project();
+    auto bad_face = surface_selection_binding(kind, 1, std::nullopt, geometry);
+    bad_face["face_node_ids"] = Json::array({Json::array({1, 2})});
+    malformed_face["execution"][key].push_back(bad_face);
+    expect_rejected(malformed_face.dump(), "invalid_selection_face",
+                    std::string(kind) + " a two-node face rejects");
+
+    auto nonpositive_area = valid_project();
+    auto zero_area =
+        surface_selection_binding(kind, 1, std::nullopt, geometry, 0.0);
+    nonpositive_area["execution"][key].push_back(zero_area);
+    expect_rejected(nonpositive_area.dump(), "invalid_selection_area",
+                    std::string(kind) + " a non-positive area rejects");
+  }
+}
+
 void collection_and_event_bounds_are_strict() {
   auto events = valid_project();
   for (std::uint64_t sequence = 1U; sequence <= 257U; ++sequence) {
@@ -529,6 +615,7 @@ int main() {
   joint_binding_revision_graph_is_strict();
   requirement_binding_revision_graph_is_strict();
   material_binding_revision_graph_is_strict();
+  surface_selection_binding_graphs_are_strict();
   collection_and_event_bounds_are_strict();
   return failures == 0 ? 0 : 1;
 }

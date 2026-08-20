@@ -439,6 +439,96 @@
         "poisson_ratio": {"type": "number", "exclusiveMinimum": -1, "exclusiveMaximum": 0.5}
       }
     },
+    "SelectionFace": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 0},
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "LoadBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "geometry_sha256",
+        "analysis_id",
+        "selection_label",
+        "face_node_ids",
+        "node_ids",
+        "area_m2",
+        "force_x_n",
+        "force_y_n",
+        "force_z_n"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "geometry_sha256": {"$ref": "#/$defs/Identifier"},
+        "analysis_id": {"$ref": "#/$defs/Identifier"},
+        "selection_label": {"type": "string", "minLength": 1, "maxLength": 512},
+        "face_node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200000,
+          "items": {"$ref": "#/$defs/SelectionFace"}
+        },
+        "node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200000,
+          "items": {"type": "integer"}
+        },
+        "area_m2": {"type": "number", "exclusiveMinimum": 0},
+        "force_x_n": {"type": "number"},
+        "force_y_n": {"type": "number"},
+        "force_z_n": {"type": "number"}
+      }
+    },
+    "RestraintBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "geometry_sha256",
+        "analysis_id",
+        "selection_label",
+        "face_node_ids",
+        "node_ids",
+        "area_m2"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "geometry_sha256": {"$ref": "#/$defs/Identifier"},
+        "analysis_id": {"$ref": "#/$defs/Identifier"},
+        "selection_label": {"type": "string", "minLength": 1, "maxLength": 512},
+        "face_node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200000,
+          "items": {"$ref": "#/$defs/SelectionFace"}
+        },
+        "node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200000,
+          "items": {"type": "integer"}
+        },
+        "area_m2": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
     "EventV1": {
       "type": "object",
       "additionalProperties": false,
@@ -471,7 +561,7 @@
     "ExecutionIndexV1": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings", "requirement_bindings", "material_bindings"],
+      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings", "requirement_bindings", "material_bindings", "load_bindings", "restraint_bindings"],
       "properties": {
         "package_bindings": {
           "type": "array",
@@ -505,6 +595,16 @@
           "type": "array",
           "maxItems": 10000,
           "items": {"$ref": "#/$defs/MaterialBindingV1"}
+        },
+        "load_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/LoadBindingV1"}
+        },
+        "restraint_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/RestraintBindingV1"}
         }
       }
     }

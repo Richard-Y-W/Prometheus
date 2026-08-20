@@ -156,6 +156,35 @@ struct MaterialBindingInput final {
     const std::filesystem::path &project_path, MaterialBindingInput input,
     TransactionOptions options = {}) noexcept;
 
+// Input for install_load_binding / install_restraint_binding. face_node_ids
+// and node_ids are the exact durable boundary topology a visual patch
+// selection resolved to (prometheus::structural::BoundarySelection), not a
+// transient patch id.
+struct SurfaceSelectionBindingInput final {
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string selection_label;
+  std::vector<std::array<int, 3>> face_node_ids;
+  std::vector<int> node_ids;
+  double area_m2{};
+};
+
+// Appends a new, append-only LoadBinding graph edge for a reviewed surface
+// load selection, superseding the prior active binding for the same
+// geometry, if any -- the same single-key shape as install_material_binding.
+[[nodiscard]] Result<ProjectV2> install_load_binding(
+    const std::filesystem::path &project_path,
+    SurfaceSelectionBindingInput selection, double force_x_n, double force_y_n,
+    double force_z_n, TransactionOptions options = {}) noexcept;
+
+// Appends a new, append-only RestraintBinding graph edge for a reviewed
+// fixed surface selection, superseding the prior active binding for the
+// same geometry, if any.
+[[nodiscard]] Result<ProjectV2> install_restraint_binding(
+    const std::filesystem::path &project_path,
+    SurfaceSelectionBindingInput selection,
+    TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

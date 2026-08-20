@@ -146,6 +146,11 @@ int main(int argc, char **argv) {
     require(after_first_review.value().execution.material_bindings.size() ==
                 1U,
             "reviewing a setup also appends one MaterialBinding graph edge");
+    require(after_first_review.value().execution.load_bindings.size() == 1U &&
+                after_first_review.value().execution.restraint_bindings.size() ==
+                    1U,
+            "reviewing a setup also appends one LoadBinding and one "
+            "RestraintBinding graph edge");
 
     auto changed_limit = reviewedDraft();
     changed_limit["displacement_limit_m"] = 0.002;
@@ -178,6 +183,31 @@ int main(int argc, char **argv) {
                 1U,
             "re-reviewing with an unchanged material does not append a "
             "redundant MaterialBinding revision");
+    require(after_second_review.value().execution.load_bindings.size() ==
+                    1U &&
+                after_second_review.value().execution.restraint_bindings
+                        .size() == 1U,
+            "re-reviewing with an unchanged load/restraint selection does "
+            "not append redundant LoadBinding/RestraintBinding revisions");
+
+    auto changed_load = reviewedDraft();
+    changed_load["force_z_n"] = -150.0;
+    controller.reviewSetup(changed_load);
+    require(controller.status() == "ready_for_execution" && controller.canRun(),
+            "re-reviewing with a changed load still compiles");
+    const auto after_load_review =
+        prometheus::run_store::open_read_only(projectPath);
+    require(after_load_review.has_value() &&
+                after_load_review.value().execution.load_bindings.size() ==
+                    2U &&
+                after_load_review.value().execution.load_bindings.back()
+                        .force_z_n == -150.0 &&
+                after_load_review.value().execution.load_bindings.back()
+                    .supersedes_binding_revision.has_value() &&
+                after_load_review.value().execution.restraint_bindings
+                        .size() == 1U,
+            "a changed load appends a second LoadBinding revision without "
+            "disturbing the restraint chain");
 
     auto changed_material = reviewedDraft();
     changed_material["youngs_modulus_pa"] = 7.2e10;

@@ -89,6 +89,8 @@ private:
   void rebuildPreview();
   void persistRequirementBindingEdges();
   void persistMaterialBindingEdge();
+  void persistLoadBindingEdge();
+  void persistRestraintBindingEdge();
   QString status_{"mesh_required"};
   QString error_;
   QVariantMap mesh_summary_;
@@ -103,6 +105,8 @@ private:
   std::optional<prometheus::structural::StructuralRequest> compiled_request_;
   std::vector<prometheus::structural::ReviewedRequirement> compiled_requirements_;
   std::optional<prometheus::structural::ReviewedMaterial> compiled_material_;
+  std::optional<prometheus::structural::ReviewedSurfaceLoad> compiled_load_;
+  std::optional<prometheus::structural::ReviewedFixedRestraint> compiled_restraint_;
   std::string compiled_setup_evidence_;
   prometheus::structural::VolumeMesh mesh_;
   std::vector<prometheus::structural::BoundaryFace> boundary_;

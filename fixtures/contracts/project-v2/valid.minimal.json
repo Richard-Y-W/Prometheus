@@ -37,6 +37,8 @@
     "events": [],
     "joint_bindings": [],
     "requirement_bindings": [],
-    "material_bindings": []
+    "material_bindings": [],
+    "load_bindings": [],
+    "restraint_bindings": []
   }
 }
