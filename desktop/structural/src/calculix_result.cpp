@@ -328,9 +328,9 @@ CompiledCalculixResult compile_result(
   result.metrics = summarize_calculix_dat(result.normalized);
   const auto identityDocument = integrity::canonicalize_json_bytes(
       Json{{"$schema",
-            "urn:prometheus:schema:compiled-calculix-result:2.0.0"},
-           {"schema_version", "2.0.0"},
-           {"compiler_version", "calculix-evidence-compiler-v2"},
+            "urn:prometheus:schema:compiled-calculix-result:3.0.0"},
+           {"schema_version", "3.0.0"},
+           {"compiler_version", "calculix-evidence-compiler-v3"},
            {"compiled_setup_identity", result.compiled_setup_identity},
            {"request_geometry_sha256", request.geometry_sha256},
            {"backend",
@@ -342,22 +342,7 @@ CompiledCalculixResult compile_result(
              {"dat", result.artifacts.dat.sha256},
              {"frd", result.artifacts.frd.sha256},
              {"stdout", result.artifacts.standard_output.sha256},
-             {"stderr", result.artifacts.standard_error.sha256}}},
-           {"convergence",
-            {{"step", result.convergence->step},
-             {"increment", result.convergence->increment},
-             {"attempt", result.convergence->attempt},
-             {"iterations", result.convergence->iterations},
-             {"total_time", result.convergence->total_time},
-             {"step_time", result.convergence->step_time},
-             {"increment_time", result.convergence->increment_time}}},
-           {"metrics",
-            {{"maximum_displacement_m",
-              result.metrics->maximum_displacement_m},
-             {"maximum_von_mises_pa",
-              result.metrics->maximum_von_mises_pa},
-             {"displacement_rows", result.metrics->displacement_rows},
-             {"stress_rows", result.metrics->stress_rows}}}}
+             {"stderr", result.artifacts.standard_error.sha256}}}}
           .dump());
   result.identity = integrity::sha256_bytes(identityDocument);
   return result;

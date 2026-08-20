@@ -127,6 +127,30 @@ std::string optionalJsonNumber(const std::optional<double> &value) {
   return value ? jsonNumber(*value) : "null";
 }
 
+std::string evidenceRootV3Identity(
+    const ps::CompiledCalculixResult &result,
+    const std::string_view geometryIdentity) {
+  const nlohmann::json document{
+      {"$schema",
+       "urn:prometheus:schema:compiled-calculix-result:3.0.0"},
+      {"schema_version", "3.0.0"},
+      {"compiler_version", "calculix-evidence-compiler-v3"},
+      {"compiled_setup_identity", result.compiled_setup_identity},
+      {"request_geometry_sha256", geometryIdentity},
+      {"backend",
+       {{"executable_sha256", result.backend.executable_sha256},
+        {"version", result.backend.version}}},
+      {"artifacts",
+       {{"deck", result.artifacts.deck.sha256},
+        {"sta", result.artifacts.sta.sha256},
+        {"dat", result.artifacts.dat.sha256},
+        {"frd", result.artifacts.frd.sha256},
+        {"stdout", result.artifacts.standard_output.sha256},
+        {"stderr", result.artifacts.standard_error.sha256}}}};
+  return prometheus::integrity::sha256_bytes(
+      prometheus::integrity::canonicalize_json_bytes(document.dump()));
+}
+
 fs::path createLegacyV1Archive(
     const fs::path &root, const ps::StructuralRequest &request,
     const ps::CalculixRunEvidence &evidence,
@@ -610,6 +634,18 @@ int main() {
       ps::compile_calculix_result(request, completeEvidence);
   require(compiledResult.complete() && compiledResult.metrics.has_value(),
           "complete converged evidence produces metrics");
+  const auto expectedEvidenceIdentity =
+      evidenceRootV3Identity(compiledResult, request.geometry_sha256);
+  require(compiledResult.identity == expectedEvidenceIdentity,
+          "compiled result identity is rooted in exact solver evidence");
+  auto changedDerivedMetrics = compiledResult;
+  changedDerivedMetrics.metrics->maximum_displacement_m = std::nextafter(
+      changedDerivedMetrics.metrics->maximum_displacement_m,
+      std::numeric_limits<double>::infinity());
+  require(evidenceRootV3Identity(changedDerivedMetrics,
+                                 request.geometry_sha256) ==
+              expectedEvidenceIdentity,
+          "derived metric rounding does not change evidence identity");
   require(compiledResult.backend.executable_sha256 ==
               "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "result binds the exact solver executable identity");
