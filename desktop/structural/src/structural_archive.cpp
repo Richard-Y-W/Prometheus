@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <locale>
 #include <map>
 #include <random>
@@ -209,6 +210,101 @@ void validate_stored_result_fields(const Json &convergence,
   (void)json_number(metrics, "maximum_von_mises_pa");
 }
 
+constexpr double derivedReplayMultiplier = 64.0;
+
+bool derived_number_equivalent(const double stored,
+                               const double replayed) {
+  if (!std::isfinite(stored) || !std::isfinite(replayed)) return false;
+  if (stored == replayed) return true;
+  const double scale = std::max(std::abs(stored), std::abs(replayed));
+  return std::abs(stored - replayed) <=
+         derivedReplayMultiplier * std::numeric_limits<double>::epsilon() *
+             scale;
+}
+
+std::string round_trip_number(const double value) {
+  std::ostringstream encoded;
+  encoded.imbue(std::locale::classic());
+  encoded << std::setprecision(std::numeric_limits<double>::max_digits10)
+          << value;
+  return encoded.str();
+}
+
+void reconcile_derived_number(const Json &storedDocument,
+                              Json &replayedDocument,
+                              const Json::json_pointer &pointer,
+                              const std::string_view fieldPath) {
+  try {
+    const auto &storedValue = storedDocument.at(pointer);
+    const auto &replayedValue = replayedDocument.at(pointer);
+    if (!storedValue.is_number() || !replayedValue.is_number())
+      reject("archive_contract_invalid",
+             std::string(fieldPath) + " must be a finite number");
+    const auto stored = storedValue.get<double>();
+    const auto replayed = replayedValue.get<double>();
+    if (!derived_number_equivalent(stored, replayed))
+      reject("replay_numeric_mismatch",
+             std::string(fieldPath) + " differs: stored=" +
+                 round_trip_number(stored) +
+                 " replayed=" + round_trip_number(replayed));
+    replayedDocument[pointer] = storedValue;
+  } catch (const Json::exception &) {
+    reject("archive_contract_invalid",
+           std::string(fieldPath) + " is missing or invalid");
+  }
+}
+
+void require_metrics_replay(const Json &stored, Json replayed,
+                            const std::string_view fieldPrefix) {
+  if (!exact_keys(stored,
+                  {"maximum_displacement_m", "maximum_von_mises_pa",
+                   "displacement_rows", "stress_rows"}) ||
+      !exact_keys(replayed,
+                  {"maximum_displacement_m", "maximum_von_mises_pa",
+                   "displacement_rows", "stress_rows"}) ||
+      !nonnegative_json_integer(stored.at("displacement_rows")) ||
+      !nonnegative_json_integer(stored.at("stress_rows")))
+    reject("archive_contract_invalid",
+           std::string(fieldPrefix) + " contract is invalid");
+  reconcile_derived_number(
+      stored, replayed,
+      Json::json_pointer{"/maximum_displacement_m"},
+      std::string(fieldPrefix) + ".maximum_displacement_m");
+  reconcile_derived_number(
+      stored, replayed,
+      Json::json_pointer{"/maximum_von_mises_pa"},
+      std::string(fieldPrefix) + ".maximum_von_mises_pa");
+  if (stored != replayed)
+    reject("replay_result_mismatch",
+           std::string(fieldPrefix) +
+               " non-derived fields differ from replay");
+}
+
+void require_findings_replay(const Json &stored, Json replayed,
+                             const std::string_view fieldPrefix) {
+  if (!stored.is_array() || !replayed.is_array() ||
+      stored.size() != replayed.size())
+    reject("replay_finding_mismatch",
+           std::string(fieldPrefix) + " count differs from replay");
+  for (std::size_t index = 0; index < stored.size(); ++index) {
+    const auto pointerPrefix = "/" + std::to_string(index);
+    const auto fieldPathPrefix =
+        std::string(fieldPrefix) + "[" + std::to_string(index) + "]";
+    reconcile_derived_number(
+        stored, replayed,
+        Json::json_pointer{pointerPrefix + "/measured"},
+        fieldPathPrefix + ".measured");
+    reconcile_derived_number(
+        stored, replayed,
+        Json::json_pointer{pointerPrefix + "/margin"},
+        fieldPathPrefix + ".margin");
+  }
+  if (stored != replayed)
+    reject("replay_finding_mismatch",
+           std::string(fieldPrefix) +
+               " non-derived fields differ from replay");
+}
+
 std::string legacy_v2_result_identity(
     const std::string &setupIdentity,
     const std::string &geometryIdentity,
@@ -293,6 +389,23 @@ Json findings_json(const StructuralEvaluation &evaluation) {
          {"scope", finding.scope},
          {"evidence_sha256", finding.evidence_sha256},
          {"assumptions", finding.assumptions}});
+  return findings;
+}
+
+Json legacy_v1_findings_json(const StructuralEvaluation &evaluation) {
+  Json findings = Json::array();
+  for (const auto &finding : evaluation.findings)
+    findings.push_back(
+        {{"obligation", finding.obligation},
+         {"disposition",
+          finding.disposition == StructuralFindingDisposition::violated
+              ? "violated"
+              : "no_violation_detected_within_scope"},
+         {"measured", finding.measured_value},
+         {"limit", finding.limit_value},
+         {"margin", finding.margin_to_limit},
+         {"unit", finding.unit},
+         {"scope", finding.scope}});
   return findings;
 }
 
@@ -1554,10 +1667,12 @@ CompletedStructuralSamplePtr replay_v3_sample(
                 replayedResult.backend.executable_sha256},
                {"version", replayedResult.backend.version}} ||
       value.at("convergence") !=
-          convergence_json(*replayedResult.convergence) ||
-      value.at("metrics") != metrics_json(*replayedResult.metrics))
+          convergence_json(*replayedResult.convergence))
     reject("replay_result_mismatch",
            "v3 solver evidence differs from stored result fields");
+  require_metrics_replay(
+      value.at("metrics"), metrics_json(*replayedResult.metrics),
+      std::string("samples.") + expectedRoleName + ".metrics");
   replayedResult.identity = resultIdentity;
 
   SolverRunOptions options{
@@ -1858,10 +1973,11 @@ StructuralArchiveVerification verify_v2_archive(
   if (root.at("backend") !=
           Json{{"executable_sha256", replayedResult.backend.executable_sha256},
                {"version", replayedResult.backend.version}} ||
-      root.at("convergence") != convergence_json(*replayedResult.convergence) ||
-      root.at("metrics") != metrics_json(*replayedResult.metrics))
+      root.at("convergence") != convergence_json(*replayedResult.convergence))
     return failure("replay_result_mismatch",
                    "persisted solver evidence differs from archived result fields");
+  require_metrics_replay(root.at("metrics"),
+                         metrics_json(*replayedResult.metrics), "metrics");
   replayedResult.identity = resultIdentity;
 
   const auto refinement =
@@ -1878,10 +1994,11 @@ StructuralArchiveVerification verify_v2_archive(
   if (evaluation->execution_status != SolverRunStatus::completed ||
       root.at("refinement") != legacy_v2_refinement_json(refinement) ||
       root.at("coverage") != expectedCoverage ||
-      root.at("findings") != findings_json(*evaluation) ||
       json_string(root, "limitation") != evaluation->limitation)
     return failure("replay_finding_mismatch",
                    "persisted evidence produces different scoped findings");
+  require_findings_replay(root.at("findings"), findings_json(*evaluation),
+                          "findings");
   return {true,
           "verified",
           "v2 artifact identities, setup, solver evidence, and findings replay verified",
@@ -1945,17 +2062,7 @@ StructuralArchiveVerification verify_structural_archive(
         artifacts.at("dat").at("file").get<std::string>()));
     const auto parsedMetrics = summarize_calculix_dat(parsed);
     const auto &metrics = root.at("metrics");
-    if (!exact_keys(metrics, {"maximum_displacement_m", "maximum_von_mises_pa",
-                              "displacement_rows", "stress_rows"}) ||
-        parsedMetrics.maximum_displacement_m !=
-            metrics.at("maximum_displacement_m").get<double>() ||
-        parsedMetrics.maximum_von_mises_pa !=
-            metrics.at("maximum_von_mises_pa").get<double>() ||
-        parsedMetrics.displacement_rows !=
-            metrics.at("displacement_rows").get<std::size_t>() ||
-        parsedMetrics.stress_rows !=
-            metrics.at("stress_rows").get<std::size_t>())
-      return failure("replay_metric_mismatch", "raw DAT replay differs from archived metrics");
+    require_metrics_replay(metrics, metrics_json(parsedMetrics), "metrics");
     const auto setupBytes = read(directory /
         artifacts.at("setup").at("file").get<std::string>());
     const auto setup = Json::parse(integrity::verify_canonical_bytes(setupBytes));
@@ -2006,21 +2113,9 @@ StructuralArchiveVerification verify_structural_archive(
             root.at("coverage").at("evaluated_obligations").get<int>() ||
         replayEvaluation.findings.size() != root.at("findings").size())
       return failure("replay_finding_mismatch", "replayed findings differ from archive");
-    for (std::size_t index = 0; index < replayEvaluation.findings.size(); ++index) {
-      const auto &actual = replayEvaluation.findings[index];
-      const auto &stored = root.at("findings")[index];
-      const auto disposition = actual.disposition == StructuralFindingDisposition::violated
-          ? "violated" : "no_violation_detected_within_scope";
-      if (!exact_keys(stored, {"obligation", "disposition", "measured", "limit",
-                               "margin", "unit", "scope"}) ||
-          stored.at("obligation") != actual.obligation ||
-          stored.at("disposition") != disposition ||
-          stored.at("measured") != actual.measured_value ||
-          stored.at("limit") != actual.limit_value ||
-          stored.at("margin") != actual.margin_to_limit ||
-          stored.at("unit") != actual.unit || stored.at("scope") != actual.scope)
-        return failure("replay_finding_mismatch", "replayed finding bytes differ from archive");
-    }
+    require_findings_replay(root.at("findings"),
+                            legacy_v1_findings_json(replayEvaluation),
+                            "findings");
     return {true, "verified", "exact artifact identities and DAT replay verified",
             parsedMetrics, coverage.at("declared_obligations").get<int>(),
             coverage.at("evaluated_obligations").get<int>(), "1.0.0", {},

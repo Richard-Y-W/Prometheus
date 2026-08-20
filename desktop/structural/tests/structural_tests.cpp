@@ -475,6 +475,79 @@ std::string replaceJsonMemberAfter(
   return source;
 }
 
+void writeCanonicalDocument(const fs::path &path,
+                            const nlohmann::json &document) {
+  writeFixtureBytes(
+      path,
+      prometheus::integrity::canonicalize_json_bytes(document.dump()));
+}
+
+fs::path copyArchiveManifest(const fs::path &sourceManifest,
+                             const fs::path &destinationDirectory) {
+  require(!fs::exists(destinationDirectory),
+          "copied archive destination starts absent");
+  fs::copy(sourceManifest.parent_path(), destinationDirectory,
+           fs::copy_options::recursive);
+  return destinationDirectory / sourceManifest.filename();
+}
+
+void replaceJsonString(nlohmann::json &value,
+                       const std::string_view previous,
+                       const std::string_view replacement) {
+  if (value.is_string()) {
+    if (value.get_ref<const std::string &>() == previous)
+      value = replacement;
+    return;
+  }
+  if (value.is_array()) {
+    for (auto &entry : value)
+      replaceJsonString(entry, previous, replacement);
+    return;
+  }
+  if (value.is_object())
+    for (auto &[key, entry] : value.items()) {
+      (void)key;
+      replaceJsonString(entry, previous, replacement);
+    }
+}
+
+void sortFindingEvidence(nlohmann::json &document) {
+  for (auto &finding : document.at("findings")) {
+    if (!finding.contains("evidence_sha256")) continue;
+    auto evidence =
+        finding.at("evidence_sha256").get<std::vector<std::string>>();
+    std::ranges::sort(evidence);
+    finding["evidence_sha256"] = std::move(evidence);
+  }
+}
+
+fs::path createLegacyV2NumericVariant(
+    const fs::path &sourceManifest,
+    const fs::path &destinationDirectory,
+    const double maximumDisplacement) {
+  const auto manifest =
+      copyArchiveManifest(sourceManifest, destinationDirectory);
+  auto document = nlohmann::json::parse(fixtureBytes(manifest));
+  const auto previousIdentity =
+      document.at("validated_result_identity").get<std::string>();
+  document["metrics"]["maximum_displacement_m"] = maximumDisplacement;
+  const auto replacementIdentity = legacyV2ResultIdentity(
+      document.at("compiled_setup_identity").get<std::string>(),
+      document.at("geometry_sha256").get<std::string>(),
+      document.at("backend"), document.at("artifacts"),
+      document.at("convergence"), document.at("metrics"));
+  replaceJsonString(document, previousIdentity, replacementIdentity);
+  for (auto &finding : document.at("findings")) {
+    if (finding.at("obligation") != "maximum_displacement") continue;
+    finding["measured"] = maximumDisplacement;
+    finding["margin"] =
+        finding.at("limit").get<double>() - maximumDisplacement;
+  }
+  sortFindingEvidence(document);
+  writeCanonicalDocument(manifest, document);
+  return manifest;
+}
+
 template <typename Function>
 void requireThrows(Function &&function, const std::string_view expected,
                    const char *message) {
@@ -1822,6 +1895,94 @@ Synthetic two-group tetrahedron; coordinates are millimetres
               legacyVerification.schema_version == "1.0.0",
           "legacy v1 archive remains readable under its original claim");
 
+  const auto legacyV1MetricWithinManifest = copyArchiveManifest(
+      legacyManifest, processRoot / "legacy-v1-metric-within");
+  auto legacyV1MetricWithin = nlohmann::json::parse(
+      fixtureBytes(legacyV1MetricWithinManifest));
+  const auto legacyV1Displacement =
+      legacyV1MetricWithin["metrics"]["maximum_displacement_m"]
+          .get<double>();
+  legacyV1MetricWithin["metrics"]["maximum_displacement_m"] =
+      std::nextafter(legacyV1Displacement,
+                     std::numeric_limits<double>::infinity());
+  writeCanonicalDocument(legacyV1MetricWithinManifest,
+                         legacyV1MetricWithin);
+  require(ps::verify_structural_archive(legacyV1MetricWithinManifest).valid,
+          "legacy v1 accepts one-ULP derived metric replay drift");
+
+  const auto legacyV1MetricOutsideManifest = copyArchiveManifest(
+      legacyManifest, processRoot / "legacy-v1-metric-outside");
+  auto legacyV1MetricOutside = nlohmann::json::parse(
+      fixtureBytes(legacyV1MetricOutsideManifest));
+  legacyV1MetricOutside["metrics"]["maximum_displacement_m"] =
+      legacyV1Displacement * (1.0 + 1.0e-10);
+  writeCanonicalDocument(legacyV1MetricOutsideManifest,
+                         legacyV1MetricOutside);
+  const auto legacyV1MetricOutsideVerification =
+      ps::verify_structural_archive(legacyV1MetricOutsideManifest);
+  require(!legacyV1MetricOutsideVerification.valid &&
+              legacyV1MetricOutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "legacy v1 rejects material derived metric replay drift");
+
+  const auto legacyV1FindingManifest = copyArchiveManifest(
+      legacyManifest, processRoot / "legacy-v1-finding-base");
+  auto legacyV1Finding =
+      nlohmann::json::parse(fixtureBytes(legacyV1FindingManifest));
+  constexpr double legacyV1DisplacementLimit = 0.001;
+  legacyV1Finding["requirements"]["displacement_limit_m"] =
+      legacyV1DisplacementLimit;
+  legacyV1Finding["coverage"] = {
+      {"declared_obligations", 1}, {"evaluated_obligations", 1}};
+  legacyV1Finding["findings"] = nlohmann::json::array(
+      {{{"obligation", "maximum_displacement"},
+        {"disposition", "no_violation_detected_within_scope"},
+        {"measured", legacyV1Displacement},
+        {"limit", legacyV1DisplacementLimit},
+        {"margin", legacyV1DisplacementLimit - legacyV1Displacement},
+        {"unit", "m"},
+        {"scope",
+         "isotropic linear-elastic C3D4 model under the confirmed scenario"}}});
+  writeCanonicalDocument(legacyV1FindingManifest, legacyV1Finding);
+  require(ps::verify_structural_archive(legacyV1FindingManifest).valid,
+          "legacy v1 coherent finding fixture replays");
+
+  const auto legacyV1FindingWithinManifest = copyArchiveManifest(
+      legacyV1FindingManifest,
+      processRoot / "legacy-v1-finding-within");
+  auto legacyV1FindingWithin = nlohmann::json::parse(
+      fixtureBytes(legacyV1FindingWithinManifest));
+  const auto legacyV1FindingWithinMeasured = std::nextafter(
+      legacyV1Displacement, std::numeric_limits<double>::infinity());
+  legacyV1FindingWithin["findings"][0]["measured"] =
+      legacyV1FindingWithinMeasured;
+  legacyV1FindingWithin["findings"][0]["margin"] =
+      legacyV1DisplacementLimit - legacyV1FindingWithinMeasured;
+  writeCanonicalDocument(legacyV1FindingWithinManifest,
+                         legacyV1FindingWithin);
+  require(ps::verify_structural_archive(legacyV1FindingWithinManifest).valid,
+          "legacy v1 accepts one-ULP derived finding replay drift");
+
+  const auto legacyV1FindingOutsideManifest = copyArchiveManifest(
+      legacyV1FindingManifest,
+      processRoot / "legacy-v1-finding-outside");
+  auto legacyV1FindingOutside = nlohmann::json::parse(
+      fixtureBytes(legacyV1FindingOutsideManifest));
+  const auto legacyV1FindingOutsideMeasured =
+      legacyV1Displacement * (1.0 + 1.0e-10);
+  legacyV1FindingOutside["findings"][0]["measured"] =
+      legacyV1FindingOutsideMeasured;
+  legacyV1FindingOutside["findings"][0]["margin"] =
+      legacyV1DisplacementLimit - legacyV1FindingOutsideMeasured;
+  writeCanonicalDocument(legacyV1FindingOutsideManifest,
+                         legacyV1FindingOutside);
+  const auto legacyV1FindingOutsideVerification =
+      ps::verify_structural_archive(legacyV1FindingOutsideManifest);
+  require(!legacyV1FindingOutsideVerification.valid &&
+              legacyV1FindingOutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "legacy v1 rejects material derived finding replay drift");
+
   constexpr std::string_view legacySecondResultIdentity =
       "sha256:1111111111111111111111111111111111111111111111111111111111111111";
   const auto legacyV2Manifest = createLegacyV2Archive(
@@ -1846,6 +2007,27 @@ Synthetic two-group tetrahedron; coordinates are millimetres
               archiveVerification.evaluation->evaluated_obligations == 2 &&
               !archiveVerification.refinement,
           "generated canonical v2 fixture remains readable but cannot become a typed pair");
+
+  const auto legacyV2Displacement =
+      nlohmann::json::parse(fixtureBytes(legacyV2Manifest))
+          .at("metrics")
+          .at("maximum_displacement_m")
+          .get<double>();
+  const auto legacyV2MetricWithinManifest = createLegacyV2NumericVariant(
+      legacyV2Manifest, processRoot / "legacy-v2-metric-within",
+      std::nextafter(legacyV2Displacement,
+                     std::numeric_limits<double>::infinity()));
+  require(ps::verify_structural_archive(legacyV2MetricWithinManifest).valid,
+          "legacy v2 accepts coherent one-ULP derived replay drift");
+  const auto legacyV2MetricOutsideManifest = createLegacyV2NumericVariant(
+      legacyV2Manifest, processRoot / "legacy-v2-metric-outside",
+      legacyV2Displacement * (1.0 + 1.0e-10));
+  const auto legacyV2MetricOutsideVerification =
+      ps::verify_structural_archive(legacyV2MetricOutsideManifest);
+  require(!legacyV2MetricOutsideVerification.valid &&
+              legacyV2MetricOutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "legacy v2 rejects material drift despite a recomputed identity");
   const auto detachedLegacyV2Directory = processRoot / "legacy-v2-detached";
   fs::copy(legacyV2Manifest.parent_path(), detachedLegacyV2Directory,
            fs::copy_options::recursive);
