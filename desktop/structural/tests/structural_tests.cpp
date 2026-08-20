@@ -548,6 +548,109 @@ fs::path createLegacyV2NumericVariant(
   return manifest;
 }
 
+double testRelativeChange(const double coarse, const double fine) {
+  const double scale = std::max(std::abs(coarse), std::abs(fine));
+  return scale == 0.0 ? 0.0 : std::abs(fine - coarse) / scale;
+}
+
+struct LegacyV4NumericVariant final {
+  fs::path manifest;
+  std::string coarse_identity;
+  std::string fine_identity;
+};
+
+LegacyV4NumericVariant createLegacyV4NumericVariant(
+    const fs::path &sourceManifest,
+    const fs::path &destinationDirectory,
+    const double coarseDisplacement) {
+  const auto manifest =
+      copyArchiveManifest(sourceManifest, destinationDirectory);
+  auto document = nlohmann::json::parse(fixtureBytes(manifest));
+  auto &coarse = document["samples"]["coarse"];
+  coarse["metrics"]["maximum_displacement_m"] = coarseDisplacement;
+
+  auto &definitions = document["criterion"]["observables"];
+  auto &observables = document["comparison"]["observables"];
+  require(definitions.size() == observables.size(),
+          "v4 criterion and comparison sizes match");
+  bool updatedObservable = false;
+  for (std::size_t index = 0; index < definitions.size(); ++index) {
+    if (definitions[index]["quantity"] != "displacement_magnitude_m")
+      continue;
+    observables[index]["coarse_value"] = coarseDisplacement;
+    const auto fine = observables[index]["fine_value"].get<double>();
+    observables[index]["change_fraction"] =
+        testRelativeChange(coarseDisplacement, fine);
+    updatedObservable = true;
+  }
+  require(updatedObservable,
+          "v4 fixture contains a displacement observable");
+
+  bool updatedGlobal = false;
+  for (auto &global : document["comparison"]["global_extrema"]) {
+    if (global["quantity"] != "displacement_magnitude_m") continue;
+    global["coarse_value"] = coarseDisplacement;
+    const auto fine = global["fine_value"].get<double>();
+    global["change_fraction"] =
+        testRelativeChange(coarseDisplacement, fine);
+    updatedGlobal = true;
+  }
+  require(updatedGlobal,
+          "v4 fixture contains a displacement global extremum");
+
+  const auto bindLegacyIdentity = [&](const std::string_view role) {
+    auto &sample = document["samples"][std::string(role)];
+    const auto previous =
+        sample["validated_result_identity"].get<std::string>();
+    const auto replacement = legacyV2ResultIdentity(
+        sample["compiled_setup_identity"].get<std::string>(),
+        document["geometry_sha256"].get<std::string>(),
+        sample["backend"], sample["artifacts"], sample["convergence"],
+        sample["metrics"]);
+    replaceJsonString(document, previous, replacement);
+    return replacement;
+  };
+  const auto coarseIdentity = bindLegacyIdentity("coarse");
+  const auto fineIdentity = bindLegacyIdentity("fine");
+  sortFindingEvidence(document);
+  writeCanonicalDocument(manifest, document);
+  return {manifest, coarseIdentity, fineIdentity};
+}
+
+fs::path createFindingNumericVariant(
+    const fs::path &sourceManifest,
+    const fs::path &destinationDirectory,
+    const double measured) {
+  const auto manifest =
+      copyArchiveManifest(sourceManifest, destinationDirectory);
+  auto document = nlohmann::json::parse(fixtureBytes(manifest));
+  require(!document["findings"].empty() &&
+              document["findings"][0]["obligation"] ==
+                  "maximum_displacement",
+          "v4 fixture begins with the displacement finding");
+  document["findings"][0]["measured"] = measured;
+  document["findings"][0]["margin"] =
+      document["findings"][0]["limit"].get<double>() - measured;
+  writeCanonicalDocument(manifest, document);
+  return manifest;
+}
+
+fs::path createV3ComparisonVariant(
+    const fs::path &sourceManifest,
+    const fs::path &destinationDirectory,
+    const double displacementChange) {
+  const auto manifest =
+      copyArchiveManifest(sourceManifest, destinationDirectory);
+  auto document = nlohmann::json::parse(fixtureBytes(manifest));
+  document["comparison"]["displacement_change_fraction"] =
+      displacementChange;
+  document["comparison"]["maximum_change_fraction"] = std::max(
+      displacementChange,
+      document["comparison"]["stress_change_fraction"].get<double>());
+  writeCanonicalDocument(manifest, document);
+  return manifest;
+}
+
 template <typename Function>
 void requireThrows(Function &&function, const std::string_view expected,
                    const char *message) {
@@ -1588,6 +1691,79 @@ Synthetic two-group tetrahedron; coordinates are millimetres
               v4Replay.refinement->observable_comparisons().size() == 2U,
           "archive v4 replays scoped comparison, coverage, and findings");
 
+  const auto v4Document =
+      nlohmann::json::parse(fixtureBytes(v4Archive.manifest_path));
+  const auto v4CoarseDisplacement =
+      v4Document["samples"]["coarse"]["metrics"]
+                ["maximum_displacement_m"]
+                    .get<double>();
+  const auto legacyV4Within = createLegacyV4NumericVariant(
+      v4Archive.manifest_path, processRoot / "legacy-v4-numeric-within",
+      std::nextafter(v4CoarseDisplacement,
+                     std::numeric_limits<double>::infinity()));
+  const auto legacyV4WithinVerification =
+      ps::verify_structural_archive(legacyV4Within.manifest);
+  require(legacyV4WithinVerification.valid &&
+              legacyV4WithinVerification.refinement &&
+              legacyV4WithinVerification.refinement->coarse()
+                      .run()
+                      .validated_result->identity ==
+                  legacyV4Within.coarse_identity &&
+              legacyV4WithinVerification.refinement->fine()
+                      .run()
+                      .validated_result->identity ==
+                  legacyV4Within.fine_identity,
+          "legacy v4 accepts coherent one-ULP replay and retains lineage");
+
+  const auto legacyV4Outside = createLegacyV4NumericVariant(
+      v4Archive.manifest_path, processRoot / "legacy-v4-numeric-outside",
+      v4CoarseDisplacement * (1.0 + 1.0e-10));
+  const auto legacyV4OutsideVerification =
+      ps::verify_structural_archive(legacyV4Outside.manifest);
+  require(!legacyV4OutsideVerification.valid &&
+              legacyV4OutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "legacy v4 rejects material drift despite coherent lineage");
+
+  const auto v4FindingMeasured =
+      v4Document["findings"][0]["measured"].get<double>();
+  const auto v4FindingWithinManifest = createFindingNumericVariant(
+      v4Archive.manifest_path, processRoot / "v4-finding-within",
+      std::nextafter(v4FindingMeasured,
+                     std::numeric_limits<double>::infinity()));
+  require(ps::verify_structural_archive(v4FindingWithinManifest).valid,
+          "archive v4 accepts one-ULP derived finding replay drift");
+  const auto v4FindingOutsideManifest = createFindingNumericVariant(
+      v4Archive.manifest_path, processRoot / "v4-finding-outside",
+      v4FindingMeasured * (1.0 + 1.0e-10));
+  const auto v4FindingOutsideVerification =
+      ps::verify_structural_archive(v4FindingOutsideManifest);
+  require(!v4FindingOutsideVerification.valid &&
+              v4FindingOutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "archive v4 rejects material derived finding replay drift");
+
+  const auto acceptedV3Document =
+      nlohmann::json::parse(fixtureBytes(acceptedArchive.manifest_path));
+  const auto v3DisplacementChange =
+      acceptedV3Document["comparison"]["displacement_change_fraction"]
+          .get<double>();
+  const auto v3ComparisonWithinManifest = createV3ComparisonVariant(
+      acceptedArchive.manifest_path, processRoot / "v3-comparison-within",
+      std::nextafter(v3DisplacementChange,
+                     std::numeric_limits<double>::infinity()));
+  require(ps::verify_structural_archive(v3ComparisonWithinManifest).valid,
+          "archive v3 accepts one-ULP derived comparison replay drift");
+  const auto v3ComparisonOutsideManifest = createV3ComparisonVariant(
+      acceptedArchive.manifest_path, processRoot / "v3-comparison-outside",
+      v3DisplacementChange * (1.0 + 1.0e-10));
+  const auto v3ComparisonOutsideVerification =
+      ps::verify_structural_archive(v3ComparisonOutsideManifest);
+  require(!v3ComparisonOutsideVerification.valid &&
+              v3ComparisonOutsideVerification.code ==
+                  "replay_numeric_mismatch",
+          "archive v3 rejects material derived comparison replay drift");
+
   const auto regionalRoot = processRoot / "regional-v4-refinement";
   fs::create_directory(regionalRoot);
   for (const auto *job : {"typed_cantilever_coarse",
@@ -1705,20 +1881,22 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                })
                .valid,
           "a changed v4 regional bound cannot replay");
-  require(!tamperV4(
-               v4Archive, "tampered-v4-threshold", [](auto &document) {
-                 document["criterion"]["observables"][0]
-                         ["maximum_change_fraction"] = 0.11;
-               })
-               .valid,
+  const auto tamperedV4Threshold = tamperV4(
+      v4Archive, "tampered-v4-threshold", [](auto &document) {
+        document["criterion"]["observables"][0]
+                ["maximum_change_fraction"] = 0.11;
+      });
+  require(!tamperedV4Threshold.valid &&
+              tamperedV4Threshold.code == "archive_contract_invalid",
           "a changed v4 observable threshold cannot replay");
-  require(!tamperV4(
-               v4Archive, "tampered-v4-row-count", [](auto &document) {
-                 auto &count = document["comparison"]["observables"][0]
-                                       ["coarse_selected_rows"];
-                 count = count.template get<std::size_t>() + 1U;
-               })
-               .valid,
+  const auto tamperedV4RowCount = tamperV4(
+      v4Archive, "tampered-v4-row-count", [](auto &document) {
+        auto &count = document["comparison"]["observables"][0]
+                              ["coarse_selected_rows"];
+        count = count.template get<std::size_t>() + 1U;
+      });
+  require(!tamperedV4RowCount.valid &&
+              tamperedV4RowCount.code == "replay_finding_mismatch",
           "a changed v4 selected-row count cannot replay");
   require(!tamperV4(
                v4Archive, "tampered-v4-coarse-value", [](auto &document) {
@@ -1744,21 +1922,23 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                })
                .valid,
           "a changed v4 observable change cannot replay");
-  require(!tamperV4(
-               regionalArchive, "tampered-v4-participation",
-               [](auto &document) {
-                 document["comparison"]["global_extrema"][1]
-                         ["participated_in_acceptance"] = true;
-               })
-               .valid,
+  const auto tamperedV4Participation = tamperV4(
+      regionalArchive, "tampered-v4-participation",
+      [](auto &document) {
+        document["comparison"]["global_extrema"][1]
+                ["participated_in_acceptance"] = true;
+      });
+  require(!tamperedV4Participation.valid &&
+              tamperedV4Participation.code == "replay_finding_mismatch",
           "a changed v4 global-peak participation flag cannot replay");
-  require(!tamperV4(
-               v4Archive, "tampered-v4-global-entity", [](auto &document) {
-                 auto &entity = document["comparison"]["global_extrema"][1]
-                                        ["fine_entity_id"];
-                 entity = entity.template get<int>() + 1;
-               })
-               .valid,
+  const auto tamperedV4GlobalEntity = tamperV4(
+      v4Archive, "tampered-v4-global-entity", [](auto &document) {
+        auto &entity = document["comparison"]["global_extrema"][1]
+                               ["fine_entity_id"];
+        entity = entity.template get<int>() + 1;
+      });
+  require(!tamperedV4GlobalEntity.valid &&
+              tamperedV4GlobalEntity.code == "replay_finding_mismatch",
           "a changed v4 global-peak entity cannot replay");
   require(!tamperV4(
                v4Archive, "tampered-v4-global-location", [](auto &document) {
@@ -1777,18 +1957,19 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                })
                .valid,
           "a changed v4 global-peak value cannot replay");
-  require(!tamperV4(
-               regionalArchive, "tampered-v4-unknown-code",
-               [](auto &document) {
-                 document["unknowns"][0]["code"] = "forged_unknown";
-               })
-               .valid,
+  const auto tamperedV4Unknown = tamperV4(
+      regionalArchive, "tampered-v4-unknown-code", [](auto &document) {
+        document["unknowns"][0]["code"] = "forged_unknown";
+      });
+  require(!tamperedV4Unknown.valid &&
+              tamperedV4Unknown.code == "replay_finding_mismatch",
           "a changed v4 unknown reason cannot replay");
-  require(!tamperV4(
-               v4Archive, "tampered-v4-status", [](auto &document) {
-                 document["comparison"]["status"] = "indeterminate";
-               })
-               .valid,
+  const auto tamperedV4Status = tamperV4(
+      v4Archive, "tampered-v4-status", [](auto &document) {
+        document["comparison"]["status"] = "indeterminate";
+      });
+  require(!tamperedV4Status.valid &&
+              tamperedV4Status.code == "replay_finding_mismatch",
           "a changed v4 refinement status cannot replay");
 
   const auto relocated = ps::export_structural_archive(

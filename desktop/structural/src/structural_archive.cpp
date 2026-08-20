@@ -618,6 +618,66 @@ Json comparison_v4_json(const StructuralRefinementSummary &summary) {
                             summary.result_sha256);
 }
 
+void require_v3_comparison_replay(const Json &stored, Json replayed) {
+  if (!exact_keys(stored,
+                  {"status", "displacement_change_fraction",
+                   "stress_change_fraction", "maximum_change_fraction",
+                   "maximum_allowed_change_fraction", "setup_sha256",
+                   "result_sha256"}) ||
+      !exact_keys(replayed,
+                  {"status", "displacement_change_fraction",
+                   "stress_change_fraction", "maximum_change_fraction",
+                   "maximum_allowed_change_fraction", "setup_sha256",
+                   "result_sha256"}))
+    reject("replay_finding_mismatch",
+           "v3 comparison contract differs from replay");
+  for (const auto *field : {"displacement_change_fraction",
+                            "stress_change_fraction",
+                            "maximum_change_fraction"})
+    reconcile_derived_number(
+        stored, replayed, Json::json_pointer{"/" + std::string(field)},
+        "comparison." + std::string(field));
+  if (stored != replayed)
+    reject("replay_finding_mismatch",
+           "v3 non-derived comparison fields differ from replay");
+}
+
+void require_v4_comparison_replay(const Json &stored, Json replayed) {
+  if (!exact_keys(stored, {"status", "observables", "global_extrema",
+                           "setup_sha256", "result_sha256"}) ||
+      !exact_keys(replayed, {"status", "observables", "global_extrema",
+                             "setup_sha256", "result_sha256"}) ||
+      !stored.at("observables").is_array() ||
+      !replayed.at("observables").is_array() ||
+      !stored.at("global_extrema").is_array() ||
+      !replayed.at("global_extrema").is_array() ||
+      stored.at("observables").size() !=
+          replayed.at("observables").size() ||
+      stored.at("global_extrema").size() !=
+          replayed.at("global_extrema").size())
+    reject("replay_finding_mismatch",
+           "v4 comparison contract differs from replay");
+
+  const auto reconcileArray = [&](const std::string_view arrayName,
+                                  const std::size_t size) {
+    for (std::size_t index = 0; index < size; ++index)
+      for (const auto *field : {"coarse_value", "fine_value",
+                                "change_fraction"}) {
+        const auto pointer = "/" + std::string(arrayName) + "/" +
+                             std::to_string(index) + "/" + field;
+        const auto fieldPath = "comparison." + std::string(arrayName) +
+                               "[" + std::to_string(index) + "]." + field;
+        reconcile_derived_number(stored, replayed,
+                                 Json::json_pointer{pointer}, fieldPath);
+      }
+  };
+  reconcileArray("observables", stored.at("observables").size());
+  reconcileArray("global_extrema", stored.at("global_extrema").size());
+  if (stored != replayed)
+    reject("replay_finding_mismatch",
+           "v4 non-derived comparison fields differ from replay");
+}
+
 Json unknowns_json(const StructuralEvaluation &evaluation) {
   Json unknowns = Json::array();
   for (const auto &unknown : evaluation.unknowns)
@@ -1762,16 +1822,13 @@ StructuralArchiveVerification verify_v4_archive(
   const Json expectedCoverage{
       {"declared_obligations", evaluation.declared_obligations},
       {"evaluated_obligations", evaluation.evaluated_obligations}};
-  if (root.at("comparison") != comparison_v4_json(*compiled.value()))
-    return failure(
-        "replay_finding_mismatch",
-        "v4 raw evidence produces a different scoped comparison");
+  require_v4_comparison_replay(root.at("comparison"),
+                               comparison_v4_json(*compiled.value()));
   if (root.at("coverage") != expectedCoverage)
     return failure("replay_finding_mismatch",
                    "v4 raw evidence produces different coverage");
-  if (root.at("findings") != findings_json(evaluation))
-    return failure("replay_finding_mismatch",
-                   "v4 raw evidence produces different findings");
+  require_findings_replay(root.at("findings"), findings_json(evaluation),
+                          "findings");
   if (root.at("unknowns") != unknowns_json(evaluation))
     return failure("replay_finding_mismatch",
                    "v4 raw evidence produces different unknowns");
@@ -1862,12 +1919,14 @@ StructuralArchiveVerification verify_v3_archive(
   const Json expectedCoverage{
       {"declared_obligations", evaluation.declared_obligations},
       {"evaluated_obligations", evaluation.evaluated_obligations}};
-  if (root.at("comparison") != comparison_json(*compiled.value()) ||
-      root.at("coverage") != expectedCoverage ||
-      root.at("findings") != findings_json(evaluation) ||
+  require_v3_comparison_replay(root.at("comparison"),
+                               comparison_json(*compiled.value()));
+  if (root.at("coverage") != expectedCoverage ||
       json_string(root, "limitation") != evaluation.limitation)
     return failure("replay_finding_mismatch",
                    "v3 raw evidence produces different comparison or findings");
+  require_findings_replay(root.at("findings"), findings_json(evaluation),
+                          "findings");
 
   const auto &fineResult = *fine->run().validated_result;
   return {true,
