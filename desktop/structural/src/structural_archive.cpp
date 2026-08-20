@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <locale>
 #include <map>
@@ -29,6 +30,8 @@ constexpr auto archiveSchemaV2 =
     "urn:prometheus:schema:structural-run-archive:2.0.0";
 constexpr auto archiveSchemaV3 =
     "urn:prometheus:schema:structural-run-archive:3.0.0";
+constexpr auto archiveSchemaV4 =
+    "urn:prometheus:schema:structural-run-archive:4.0.0";
 constexpr auto setupSchemaV1 =
     "urn:prometheus:schema:reviewed-structural-setup:1.0.0";
 constexpr auto setupSchemaV2 =
@@ -226,6 +229,51 @@ Json criterion_json(const StructuralRefinementCriterion &criterion) {
            criterion.maximum_change_fraction()}};
 }
 
+std::string observable_quantity_string(
+    const StructuralObservableQuantity quantity) {
+  switch (quantity) {
+  case StructuralObservableQuantity::displacement_magnitude_m:
+    return "displacement_magnitude_m";
+  case StructuralObservableQuantity::von_mises_stress_pa:
+    return "von_mises_stress_pa";
+  }
+  throw std::invalid_argument("unsupported structural observable quantity");
+}
+
+Json observable_region_json(const StructuralObservableRegion &region) {
+  switch (region.kind) {
+  case StructuralObservableRegionKind::all_nodes:
+    return {{"kind", "all_nodes"}};
+  case StructuralObservableRegionKind::all_elements:
+    return {{"kind", "all_elements"}};
+  case StructuralObservableRegionKind::element_centroid_box_m:
+    return {{"kind", "element_centroid_box_m"},
+            {"minimum_m", region.element_centroid_box_m.minimum_m},
+            {"maximum_m", region.element_centroid_box_m.maximum_m}};
+  }
+  throw std::invalid_argument("unsupported structural observable region");
+}
+
+Json observable_definition_json(
+    const StructuralObservableDefinition &definition) {
+  return {{"identity", definition.identity},
+          {"id", definition.spec.id},
+          {"quantity",
+           observable_quantity_string(definition.spec.quantity)},
+          {"reduction", "maximum"},
+          {"region", observable_region_json(definition.spec.region)},
+          {"maximum_change_fraction",
+           definition.spec.maximum_change_fraction}};
+}
+
+Json criterion_v4_json(const StructuralRefinementCriterion &criterion) {
+  Json observables = Json::array();
+  for (const auto &definition : criterion.observables())
+    observables.push_back(observable_definition_json(definition));
+  return {{"identity", criterion.identity()},
+          {"observables", std::move(observables)}};
+}
+
 Json boundary_correspondence_json(
     const ReviewedBoundaryCorrespondence &correspondence) {
   return {
@@ -270,6 +318,120 @@ Json comparison_json(const StructuralRefinementSummary &summary) {
        summary.maximum_allowed_change_fraction},
       {"setup_sha256", summary.setup_sha256},
       {"result_sha256", summary.result_sha256}};
+}
+
+std::string observable_status_string(
+    const StructuralObservableConvergenceStatus status) {
+  return status == StructuralObservableConvergenceStatus::accepted
+             ? "accepted"
+             : "indeterminate";
+}
+
+Json observable_comparison_json(
+    const StructuralObservableComparison &comparison) {
+  return {
+      {"definition_identity", comparison.definition.identity},
+      {"coarse_value", comparison.coarse_value},
+      {"fine_value", comparison.fine_value},
+      {"coarse_selected_rows", comparison.coarse_selected_rows},
+      {"fine_selected_rows", comparison.fine_selected_rows},
+      {"change_fraction", comparison.change_fraction},
+      {"maximum_allowed_change_fraction",
+       comparison.definition.spec.maximum_change_fraction},
+      {"status", observable_status_string(comparison.status)}};
+}
+
+std::array<double, 3> deck_precision_position(
+    const std::array<double, 3> &position) {
+  std::array<double, 3> result{};
+  for (std::size_t axis = 0; axis < result.size(); ++axis) {
+    std::ostringstream encoded;
+    encoded.imbue(std::locale::classic());
+    encoded << std::scientific << std::setprecision(10) << position[axis];
+    std::istringstream decoded(encoded.str());
+    decoded.imbue(std::locale::classic());
+    decoded >> result[axis];
+    if (!decoded || !std::isfinite(result[axis]))
+      throw std::invalid_argument(
+          "structural diagnostic position is invalid");
+  }
+  return result;
+}
+
+Json global_extremum_json(
+    const StructuralGlobalExtremumDiagnostic &diagnostic) {
+  return {
+      {"quantity", observable_quantity_string(diagnostic.quantity)},
+      {"coarse_value", diagnostic.coarse_value},
+      {"fine_value", diagnostic.fine_value},
+      {"coarse_entity_id", diagnostic.coarse_entity_id},
+      {"fine_entity_id", diagnostic.fine_entity_id},
+      // The authoritative deck stores node coordinates at ten-digit
+      // scientific precision. Persist locations at that same precision so
+      // replayed element centroids compare exactly across the trust boundary.
+      {"coarse_position_m",
+       deck_precision_position(diagnostic.coarse_position_m)},
+      {"fine_position_m",
+       deck_precision_position(diagnostic.fine_position_m)},
+      {"change_fraction", diagnostic.change_fraction},
+      {"comparison_threshold", diagnostic.comparison_threshold},
+      {"participated_in_acceptance",
+       diagnostic.participated_in_acceptance},
+      {"within_threshold", diagnostic.within_threshold}};
+}
+
+template <typename RefinementLike>
+Json comparison_v4_json(const RefinementLike &refinement,
+                        const std::vector<std::string> &setupIdentities,
+                        const std::vector<std::string> &resultIdentities) {
+  Json observables = Json::array();
+  for (const auto &comparison : refinement.observable_comparisons())
+    observables.push_back(observable_comparison_json(comparison));
+  Json globalExtrema = Json::array();
+  for (const auto &diagnostic : refinement.global_extremum_diagnostics())
+    globalExtrema.push_back(global_extremum_json(diagnostic));
+  return {{"status", refinement_status_string(refinement.status())},
+          {"observables", std::move(observables)},
+          {"global_extrema", std::move(globalExtrema)},
+          {"setup_sha256", setupIdentities},
+          {"result_sha256", resultIdentities}};
+}
+
+Json comparison_v4_json(const VerifiedStructuralRefinement &refinement) {
+  return comparison_v4_json(
+      refinement,
+      {refinement.coarse().setup().identity,
+       refinement.fine().setup().identity},
+      {refinement.coarse().run().validated_result->identity,
+       refinement.fine().run().validated_result->identity});
+}
+
+Json comparison_v4_json(const StructuralRefinementSummary &summary) {
+  struct SummaryView final {
+    const StructuralRefinementSummary &summary;
+    [[nodiscard]] StructuralRefinementStatus status() const noexcept {
+      return summary.status;
+    }
+    [[nodiscard]] const std::vector<StructuralObservableComparison> &
+    observable_comparisons() const noexcept {
+      return summary.observables;
+    }
+    [[nodiscard]] const std::vector<StructuralGlobalExtremumDiagnostic> &
+    global_extremum_diagnostics() const noexcept {
+      return summary.global_extrema;
+    }
+  };
+  return comparison_v4_json(SummaryView{summary}, summary.setup_sha256,
+                            summary.result_sha256);
+}
+
+Json unknowns_json(const StructuralEvaluation &evaluation) {
+  Json unknowns = Json::array();
+  for (const auto &unknown : evaluation.unknowns)
+    unknowns.push_back({{"obligation", unknown.obligation},
+                        {"code", unknown.code},
+                        {"detail", unknown.detail}});
+  return unknowns;
 }
 
 Json mesh_json(const StructuralSetup &setup) {
@@ -936,6 +1098,7 @@ StructuralArchive write_structural_refinement_archive(
     const StructuralEvaluation &evaluation) {
   const auto &coarse = refinement.coarse();
   const auto &fine = refinement.fine();
+  const bool typed = !coarse.criterion().legacy_global_extrema_only();
   if (coarse.options().working_directory.empty() ||
       fine.options().working_directory.empty() ||
       !std::filesystem::is_directory(coarse.options().working_directory) ||
@@ -959,20 +1122,38 @@ StructuralArchive write_structural_refinement_archive(
       static_cast<int>(fine.setup().request.von_mises_limit_pa.has_value());
   const bool accepted =
       refinement.status() == StructuralRefinementStatus::accepted;
+  const bool comparisonMatches =
+      evaluation.comparison &&
+      (typed ? comparison_v4_json(*evaluation.comparison) ==
+                   comparison_v4_json(refinement)
+             : comparison_json(*evaluation.comparison) ==
+                   comparison_json(refinement));
+  const bool typedCoverageMatches =
+      evaluation.evaluated_obligations ==
+          static_cast<int>(evaluation.findings.size()) &&
+      evaluation.declared_obligations ==
+          static_cast<int>(evaluation.findings.size() +
+                           evaluation.unknowns.size()) &&
+      (accepted ||
+       (evaluation.evaluated_obligations == 0 &&
+        evaluation.findings.empty() &&
+        evaluation.unknowns.size() ==
+            static_cast<std::size_t>(declaredObligations)));
   if (evaluation.execution_status != SolverRunStatus::completed ||
-      !evaluation.comparison ||
-      comparison_json(*evaluation.comparison) != comparison_json(refinement) ||
+      !comparisonMatches ||
       evaluation.declared_obligations != declaredObligations ||
       evaluation.limitation.empty() ||
-      (accepted &&
+      (typed && !typedCoverageMatches) ||
+      (!typed && accepted &&
        (evaluation.evaluated_obligations != declaredObligations ||
         evaluation.findings.size() !=
             static_cast<std::size_t>(declaredObligations))) ||
-      (!accepted &&
+      (!typed && !accepted &&
        (evaluation.evaluated_obligations != 0 ||
         !evaluation.findings.empty())))
     throw std::invalid_argument(
-        "v3 evaluation does not match the verified refinement status");
+        typed ? "v4 evaluation does not match the verified refinement status"
+              : "v3 evaluation does not match the verified refinement status");
 
   auto coarsePrepared = prepare_v3_sample(
       coarse, StructuralSampleRole::coarse, coarseDirectory);
@@ -989,25 +1170,28 @@ StructuralArchive write_structural_refinement_archive(
         throw std::invalid_argument(
             "v3 sample artifact filenames must be globally unique");
 
-  const Json document{
-      {"$schema", archiveSchemaV3},
-      {"schema_version", "3.0.0"},
+  Json document{
+      {"$schema", typed ? archiveSchemaV4 : archiveSchemaV3},
+      {"schema_version", typed ? "4.0.0" : "3.0.0"},
       {"archive_kind", "linear_static_refinement_study"},
       {"analysis_id", fine.setup().request.analysis_id},
       {"component_name", fine.setup().request.component_name},
       {"geometry_sha256", fine.setup().request.geometry_sha256},
-      {"criterion", criterion_json(coarse.criterion())},
+      {"criterion", typed ? criterion_v4_json(coarse.criterion())
+                           : criterion_json(coarse.criterion())},
       {"boundary_correspondence",
        boundary_correspondence_json(refinement.boundary_correspondence())},
       {"samples",
        {{"coarse", sample_json(coarsePrepared)},
         {"fine", sample_json(finePrepared)}}},
-      {"comparison", comparison_json(refinement)},
+      {"comparison", typed ? comparison_v4_json(refinement)
+                            : comparison_json(refinement)},
       {"coverage",
        {{"declared_obligations", evaluation.declared_obligations},
         {"evaluated_obligations", evaluation.evaluated_obligations}}},
       {"findings", findings_json(evaluation)},
       {"limitation", evaluation.limitation}};
+  if (typed) document["unknowns"] = unknowns_json(evaluation);
   const auto canonical = integrity::canonicalize_json_bytes(document.dump());
 
   std::vector<std::filesystem::path> created;
@@ -1033,7 +1217,7 @@ StructuralArchive write_structural_refinement_archive(
   }
   return {manifestPath,
           integrity::sha256_bytes(canonical),
-          "3.0.0",
+          typed ? "4.0.0" : "3.0.0",
           fine.run().validated_result->identity,
           coarse.run().validated_result->identity};
 }
@@ -1061,6 +1245,110 @@ StructuralRefinementCriterion criterion_from_v3_json(const Json &value) {
   } catch (const std::exception &error) {
     reject("archive_contract_invalid",
            std::string("v3 refinement criterion is invalid: ") +
+               error.what());
+  }
+}
+
+std::array<double, 3> vector3_from_json(const Json &value,
+                                        const std::string_view field) {
+  if (!value.is_array() || value.size() != 3U)
+    reject("archive_contract_invalid",
+           std::string(field) + " must contain three numbers");
+  std::array<double, 3> result{};
+  for (std::size_t axis = 0; axis < result.size(); ++axis) {
+    if (!value[axis].is_number())
+      reject("archive_contract_invalid",
+             std::string(field) + " must contain three numbers");
+    result[axis] = value[axis].get<double>();
+    if (!std::isfinite(result[axis]))
+      reject("archive_contract_invalid",
+             std::string(field) + " must contain finite numbers");
+  }
+  return result;
+}
+
+StructuralRefinementCriterion criterion_from_v4_json(const Json &value) {
+  if (!exact_keys(value, {"identity", "observables"}) ||
+      !value.at("observables").is_array() ||
+      value.at("observables").empty() ||
+      value.at("observables").size() > 128U)
+    reject("archive_contract_invalid",
+           "v4 refinement criterion is invalid");
+  const auto identity = json_string(value, "identity");
+  if (!strict_sha256(identity))
+    reject("archive_contract_invalid",
+           "v4 refinement criterion identity is invalid");
+
+  std::vector<StructuralObservableSpec> specs;
+  specs.reserve(value.at("observables").size());
+  for (const auto &observable : value.at("observables")) {
+    if (!exact_keys(observable,
+                    {"identity", "id", "quantity", "reduction", "region",
+                     "maximum_change_fraction"}))
+      reject("archive_contract_invalid",
+             "v4 observable definition is invalid");
+    const auto definitionIdentity = json_string(observable, "identity");
+    const auto id = json_string(observable, "id");
+    const auto quantity = json_string(observable, "quantity");
+    const auto reduction = json_string(observable, "reduction");
+    if (!strict_sha256(definitionIdentity) || reduction != "maximum")
+      reject("archive_contract_invalid",
+             "v4 observable definition identity or reduction is invalid");
+
+    StructuralObservableSpec spec;
+    spec.id = id;
+    if (quantity == "displacement_magnitude_m")
+      spec.quantity =
+          StructuralObservableQuantity::displacement_magnitude_m;
+    else if (quantity == "von_mises_stress_pa")
+      spec.quantity = StructuralObservableQuantity::von_mises_stress_pa;
+    else
+      reject("archive_contract_invalid",
+             "v4 observable quantity is invalid");
+    spec.reduction = StructuralObservableReduction::maximum;
+    spec.maximum_change_fraction =
+        json_number(observable, "maximum_change_fraction");
+
+    const auto &region = observable.at("region");
+    const auto kind = json_string(region, "kind");
+    if (kind == "all_nodes" || kind == "all_elements") {
+      if (!exact_keys(region, {"kind"}))
+        reject("archive_contract_invalid",
+               "v4 global observable region is invalid");
+      spec.region.kind =
+          kind == "all_nodes"
+              ? StructuralObservableRegionKind::all_nodes
+              : StructuralObservableRegionKind::all_elements;
+    } else if (kind == "element_centroid_box_m") {
+      if (!exact_keys(region, {"kind", "minimum_m", "maximum_m"}))
+        reject("archive_contract_invalid",
+               "v4 regional observable bounds are invalid");
+      spec.region.kind =
+          StructuralObservableRegionKind::element_centroid_box_m;
+      spec.region.element_centroid_box_m.minimum_m =
+          vector3_from_json(region.at("minimum_m"), "minimum_m");
+      spec.region.element_centroid_box_m.maximum_m =
+          vector3_from_json(region.at("maximum_m"), "maximum_m");
+    } else {
+      reject("archive_contract_invalid",
+             "v4 observable region kind is invalid");
+    }
+    specs.push_back(std::move(spec));
+  }
+
+  try {
+    auto criterion =
+        compile_structural_refinement_criterion(std::move(specs));
+    if (criterion.identity() != identity ||
+        criterion_v4_json(criterion) != value)
+      reject("archive_contract_invalid",
+             "v4 refinement criterion does not reproduce its identity");
+    return criterion;
+  } catch (const ArchiveVerificationError &) {
+    throw;
+  } catch (const std::exception &error) {
+    reject("archive_contract_invalid",
+           std::string("v4 refinement criterion is invalid: ") +
                error.what());
   }
 }
@@ -1193,6 +1481,107 @@ CompletedStructuralSamplePtr replay_v3_sample(
   return compile_completed_structural_sample(
       expectedRole, criterion, std::move(options),
       std::move(compiledSetup), std::move(run));
+}
+
+StructuralArchiveVerification verify_v4_archive(
+    const std::filesystem::path &manifestPath, const Json &root) {
+  if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                         "analysis_id", "component_name", "geometry_sha256",
+                         "criterion", "boundary_correspondence", "samples",
+                         "comparison", "coverage", "findings", "unknowns",
+                         "limitation"}) ||
+      root.at("$schema") != archiveSchemaV4 ||
+      root.at("schema_version") != "4.0.0" ||
+      root.at("archive_kind") != "linear_static_refinement_study")
+    return failure("archive_contract_invalid",
+                   "archive v4 root contract is invalid");
+  const auto analysisId = json_string(root, "analysis_id");
+  const auto componentName = json_string(root, "component_name");
+  const auto geometryIdentity = json_string(root, "geometry_sha256");
+  if (analysisId.empty() || componentName.empty() ||
+      !strict_sha256(geometryIdentity))
+    return failure("archive_contract_invalid",
+                   "archive v4 project identities are invalid");
+  const auto criterion = criterion_from_v4_json(root.at("criterion"));
+
+  const auto &samples = root.at("samples");
+  if (!exact_keys(samples, {"coarse", "fine"}))
+    return failure("archive_contract_invalid",
+                   "archive v4 sample set is invalid");
+  std::set<std::string> artifactNames;
+  auto coarse = replay_v3_sample(
+      manifestPath.parent_path(), samples.at("coarse"),
+      StructuralSampleRole::coarse, criterion, analysisId, componentName,
+      geometryIdentity, artifactNames);
+  auto fine = replay_v3_sample(
+      manifestPath.parent_path(), samples.at("fine"),
+      StructuralSampleRole::fine, criterion, analysisId, componentName,
+      geometryIdentity, artifactNames);
+  if (artifactNames.size() != 14U)
+    return failure("archive_contract_invalid",
+                   "archive v4 must declare fourteen unique artifacts");
+
+  const auto &persistedBoundary = root.at("boundary_correspondence");
+  if (!exact_keys(
+          persistedBoundary,
+          {"coarse_setup_identity", "fine_setup_identity",
+           "load_region_confirmed", "restraint_region_confirmed",
+           "coarse_load_area_m2", "fine_load_area_m2",
+           "coarse_restraint_area_m2", "fine_restraint_area_m2"}))
+    return failure("archive_contract_invalid",
+                   "archive v4 boundary correspondence is invalid");
+  const auto boundary = review_structural_boundary_correspondence(
+      coarse->setup(), fine->setup(),
+      json_bool(persistedBoundary, "load_region_confirmed"),
+      json_bool(persistedBoundary, "restraint_region_confirmed"));
+  if (boundary_correspondence_json(boundary) != persistedBoundary)
+    return failure("replay_refinement_mismatch",
+                   "archive v4 boundary review differs from both setups");
+
+  const auto compiled =
+      compile_structural_refinement(coarse, fine, boundary);
+  if (!compiled.complete()) {
+    const auto detail = compiled.issues().empty()
+                            ? "v4 refinement pair is invalid"
+                            : compiled.issues().front().code + ": " +
+                                  compiled.issues().front().message;
+    return failure("replay_refinement_invalid", detail);
+  }
+  auto evaluation = compile_structural_findings(*compiled.value());
+  const Json expectedCoverage{
+      {"declared_obligations", evaluation.declared_obligations},
+      {"evaluated_obligations", evaluation.evaluated_obligations}};
+  if (root.at("comparison") != comparison_v4_json(*compiled.value()))
+    return failure(
+        "replay_finding_mismatch",
+        "v4 raw evidence produces a different scoped comparison");
+  if (root.at("coverage") != expectedCoverage)
+    return failure("replay_finding_mismatch",
+                   "v4 raw evidence produces different coverage");
+  if (root.at("findings") != findings_json(evaluation))
+    return failure("replay_finding_mismatch",
+                   "v4 raw evidence produces different findings");
+  if (root.at("unknowns") != unknowns_json(evaluation))
+    return failure("replay_finding_mismatch",
+                   "v4 raw evidence produces different unknowns");
+  if (json_string(root, "limitation") != evaluation.limitation)
+    return failure("replay_finding_mismatch",
+                   "v4 raw evidence produces a different limitation");
+
+  const auto &fineResult = *fine->run().validated_result;
+  return {true,
+          "verified",
+          "v4 two-sample setup, solver evidence, scoped comparison, unknowns, and findings replay verified",
+          fineResult.metrics,
+          evaluation.declared_obligations,
+          evaluation.evaluated_obligations,
+          "4.0.0",
+          fineResult.identity,
+          fineResult.normalized,
+          fine->setup().reviewed_setup,
+          fine->setup(),
+          std::move(evaluation),
+          compiled.value()};
 }
 
 StructuralArchiveVerification verify_v3_archive(
@@ -1413,6 +1802,9 @@ StructuralArchiveVerification verify_structural_archive(
     const auto bytes = bounded_read(manifestPath, 8U * 1024U * 1024U);
     const auto canonical = integrity::verify_canonical_bytes(bytes);
     const auto root = Json::parse(canonical);
+    if (root.is_object() && root.value("$schema", "") == archiveSchemaV4 &&
+        root.value("schema_version", "") == "4.0.0")
+      return verify_v4_archive(manifestPath, root);
     if (root.is_object() && root.value("$schema", "") == archiveSchemaV3 &&
         root.value("schema_version", "") == "3.0.0")
       return verify_v3_archive(manifestPath, root);
@@ -1566,8 +1958,12 @@ StructuralArchive export_structural_archive(
     const auto manifestBytes = read(manifestPath);
     const auto manifest = Json::parse(manifestBytes);
     std::vector<std::string> artifactNames;
-    if (manifest.value("$schema", "") == archiveSchemaV3 &&
-        manifest.value("schema_version", "") == "3.0.0") {
+    const bool twoSampleArchive =
+        (manifest.value("$schema", "") == archiveSchemaV3 &&
+         manifest.value("schema_version", "") == "3.0.0") ||
+        (manifest.value("$schema", "") == archiveSchemaV4 &&
+         manifest.value("schema_version", "") == "4.0.0");
+    if (twoSampleArchive) {
       for (const auto role : {"coarse", "fine"})
         for (const auto key : {"setup", "deck", "dat", "frd", "sta",
                                "stdout", "stderr"})

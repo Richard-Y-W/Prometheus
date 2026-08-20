@@ -14,6 +14,8 @@
 
 #include <prometheus/integrity/canonical_json.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -1375,6 +1377,245 @@ Synthetic two-group tetrahedron; coordinates are millimetres
               replay.evaluation &&
               replay.evaluation->evaluated_obligations == 2,
           "v3 replay reconstructs both results and findings");
+
+  const auto v4Root = processRoot / "typed-v4-refinement";
+  fs::create_directory(v4Root);
+  for (const auto *job : {"typed_cantilever_coarse",
+                          "typed_cantilever_fine"})
+    for (const auto *extension : {".inp", ".dat", ".frd", ".sta"})
+      fs::copy_file(refinementRoot / (std::string(job) + extension),
+                    v4Root / (std::string(job) + extension));
+  auto v4CoarseOptions = coarseOptions;
+  v4CoarseOptions.working_directory = v4Root;
+  auto v4FineOptions = fineOptions;
+  v4FineOptions.working_directory = v4Root;
+  const auto typedGlobalCriterion =
+      ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(0.10));
+  const auto v4CoarseSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, typedGlobalCriterion,
+      v4CoarseOptions, coarseSetup, coarseRun);
+  const auto v4FineSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, typedGlobalCriterion,
+      v4FineOptions, fineSetup, fineRun);
+  const auto v4Pair = ps::compile_structural_refinement(
+      v4CoarseSample, v4FineSample, correspondence);
+  const auto v4Evaluation =
+      ps::compile_structural_findings(*v4Pair.value());
+  const auto v4Archive = ps::write_structural_refinement_archive(
+      *v4Pair.value(), v4Evaluation);
+  require(v4Archive.schema_version == "4.0.0",
+          "typed refinement writes archive v4");
+  const auto v4Replay =
+      ps::verify_structural_archive(v4Archive.manifest_path);
+  require(v4Replay.valid && v4Replay.schema_version == "4.0.0" &&
+              v4Replay.refinement && v4Replay.evaluation &&
+              v4Replay.evaluation->unknowns.empty() &&
+              v4Replay.refinement->observable_comparisons().size() == 2U,
+          "archive v4 replays scoped comparison, coverage, and findings");
+
+  const auto regionalRoot = processRoot / "regional-v4-refinement";
+  fs::create_directory(regionalRoot);
+  for (const auto *job : {"typed_cantilever_coarse",
+                          "typed_cantilever_fine"})
+    for (const auto *extension : {".inp", ".dat", ".frd", ".sta"})
+      fs::copy_file(refinementRoot / (std::string(job) + extension),
+                    regionalRoot / (std::string(job) + extension));
+  auto regionalCoarseOptions = coarseOptions;
+  regionalCoarseOptions.working_directory = regionalRoot;
+  auto regionalFineOptions = fineOptions;
+  regionalFineOptions.working_directory = regionalRoot;
+  auto regionalSpecs = ps::global_structural_observable_specs(0.10);
+  regionalSpecs[1].id = "benchmark.maximum_von_mises_stress_window";
+  regionalSpecs[1].region = {
+      .kind = ps::StructuralObservableRegionKind::element_centroid_box_m,
+      .element_centroid_box_m = {
+          .minimum_m = {0.0, -1.0, -1.0},
+          .maximum_m = {1.0, 1.0, 1.0}}};
+  const auto regionalCriterion =
+      ps::compile_structural_refinement_criterion(regionalSpecs);
+  const auto regionalCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, regionalCriterion,
+      regionalCoarseOptions, coarseSetup, coarseRun);
+  const auto regionalFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, regionalCriterion,
+      regionalFineOptions, fineSetup, fineRun);
+  const auto regionalPair = ps::compile_structural_refinement(
+      regionalCoarse, regionalFine, correspondence);
+  require(regionalPair.complete() &&
+              regionalPair.value()->status() ==
+                  ps::StructuralRefinementStatus::accepted,
+          "the bounded regional observable pair is accepted");
+  const auto regionalEvaluation =
+      ps::compile_structural_findings(*regionalPair.value());
+  require(regionalEvaluation.findings.size() == 1U &&
+              regionalEvaluation.unknowns.size() == 1U &&
+              regionalEvaluation.unknowns.front().code ==
+                  "matching_converged_scope_missing",
+          "regional convergence leaves the unmatched global stress obligation unknown");
+  const auto regionalArchive = ps::write_structural_refinement_archive(
+      *regionalPair.value(), regionalEvaluation);
+  const auto regionalReplay =
+      ps::verify_structural_archive(regionalArchive.manifest_path);
+  require(regionalReplay.valid && regionalReplay.evaluation &&
+              regionalReplay.evaluation->findings.size() == 1U &&
+              regionalReplay.evaluation->unknowns.size() == 1U,
+          "archive v4 replays a partial finding with an explicit unknown");
+
+  const auto indeterminateV4Root =
+      processRoot / "indeterminate-v4-refinement";
+  fs::create_directory(indeterminateV4Root);
+  for (const auto *job : {"typed_cantilever_coarse",
+                          "typed_cantilever_fine"})
+    for (const auto *extension : {".inp", ".dat", ".frd", ".sta"})
+      fs::copy_file(refinementRoot / (std::string(job) + extension),
+                    indeterminateV4Root /
+                        (std::string(job) + extension));
+  auto indeterminateCoarseOptions = coarseOptions;
+  indeterminateCoarseOptions.working_directory = indeterminateV4Root;
+  auto indeterminateFineOptions = fineOptions;
+  indeterminateFineOptions.working_directory = indeterminateV4Root;
+  const auto indeterminateCriterion =
+      ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(0.01));
+  const auto indeterminateCoarse =
+      ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::coarse, indeterminateCriterion,
+          indeterminateCoarseOptions, coarseSetup, coarseRun);
+  const auto indeterminateFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, indeterminateCriterion,
+      indeterminateFineOptions, fineSetup, fineRun);
+  const auto indeterminatePair = ps::compile_structural_refinement(
+      indeterminateCoarse, indeterminateFine, correspondence);
+  require(indeterminatePair.complete(),
+          "typed strict refinement remains a valid compiled pair");
+  const auto indeterminateEvaluation =
+      ps::compile_structural_findings(*indeterminatePair.value());
+  require(indeterminateEvaluation.findings.empty() &&
+              indeterminateEvaluation.unknowns.size() == 2U,
+          "typed indeterminate refinement retains one unknown per obligation");
+  const auto indeterminateArchive =
+      ps::write_structural_refinement_archive(
+          *indeterminatePair.value(), indeterminateEvaluation);
+  const auto indeterminateReplay =
+      ps::verify_structural_archive(indeterminateArchive.manifest_path);
+  require(indeterminateReplay.valid && indeterminateReplay.evaluation &&
+              indeterminateReplay.schema_version == "4.0.0" &&
+              indeterminateReplay.evaluation->findings.empty() &&
+              indeterminateReplay.evaluation->unknowns.size() == 2U,
+          "archive v4 replays indeterminate coverage without findings");
+
+  const auto tamperV4 = [&](const ps::StructuralArchive &source,
+                            const std::string &name, auto mutate) {
+    const auto copied = ps::export_structural_archive(
+        source.manifest_path, processRoot / name);
+    auto document = nlohmann::json::parse(
+        fixtureBytes(copied.manifest_path));
+    mutate(document);
+    const auto canonical =
+        prometheus::integrity::canonicalize_json_bytes(document.dump());
+    writeFixtureBytes(copied.manifest_path, canonical);
+    return ps::verify_structural_archive(copied.manifest_path);
+  };
+  require(!tamperV4(
+               regionalArchive, "tampered-v4-quantity", [](auto &document) {
+                 document["criterion"]["observables"][1]["quantity"] =
+                     "displacement_magnitude_m";
+               })
+               .valid,
+          "a changed v4 observable quantity cannot replay");
+  require(!tamperV4(
+               regionalArchive, "tampered-v4-box-bound", [](auto &document) {
+                 document["criterion"]["observables"][1]["region"]
+                         ["maximum_m"][0] = 0.5;
+               })
+               .valid,
+          "a changed v4 regional bound cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-threshold", [](auto &document) {
+                 document["criterion"]["observables"][0]
+                         ["maximum_change_fraction"] = 0.11;
+               })
+               .valid,
+          "a changed v4 observable threshold cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-row-count", [](auto &document) {
+                 auto &count = document["comparison"]["observables"][0]
+                                       ["coarse_selected_rows"];
+                 count = count.template get<std::size_t>() + 1U;
+               })
+               .valid,
+          "a changed v4 selected-row count cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-coarse-value", [](auto &document) {
+                 auto &value = document["comparison"]["observables"][0]
+                                       ["coarse_value"];
+                 value = value.template get<double>() * 1.01;
+               })
+               .valid,
+          "a changed v4 coarse observable value cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-fine-value", [](auto &document) {
+                 auto &value = document["comparison"]["observables"][0]
+                                       ["fine_value"];
+                 value = value.template get<double>() * 1.01;
+               })
+               .valid,
+          "a changed v4 fine observable value cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-change", [](auto &document) {
+                 auto &change = document["comparison"]["observables"][0]
+                                        ["change_fraction"];
+                 change = change.template get<double>() + 0.01;
+               })
+               .valid,
+          "a changed v4 observable change cannot replay");
+  require(!tamperV4(
+               regionalArchive, "tampered-v4-participation",
+               [](auto &document) {
+                 document["comparison"]["global_extrema"][1]
+                         ["participated_in_acceptance"] = true;
+               })
+               .valid,
+          "a changed v4 global-peak participation flag cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-global-entity", [](auto &document) {
+                 auto &entity = document["comparison"]["global_extrema"][1]
+                                        ["fine_entity_id"];
+                 entity = entity.template get<int>() + 1;
+               })
+               .valid,
+          "a changed v4 global-peak entity cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-global-location", [](auto &document) {
+                 auto &coordinate =
+                     document["comparison"]["global_extrema"][1]
+                             ["fine_position_m"][0];
+                 coordinate = coordinate.template get<double>() + 0.001;
+               })
+               .valid,
+          "a changed v4 global-peak location cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-global-value", [](auto &document) {
+                 auto &value = document["comparison"]["global_extrema"][1]
+                                       ["fine_value"];
+                 value = value.template get<double>() + 1.0;
+               })
+               .valid,
+          "a changed v4 global-peak value cannot replay");
+  require(!tamperV4(
+               regionalArchive, "tampered-v4-unknown-code",
+               [](auto &document) {
+                 document["unknowns"][0]["code"] = "forged_unknown";
+               })
+               .valid,
+          "a changed v4 unknown reason cannot replay");
+  require(!tamperV4(
+               v4Archive, "tampered-v4-status", [](auto &document) {
+                 document["comparison"]["status"] = "indeterminate";
+               })
+               .valid,
+          "a changed v4 refinement status cannot replay");
 
   const auto relocated = ps::export_structural_archive(
       acceptedArchive.manifest_path, processRoot / "relocated-v3");

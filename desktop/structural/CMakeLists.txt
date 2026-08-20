@@ -98,6 +98,9 @@ if(BUILD_TESTING)
   target_link_libraries(prometheus_structural_tests PRIVATE
     prometheus_structural
   )
+  target_include_directories(prometheus_structural_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
   target_link_libraries(prometheus_structural_observable_tests PRIVATE
     prometheus_structural
   )
