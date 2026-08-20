@@ -596,6 +596,61 @@ void test_normal_operations_and_idempotency() {
           "already-committed manifest remains idempotent after binding changes");
 }
 
+// Phase 6 checkpoint 2: install_joint_binding is the JointBinding analogue of
+// install_package_binding -- an append-only chain, but keyed by the
+// unordered pair of CAD entity ids rather than a single entity, since a
+// confirmed joint is a symmetric relationship between the two parts it
+// connects.
+void test_joint_binding_supersession() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "arm.prometheus";
+  create_project(project_path);
+
+  const auto &first = require_success(
+      run_store::install_joint_binding(project_path, "arm", "base",
+                                       "revolute", "Z", 0.0, 90.0, 0.0, 0.0,
+                                       0.0),
+      "first joint binding");
+  require(first.execution.joint_bindings.size() == 1U &&
+              first.execution.joint_bindings.front().binding_revision == 1U &&
+              !first.execution.joint_bindings.front()
+                   .supersedes_binding_revision.has_value(),
+          "first joint binding appends revision one with no supersession");
+
+  const auto &second = require_success(
+      run_store::install_joint_binding(project_path, "arm", "base",
+                                       "revolute", "Z", -10.0, 45.0, 0.0, 0.0,
+                                       0.0),
+      "second joint binding on the same pair");
+  require(second.execution.joint_bindings.size() == 2U &&
+              second.execution.joint_bindings.back()
+                      .supersedes_binding_revision == 1U,
+          "rebind on the same pair supersedes the prior revision");
+
+  const auto &swapped = require_success(
+      run_store::install_joint_binding(project_path, "base", "arm",
+                                       "revolute", "Y", 0.0, 30.0, 0.0, 0.0,
+                                       0.0),
+      "third joint binding with source and target swapped");
+  require(swapped.execution.joint_bindings.size() == 3U &&
+              swapped.execution.joint_bindings.back()
+                      .supersedes_binding_revision == 2U,
+          "swapped source/target still supersedes the same unordered pair");
+
+  const auto &different_pair = require_success(
+      run_store::install_joint_binding(project_path, "arm", "driver",
+                                       "revolute", "Z", 0.0, 90.0, 0.0, 0.0,
+                                       0.0),
+      "joint binding on a different entity pair");
+  require(different_pair.execution.joint_bindings.size() == 4U &&
+              !different_pair.execution.joint_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "a different entity pair opens its own, unsuperseded chain");
+  require(different_pair.execution.joint_bindings[2]
+                  .supersedes_binding_revision == 2U,
+          "binding a different pair did not disturb the arm/base chain");
+}
+
 void test_structural_manifest_anchor() {
   TemporaryRoot root;
   const auto projectPath = root.path() / "structural.prometheus";
@@ -1732,6 +1787,7 @@ void test_kernel_lock_contention_and_recovery() {
 int main() {
   try {
     test_normal_operations_and_idempotency();
+    test_joint_binding_supersession();
     test_structural_manifest_anchor();
     test_structural_manifest_v2_anchor();
     test_embedded_structural_archive_round_trip();

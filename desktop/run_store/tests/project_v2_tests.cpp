@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -232,6 +233,78 @@ void binding_revision_graph_is_strict() {
         "same-entity supersession chain parses");
 }
 
+Json joint_binding(const std::uint64_t revision,
+                   const std::optional<std::uint64_t> supersedes,
+                   const std::string &source, const std::string &target) {
+  return Json{{"binding_revision", revision},
+              {"supersedes_binding_revision",
+               supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
+              {"source_cad_entity_id", source},
+              {"target_cad_entity_id", target},
+              {"type", "revolute"},
+              {"axis", "Z"},
+              {"minimum_deg", 0},
+              {"maximum_deg", 90},
+              {"pivot_x", 0},
+              {"pivot_y", 0},
+              {"pivot_z", 0}};
+}
+
+void joint_binding_revision_graph_is_strict() {
+  auto duplicate = valid_project();
+  duplicate["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  duplicate["execution"]["joint_bindings"].push_back(
+      joint_binding(1, 1, "arm", "base"));
+  expect_rejected(duplicate.dump(), "joint_binding_revision_order_invalid",
+                  "duplicate joint binding revision rejects");
+
+  auto gap = valid_project();
+  gap["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  gap["execution"]["joint_bindings"].push_back(
+      joint_binding(3, 1, "arm", "base"));
+  expect_rejected(gap.dump(), "joint_binding_revision_order_invalid",
+                  "non-contiguous joint binding revision rejects");
+
+  auto valid_first = valid_project();
+  valid_first["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  check(run_store::parse_project_v2(valid_first.dump()).has_value(),
+        "first joint binding parses");
+
+  auto cross_pair = valid_project();
+  cross_pair["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  cross_pair["execution"]["joint_bindings"].push_back(
+      joint_binding(2, 1, "arm", "driver"));
+  expect_rejected(cross_pair.dump(), "joint_binding_supersession_cross_pair",
+                  "cross-pair joint supersession rejects");
+
+  auto two_active = valid_project();
+  two_active["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  two_active["execution"]["joint_bindings"].push_back(
+      joint_binding(2, std::nullopt, "arm", "base"));
+  expect_rejected(two_active.dump(), "multiple_active_joint_bindings",
+                  "multiple unsuperseded joint bindings reject");
+
+  auto valid_chain = valid_project();
+  valid_chain["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "base"));
+  valid_chain["execution"]["joint_bindings"].push_back(
+      joint_binding(2, 1, "base", "arm"));
+  check(run_store::parse_project_v2(valid_chain.dump()).has_value(),
+        "supersession keys on the unordered entity pair, so a swapped "
+        "source/target still supersedes the same chain");
+
+  auto self_joint = valid_project();
+  self_joint["execution"]["joint_bindings"].push_back(
+      joint_binding(1, std::nullopt, "arm", "arm"));
+  expect_rejected(self_joint.dump(), "invalid_joint_binding_entities",
+                  "joint binding endpoints must differ");
+}
+
 void collection_and_event_bounds_are_strict() {
   auto events = valid_project();
   for (std::uint64_t sequence = 1U; sequence <= 257U; ++sequence) {
@@ -266,6 +339,7 @@ int main() {
   valid_round_trip_is_deterministic();
   syntax_and_identity_fail_closed();
   binding_revision_graph_is_strict();
+  joint_binding_revision_graph_is_strict();
   collection_and_event_bounds_are_strict();
   return failures == 0 ? 0 : 1;
 }

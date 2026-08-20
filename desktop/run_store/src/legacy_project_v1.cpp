@@ -326,7 +326,8 @@ Json convert_document(const Json &legacy) {
               {"execution", Json{{"package_bindings", Json::array()},
                                  {"current_scenario", nullptr},
                                  {"committed_runs", Json::array()},
-                                 {"events", Json::array()}}}};
+                                 {"events", Json::array()},
+                                 {"joint_bindings", Json::array()}}}};
 }
 
 } // namespace

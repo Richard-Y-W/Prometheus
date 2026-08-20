@@ -952,6 +952,88 @@ Result<ProjectV2> install_package_binding(
   }
 }
 
+Result<ProjectV2> install_joint_binding(
+    const std::filesystem::path &project_path,
+    std::string source_cad_entity_id, std::string target_cad_entity_id,
+    std::string joint_type, std::string axis, const double minimum_deg,
+    const double maximum_deg, const double pivot_x, const double pivot_y,
+    const double pivot_z, TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    auto project_result = read_locked_project(project_path);
+    if (!project_result.has_value()) {
+      return project_result;
+    }
+    auto project = std::move(project_result.value());
+    if (project.execution.joint_bindings.size() >= maximum_joint_bindings) {
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "joint_binding_limit_exceeded",
+          "project already has the maximum joint-binding revisions"));
+    }
+    // A joint between two CAD entities is a single, symmetric physical
+    // relationship: a rebind with source/target swapped supersedes the same
+    // chain rather than opening a parallel one. See the identical
+    // joint_pair_key rationale in project_v2.cpp, which validate_joint_
+    // binding_graph enforces on every read of the persisted result below.
+    const auto pair_key = [](const std::string &first,
+                             const std::string &second) {
+      return first <= second ? first + '\x01' + second
+                             : second + '\x01' + first;
+    };
+    const auto key = pair_key(source_cad_entity_id, target_cad_entity_id);
+    std::optional<std::uint64_t> supersedes;
+    std::unordered_set<std::uint64_t> superseded;
+    for (const auto &binding : project.execution.joint_bindings) {
+      if (binding.supersedes_binding_revision.has_value()) {
+        superseded.insert(*binding.supersedes_binding_revision);
+      }
+    }
+    for (auto iterator = project.execution.joint_bindings.rbegin();
+         iterator != project.execution.joint_bindings.rend(); ++iterator) {
+      if (pair_key(iterator->source_cad_entity_id,
+                   iterator->target_cad_entity_id) == key &&
+          !superseded.contains(iterator->binding_revision)) {
+        supersedes = iterator->binding_revision;
+        break;
+      }
+    }
+    std::uint64_t revision = 1U;
+    if (!project.execution.joint_bindings.empty()) {
+      const auto previous =
+          project.execution.joint_bindings.back().binding_revision;
+      if (previous >= maximum_safe_integer) {
+        return Result<ProjectV2>::failure(detail::store_diagnostic(
+            "joint_binding_revision_exhausted",
+            "joint-binding revision reached the interoperable integer "
+            "limit"));
+      }
+      revision = previous + 1U;
+    }
+    project.execution.joint_bindings.push_back(JointBinding{
+        revision, supersedes, std::move(source_cad_entity_id),
+        std::move(target_cad_entity_id), std::move(joint_type),
+        std::move(axis), minimum_deg, maximum_deg, pivot_x, pivot_y,
+        pivot_z});
+    const auto candidate = serialize_project_v2(project);
+    if (!candidate.has_value()) {
+      return Result<ProjectV2>::failure(
+          normalized(candidate.diagnostic(), project_path));
+    }
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "joint_binding_failed", failure.what(), std::nullopt, project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "joint_binding_failed", "unknown joint-binding failure", std::nullopt,
+        project_path));
+  }
+}
+
 Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,
