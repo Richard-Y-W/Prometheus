@@ -574,3 +574,70 @@ content actually differs.
   (`run_store::open_read_only` → `execution.load_bindings` /
   `execution.restraint_bindings`) independent of `StructuralController` —
   a desktop history panel remains future work.
+
+## Checkpoint 6: make reviewed-input history actually reviewable in the desktop app
+
+Checkpoints 1 through 5 each closed their own exit gate on "provably
+queryable" — via `run_store::open_read_only`, from a test or the CLI — and
+each explicitly left "a desktop history panel" as future work. Phase 6's
+own exit gate says every consequential edge must be "reviewable," not just
+queryable by a program. This checkpoint is the first to close that gap: it
+adds no new graph-edge type, only a real view onto the five edge kinds that
+already exist.
+
+### What shipped
+
+- `StructuralController::rebuildReviewedInputHistory` reads
+  `execution.{requirement,material,load,restraint}_bindings` for the
+  currently reviewed geometry, groups by kind, and marks each revision
+  `active` (not superseded) or not — using the same superseded-revision-set
+  computation `persist*BindingEdge` already uses, so "what the panel shows"
+  and "what the persist functions treat as current" can't drift apart.
+  Exposed as a new `reviewedInputHistory` QML property. Joint and package
+  bindings are CAD-entity-keyed, not geometry-keyed, and are deliberately
+  out of scope here — a real future extension to the CAD panel, not folded
+  in speculatively.
+- Rebuilt on every point the project's execution index can change under
+  this controller: `reloadProject` (project opened/saved), after
+  `reviewSetup`'s persist calls, and after `restoreStoredRun` sets `draft_`
+  — so the panel reflects a reopened project's history, not just the live
+  session's.
+- `StructuralSetupPanel.qml` gained a "REVIEWED INPUT HISTORY" list,
+  dimmed for superseded revisions, showing each entry's kind, revision
+  number, and a kind-specific human-readable summary (e.g.
+  "displacement ≤ 0.0010 m", "6061-T6 aluminum • E=6.9e10 Pa • ν=0.33").
+
+### Proof
+
+`desktop/app/tests/structural_controller_tests.cpp` extends its real
+open→review→run→archive→commit→reopen flow: after the first review,
+`reviewedInputHistory` holds exactly the 6 freshly reviewed edges (3
+requirements + material + load + restraint), all active; after a session of
+displacement, load, and material edits followed by reverting to the
+original draft, it holds exactly the 12 distinct revisions those edits
+produced (5 requirement + 3 material + 3 load + 1 restraint), with exactly
+6 marked active — one per live chain, proving dedup and supersession are
+both reflected correctly, not just recorded. After project close and
+reopen, the restored controller's `reviewedInputHistory` still holds all
+12 entries, proving the panel is populated from the persisted project, not
+session-local state.
+
+### Explicitly out of scope for checkpoint 6
+
+- CAD-binding and joint history (package/joint bindings) — CAD-entity-keyed,
+  not geometry-keyed; a real future extension to the CAD panel, not this
+  checkpoint's structural-setup panel.
+- Filtering, search, or pagination for the history list — no real project
+  has produced enough revisions yet to need it.
+- A "revert to this revision" action — the data is reviewable; making a
+  past revision actionable again is a separate, real feature question.
+
+### Exit gate for this checkpoint — met
+
+- Every one of checkpoints 3–5's persisted graph edges is visible in the
+  desktop app for the geometry currently under review, not just queryable
+  from a test or the CLI.
+- The panel distinguishes active from superseded revisions using the exact
+  same logic the persist functions use, so the two can't disagree.
+- The panel reflects a reopened project's persisted history, not just the
+  current session's edits.

@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <filesystem>
@@ -151,6 +152,13 @@ int main(int argc, char **argv) {
                     1U,
             "reviewing a setup also appends one LoadBinding and one "
             "RestraintBinding graph edge");
+    require(controller.reviewedInputHistory().size() == 6 &&
+                std::ranges::all_of(controller.reviewedInputHistory(),
+                    [](const QVariant &value) {
+                      return value.toMap().value("active").toBool();
+                    }),
+            "the reviewed-input history panel shows all six freshly reviewed "
+            "edges (3 requirements + material + load + restraint), all active");
 
     auto changed_limit = reviewedDraft();
     changed_limit["displacement_limit_m"] = 0.002;
@@ -229,6 +237,17 @@ int main(int argc, char **argv) {
     controller.reviewSetup(reviewedDraft());
     require(controller.status() == "ready_for_execution" && controller.canRun(),
             "restoring the original draft for the rest of the suite still compiles");
+    require(controller.reviewedInputHistory().size() == 12,
+            "the history panel accumulates every distinct reviewed revision "
+            "across all four kinds (5 requirement + 3 material + 3 load + "
+            "1 restraint) after this session's edits");
+    const auto activeCount = std::ranges::count_if(
+        controller.reviewedInputHistory(), [](const QVariant &value) {
+          return value.toMap().value("active").toBool();
+        });
+    require(activeCount == 6,
+            "exactly one binding per requirement-quantity/material/load/"
+            "restraint chain is marked active at a time");
   }
   QEventLoop runLoop;
   QObject::connect(&controller, &StructuralController::runFinished,
@@ -335,6 +354,9 @@ int main(int argc, char **argv) {
               restoredController.uncoveredRequirements().front().toMap()
                       .value("criticality").toString() == "critical",
           "the uncovered requirement survives project close and reopen exactly");
+  require(restoredController.reviewedInputHistory().size() == 12,
+          "the reviewed-input history panel is populated from the reopened "
+          "project's persisted graph edges, not just the live session");
   auto changedSnapshot = *reopened.project();
   changedSnapshot.assembly_artifact_hash =
       "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";

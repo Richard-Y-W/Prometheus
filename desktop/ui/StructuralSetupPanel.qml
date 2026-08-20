@@ -533,6 +533,41 @@ Item {
                         }
                     }
                     Label {
+                        visible: structuralController.reviewedInputHistory.length > 0
+                        text: "REVIEWED INPUT HISTORY (this geometry)"
+                        color: mutedColor
+                        font.bold: true
+                        font.pixelSize: 10
+                    }
+                    ListView {
+                        id: reviewedInputHistoryList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 140)
+                        visible: structuralController.reviewedInputHistory.length > 0
+                        clip: true
+                        spacing: 3
+                        model: structuralController.reviewedInputHistory
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: reviewedInputHistoryList.width
+                            height: historyText.implicitHeight + 14
+                            color: modelData.active ? "#182420" : "#181b1e"
+                            border.color: modelData.active ? "#365f4b" : "#2c3238"
+                            opacity: modelData.active ? 1.0 : 0.65
+                            Label {
+                                id: historyText
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                text: "[" + modelData.kind + "] rev " + modelData.revision +
+                                      (modelData.active ? "" : " (superseded)") +
+                                      "\n" + modelData.summary
+                                color: modelData.active ? "#9fd6bd" : mutedColor
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 9
+                            }
+                        }
+                    }
+                    Label {
                         Layout.fillWidth: true
                         visible: structuralController.canRun
                         text: "Compiled request\n" + structuralController.requestPreview.nodes + " nodes  •  " + structuralController.requestPreview.elements + " elements\n" + structuralController.requestPreview.fixed_nodes + " fixed nodes  •  " + structuralController.requestPreview.loaded_nodes + " loaded nodes"

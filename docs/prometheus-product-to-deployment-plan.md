@@ -521,7 +521,7 @@ Allow users to add components beyond the synthetic catalog while retaining trust
 - a supported analysis consumes the reviewed values;
 - conflicting or missing values remain visible and block unsupported claims.
 
-## Phase 6: Build the first semantic engineering graph — checkpoint 5 landed
+## Phase 6: Build the first semantic engineering graph — checkpoint 6 landed
 
 See [docs/phase-06-semantic-engineering-graph.md](phase-06-semantic-engineering-graph.md)
 for evidence. Six edges have landed so far: checkpoint 1 promotes the
@@ -534,7 +534,11 @@ the reviewed structural material (keyed by geometry alone), and checkpoint 5
 does the same for the reviewed load and restraint surface selections
 (keyed by geometry, carrying their exact durable boundary topology). Every
 structural setup field with real reviewed data is now a persisted graph
-edge; the remaining entity families are future work, added only as real
+edge. Checkpoint 6 closes the "reviewable" half of the exit gate every
+prior checkpoint deferred: a desktop panel now shows each geometry's full
+requirement/material/load/restraint history, active vs. superseded, sourced
+from the reopened project's persisted state. CAD-binding and joint history,
+and the remaining entity families, are future work, added only as real
 workflows need them.
 
 ### Objective

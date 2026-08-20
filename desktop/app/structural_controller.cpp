@@ -366,6 +366,7 @@ void StructuralController::commitLastRun() {
 
 void StructuralController::reloadProject() {
   stored_runs_.clear();
+  rebuildReviewedInputHistory();
   if (!project_ || !project_->project()) {
     emit changed();
     return;
@@ -621,6 +622,7 @@ void StructuralController::restoreStoredRun(const int index,
         {"scenario_description", scenario.value("description").toString()},
         {"scenario_confirmed", scenario.value("confirmed").toBool()}};
     rebuildPreview();
+    rebuildReviewedInputHistory();
     if (!sourceCurrent) {
       compiled_request_.reset();
       compiled_requirements_.clear();
@@ -885,6 +887,7 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   persistMaterialBindingEdge();
   persistLoadBindingEdge();
   persistRestraintBindingEdge();
+  rebuildReviewedInputHistory();
   emit changed();
 }
 
@@ -1104,6 +1107,89 @@ void StructuralController::persistRestraintBindingEdge() {
           selection.node_ids, selection.area_m2});
   if (installed.has_value()) {
     project_->acceptProject(installed.value());
+  }
+}
+
+void StructuralController::rebuildReviewedInputHistory() {
+  // Makes checkpoints 3-5's persisted graph edges actually reviewable in
+  // the desktop app, not just provably queryable via run_store::
+  // open_read_only from a test -- the "desktop history panel" every one of
+  // those checkpoints left as future work. Grouped by kind (requirement/
+  // material/load/restraint), most recent revision first within each kind;
+  // there is no single shared timestamp across kinds to interleave by, only
+  // each kind's own independent revision counter.
+  reviewed_input_history_.clear();
+  if (project_ == nullptr || !project_->project().has_value()) return;
+  const auto geometry = draft_.value("geometry_sha256").toString().toStdString();
+  if (geometry.empty()) return;
+  const auto &execution = project_->project()->execution;
+  const auto supersededRevisions = [](const auto &bindings) {
+    std::set<std::uint64_t> result;
+    for (const auto &binding : bindings)
+      if (binding.supersedes_binding_revision.has_value())
+        result.insert(*binding.supersedes_binding_revision);
+    return result;
+  };
+
+  const auto superseded_requirements =
+      supersededRevisions(execution.requirement_bindings);
+  for (auto iterator = execution.requirement_bindings.rbegin();
+       iterator != execution.requirement_bindings.rend(); ++iterator) {
+    if (iterator->geometry_sha256 != geometry) continue;
+    const auto summary = iterator->quantity == "other"
+        ? QString("%1 (uncovered): limit %2 %3")
+              .arg(QString::fromStdString(iterator->other_quantity_description))
+              .arg(iterator->limit_value)
+              .arg(QString::fromStdString(iterator->unit))
+        : QString::fromStdString(iterator->quantity) + " ≤ " +
+              QString::number(iterator->limit_value) + " " +
+              QString::fromStdString(iterator->unit);
+    reviewed_input_history_.append(QVariantMap{
+        {"kind", "requirement"}, {"summary", summary},
+        {"revision", static_cast<qlonglong>(iterator->binding_revision)},
+        {"active", !superseded_requirements.contains(iterator->binding_revision)}});
+  }
+
+  const auto superseded_materials =
+      supersededRevisions(execution.material_bindings);
+  for (auto iterator = execution.material_bindings.rbegin();
+       iterator != execution.material_bindings.rend(); ++iterator) {
+    if (iterator->geometry_sha256 != geometry) continue;
+    const auto summary = QString::fromStdString(iterator->designation) +
+        "  •  E=" + QString::number(iterator->youngs_modulus_pa) +
+        " Pa  •  ν=" + QString::number(iterator->poisson_ratio);
+    reviewed_input_history_.append(QVariantMap{
+        {"kind", "material"}, {"summary", summary},
+        {"revision", static_cast<qlonglong>(iterator->binding_revision)},
+        {"active", !superseded_materials.contains(iterator->binding_revision)}});
+  }
+
+  const auto superseded_loads = supersededRevisions(execution.load_bindings);
+  for (auto iterator = execution.load_bindings.rbegin();
+       iterator != execution.load_bindings.rend(); ++iterator) {
+    if (iterator->geometry_sha256 != geometry) continue;
+    const auto summary = QString::fromStdString(iterator->selection_label) +
+        "  •  [" + QString::number(iterator->force_x_n) + ", " +
+        QString::number(iterator->force_y_n) + ", " +
+        QString::number(iterator->force_z_n) + "] N over " +
+        QString::number(iterator->area_m2) + " m²";
+    reviewed_input_history_.append(QVariantMap{
+        {"kind", "load"}, {"summary", summary},
+        {"revision", static_cast<qlonglong>(iterator->binding_revision)},
+        {"active", !superseded_loads.contains(iterator->binding_revision)}});
+  }
+
+  const auto superseded_restraints =
+      supersededRevisions(execution.restraint_bindings);
+  for (auto iterator = execution.restraint_bindings.rbegin();
+       iterator != execution.restraint_bindings.rend(); ++iterator) {
+    if (iterator->geometry_sha256 != geometry) continue;
+    const auto summary = QString::fromStdString(iterator->selection_label) +
+        "  •  fixed over " + QString::number(iterator->area_m2) + " m²";
+    reviewed_input_history_.append(QVariantMap{
+        {"kind", "restraint"}, {"summary", summary},
+        {"revision", static_cast<qlonglong>(iterator->binding_revision)},
+        {"active", !superseded_restraints.contains(iterator->binding_revision)}});
   }
 }
 
@@ -1483,6 +1569,7 @@ void StructuralController::reset() {
   compiled_restraint_.reset();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
+  reviewed_input_history_.clear();
   if (result_geometry_) result_geometry_->deleteLater();
   result_geometry_ = nullptr;
   result_view_.clear();

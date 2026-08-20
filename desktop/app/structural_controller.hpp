@@ -46,6 +46,7 @@ class StructuralController final : public QObject {
   Q_PROPERTY(QVariantList storedRuns READ storedRuns NOTIFY changed)
   Q_PROPERTY(QVariantMap setupDraft READ setupDraft NOTIFY changed)
   Q_PROPERTY(QVariantList uncoveredRequirements READ uncoveredRequirements NOTIFY changed)
+  Q_PROPERTY(QVariantList reviewedInputHistory READ reviewedInputHistory NOTIFY changed)
 
 public:
   explicit StructuralController(ProjectController *project = nullptr,
@@ -68,6 +69,7 @@ public:
   QVariantList storedRuns() const { return stored_runs_; }
   QVariantMap setupDraft() const { return draft_; }
   QVariantList uncoveredRequirements() const { return uncovered_requirements_; }
+  QVariantList reviewedInputHistory() const { return reviewed_input_history_; }
 
   Q_INVOKABLE void loadMesh(const QUrl &path, double coordinateScaleToM,
                             double patchAngleDegrees = 15.0);
@@ -91,6 +93,7 @@ private:
   void persistMaterialBindingEdge();
   void persistLoadBindingEdge();
   void persistRestraintBindingEdge();
+  void rebuildReviewedInputHistory();
   QString status_{"mesh_required"};
   QString error_;
   QVariantMap mesh_summary_;
@@ -118,4 +121,5 @@ private:
   QVariantMap result_view_;
   QVariantList stored_runs_;
   QVariantList uncovered_requirements_;
+  QVariantList reviewed_input_history_;
 };
