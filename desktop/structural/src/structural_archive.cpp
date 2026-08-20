@@ -38,6 +38,10 @@ constexpr auto setupSchemaV2 =
     "urn:prometheus:schema:reviewed-structural-setup:2.0.0";
 constexpr auto compiledSetupSchemaV1 =
     "urn:prometheus:schema:compiled-structural-setup:1.0.0";
+constexpr integrity::Limits structuralSetupEvidenceLimits{
+    8U * 1024U * 1024U, 64U, 500000U, 10000U, 500000U,
+    4U * 1024U * 1024U};
+static_assert(structuralSetupEvidenceLimits.array_elements >= 480000U);
 
 std::string read(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
@@ -477,26 +481,7 @@ bool file_matches(const std::filesystem::path &path,
 }
 
 std::string deck_difference_detail(const std::string &stored,
-                                   const std::string &replayed) {
-  const auto mismatch = std::mismatch(stored.begin(), stored.end(),
-                                      replayed.begin(), replayed.end());
-  const auto position =
-      static_cast<std::size_t>(std::distance(stored.begin(), mismatch.first));
-  const auto line = [&](const std::string &bytes) {
-    const auto boundedPosition = std::min(position, bytes.size());
-    const auto start = bytes.rfind('\n', boundedPosition == 0U
-                                            ? 0U
-                                            : boundedPosition - 1U);
-    const auto lineStart = start == std::string::npos ? 0U : start + 1U;
-    const auto end = bytes.find('\n', boundedPosition);
-    const auto lineEnd = end == std::string::npos ? bytes.size() : end;
-    return bytes.substr(lineStart,
-                        std::min<std::size_t>(160U, lineEnd - lineStart));
-  };
-  return "v3 solver deck differs at byte " + std::to_string(position) +
-         "; stored line [" + line(stored) + "]; replayed line [" +
-         line(replayed) + "]";
-}
+                                   const std::string &replayed);
 
 std::string_view trimmed(std::string_view value) {
   const auto first = value.find_first_not_of(" \t\r");
@@ -556,7 +541,12 @@ bool deck_lines_equivalent(const std::string_view stored,
         std::max(std::abs(*storedNumber), std::abs(*replayedNumber));
     if (scale == 0.0)
       continue;
-    if (std::abs(*storedNumber - *replayedNumber) > scale * 1.0e-10)
+    // Node coordinates are authoritative at the deck's ten-digit scientific
+    // precision. Recomputed surface areas and distributed nodal forces can
+    // accumulate a few such round-off units during setup replay.
+    constexpr double roundTripRelativeTolerance = 5.0e-10;
+    if (std::abs(*storedNumber - *replayedNumber) >
+        scale * roundTripRelativeTolerance)
       return false;
   }
   return true;
@@ -581,6 +571,32 @@ bool decks_round_trip_equivalent(const std::string &stored,
       return false;
     if (!deck_lines_equivalent(storedLine, replayedLine))
       return false;
+  }
+}
+
+std::string deck_difference_detail(const std::string &stored,
+                                   const std::string &replayed) {
+  std::istringstream storedInput(stored);
+  std::istringstream replayedInput(replayed);
+  std::string storedLine;
+  std::string replayedLine;
+  std::size_t lineNumber{};
+  while (true) {
+    const bool hasStored =
+        static_cast<bool>(std::getline(storedInput, storedLine));
+    const bool hasReplayed =
+        static_cast<bool>(std::getline(replayedInput, replayedLine));
+    ++lineNumber;
+    if (hasStored != hasReplayed)
+      return "v3 solver deck line count differs at line " +
+             std::to_string(lineNumber);
+    if (!hasStored)
+      return "v3 solver deck differs after semantic comparison";
+    if (!deck_lines_equivalent(storedLine, replayedLine))
+      return "v3 solver deck differs at line " +
+             std::to_string(lineNumber) + "; stored line [" +
+             storedLine.substr(0U, 160U) + "]; replayed line [" +
+             replayedLine.substr(0U, 160U) + "]";
   }
 }
 
@@ -644,9 +660,7 @@ PreparedV3Sample prepare_v3_sample(
           "v3 sample artifact filename is unsafe");
 
   prepared.setup_bytes = integrity::verify_canonical_bytes(
-      setup.canonical_setup_evidence,
-      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U,
-                        100000U, 4U * 1024U * 1024U});
+      setup.canonical_setup_evidence, structuralSetupEvidenceLimits);
   const auto setupJson = Json::parse(prepared.setup_bytes);
   if (!setupJson.is_object() ||
       setupJson.value("$schema", "") != setupSchemaV2 ||
@@ -750,9 +764,7 @@ BoundarySelection selection_from_json(const Json &value) {
 StructuralSetup deserialize_setup(const std::string &setupBytes,
                                   const std::string &deckBytes) {
   const auto canonical = integrity::verify_canonical_bytes(
-      setupBytes,
-      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U,
-                        100000U, 4U * 1024U * 1024U});
+      setupBytes, structuralSetupEvidenceLimits);
   const auto root = Json::parse(canonical);
   if (!exact_keys(root, {"$schema", "schema_version", "analysis_id",
                          "component_name", "geometry_sha256", "mesh",

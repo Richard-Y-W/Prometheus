@@ -3,6 +3,7 @@
 #include "prometheus/structural/structural_observables.hpp"
 #include "prometheus/structural/structural_refinement.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
