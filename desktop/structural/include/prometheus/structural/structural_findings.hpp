@@ -24,6 +24,8 @@ struct StructuralRefinementSummary final {
   double maximum_allowed_change_fraction{};
   std::vector<std::string> setup_sha256;
   std::vector<std::string> result_sha256;
+  std::vector<StructuralObservableComparison> observables;
+  std::vector<StructuralGlobalExtremumDiagnostic> global_extrema;
 };
 
 struct StructuralFinding final {
@@ -38,6 +40,12 @@ struct StructuralFinding final {
   std::vector<std::string> assumptions;
 };
 
+struct StructuralUnevaluatedObligation final {
+  std::string obligation;
+  std::string code;
+  std::string detail;
+};
+
 struct StructuralEvaluation final {
   SolverRunStatus execution_status{SolverRunStatus::launch_failed};
   std::vector<StructuralFinding> findings;
@@ -45,6 +53,7 @@ struct StructuralEvaluation final {
   int declared_obligations{};
   int evaluated_obligations{};
   std::string limitation;
+  std::vector<StructuralUnevaluatedObligation> unknowns;
 };
 
 [[nodiscard]] StructuralEvaluation compile_structural_findings(

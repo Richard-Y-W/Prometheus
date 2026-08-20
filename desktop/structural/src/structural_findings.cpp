@@ -43,7 +43,8 @@ bool valid_result(const CompiledCalculixResult &result) {
 
 StructuralFinding finding(std::string obligation, const double measured,
                           const double limit, std::string unit,
-                          std::vector<std::string> evidence) {
+                          std::vector<std::string> evidence,
+                          std::string scope) {
   const auto margin = limit - measured;
   return {std::move(obligation),
           margin > 0.0
@@ -53,13 +54,35 @@ StructuralFinding finding(std::string obligation, const double measured,
           limit,
           margin,
           std::move(unit),
-          "isotropic linear-elastic C3D4 model under the confirmed scenario "
-          "with accepted mesh-refinement evidence",
+          std::move(scope),
           std::move(evidence),
           {"small-deformation linear static response",
            "isotropic linear-elastic material behavior",
            "reviewed loads and fully fixed restraints represent the scenario",
            "reported extrema are bounded by the submitted mesh and solver output"}};
+}
+
+bool has_accepted_global_observable(
+    const VerifiedStructuralRefinement &refinement,
+    const StructuralObservableQuantity quantity,
+    const StructuralObservableRegionKind region) {
+  if (refinement.coarse().criterion().legacy_global_extrema_only())
+    return refinement.status() == StructuralRefinementStatus::accepted;
+  return std::ranges::any_of(
+      refinement.observable_comparisons(), [&](const auto &comparison) {
+        return comparison.definition.spec.quantity == quantity &&
+               comparison.definition.spec.reduction ==
+                   StructuralObservableReduction::maximum &&
+               comparison.definition.spec.region.kind == region &&
+               comparison.status ==
+                   StructuralObservableConvergenceStatus::accepted;
+      });
+}
+
+void add_unknown(StructuralEvaluation &evaluation, std::string obligation,
+                 std::string code, std::string detail) {
+  evaluation.unknowns.push_back(
+      {std::move(obligation), std::move(code), std::move(detail)});
 }
 
 } // namespace
@@ -88,16 +111,35 @@ StructuralEvaluation compile_structural_findings(
                        fineSample.setup().identity},
       .result_sha256 = {
           refinement.coarse().run().validated_result->identity,
-          validatedResult->identity}};
+          validatedResult->identity},
+      .observables = refinement.observable_comparisons(),
+      .global_extrema = refinement.global_extremum_diagnostics()};
 
   const bool resultValid = validatedResult && valid_result(*validatedResult);
   if (resultValid)
     result.execution_status = SolverRunStatus::completed;
   else if (validatedResult)
     result.execution_status = SolverRunStatus::result_invalid;
-  if (refinement.status() == StructuralRefinementStatus::indeterminate ||
-      !resultValid)
+  const auto addDeclaredUnknowns = [&](const std::string &code,
+                                       const std::string &detail) {
+    if (request.displacement_limit_m)
+      add_unknown(result, "maximum_displacement", code, detail);
+    if (request.von_mises_limit_pa)
+      add_unknown(result, "maximum_von_mises_stress", code, detail);
+  };
+  if (refinement.status() == StructuralRefinementStatus::indeterminate) {
+    addDeclaredUnknowns(
+        "refinement_observable_not_converged",
+        "At least one required refinement observable exceeded its "
+        "predeclared change threshold.");
     return result;
+  }
+  if (!resultValid) {
+    addDeclaredUnknowns(
+        "validated_result_invalid",
+        "The fine solver result does not contain complete validated evidence.");
+    return result;
+  }
 
   const auto validLimit = [](const std::optional<double> value,
                              const std::string &basis) {
@@ -108,8 +150,12 @@ StructuralEvaluation compile_structural_findings(
       !validLimit(request.displacement_limit_m,
                   request.displacement_limit_basis) ||
       !validLimit(request.von_mises_limit_pa,
-                  request.von_mises_limit_basis))
+                  request.von_mises_limit_basis)) {
+    addDeclaredUnknowns(
+        "structural_review_incomplete",
+        "Reviewed requirements and a confirmed scenario are required.");
     return result;
+  }
 
   std::vector<std::string> evidence{
       refinement.coarse().setup().identity,
@@ -119,19 +165,66 @@ StructuralEvaluation compile_structural_findings(
   std::ranges::sort(evidence);
   evidence.erase(std::unique(evidence.begin(), evidence.end()),
                  evidence.end());
-  if (evidence.size() != 4U)
+  if (evidence.size() != 4U) {
+    addDeclaredUnknowns(
+        "structural_evidence_incomplete",
+        "Both setup and both result identities are required.");
     return result;
-  if (request.displacement_limit_m)
-    result.findings.push_back(finding(
-        "maximum_displacement",
-        validatedResult->metrics->maximum_displacement_m,
-        *request.displacement_limit_m, "m", evidence));
-  if (request.von_mises_limit_pa)
-    result.findings.push_back(finding(
-        "maximum_von_mises_stress",
-        validatedResult->metrics->maximum_von_mises_pa,
-        *request.von_mises_limit_pa, "Pa", std::move(evidence)));
+  }
+  const auto legacyScope =
+      "isotropic linear-elastic C3D4 model under the confirmed scenario "
+      "with accepted mesh-refinement evidence";
+  if (request.displacement_limit_m) {
+    if (has_accepted_global_observable(
+            refinement,
+            StructuralObservableQuantity::displacement_magnitude_m,
+            StructuralObservableRegionKind::all_nodes))
+      result.findings.push_back(finding(
+          "maximum_displacement",
+          validatedResult->metrics->maximum_displacement_m,
+          *request.displacement_limit_m, "m", evidence,
+          refinement.coarse().criterion().legacy_global_extrema_only()
+              ? legacyScope
+              : "maximum displacement over all reviewed mesh nodes in the "
+                "confirmed isotropic linear-elastic C3D4 scenario"));
+    else
+      add_unknown(
+          result, "maximum_displacement",
+          "matching_converged_scope_missing",
+          "The global displacement obligation has no accepted all-nodes "
+          "displacement observable.");
+  }
+  if (request.von_mises_limit_pa) {
+    if (has_accepted_global_observable(
+            refinement,
+            StructuralObservableQuantity::von_mises_stress_pa,
+            StructuralObservableRegionKind::all_elements))
+      result.findings.push_back(finding(
+          "maximum_von_mises_stress",
+          validatedResult->metrics->maximum_von_mises_pa,
+          *request.von_mises_limit_pa, "Pa", std::move(evidence),
+          refinement.coarse().criterion().legacy_global_extrema_only()
+              ? legacyScope
+              : "maximum von Mises stress over all reviewed C3D4 elements "
+                "in the confirmed isotropic linear-elastic scenario"));
+    else
+      add_unknown(
+          result, "maximum_von_mises_stress",
+          "matching_converged_scope_missing",
+          "The global stress obligation has no accepted all-elements stress "
+          "observable.");
+  }
   result.evaluated_obligations = static_cast<int>(result.findings.size());
+  if (result.declared_obligations !=
+      result.evaluated_obligations +
+          static_cast<int>(result.unknowns.size())) {
+    result.findings.clear();
+    result.unknowns.clear();
+    result.evaluated_obligations = 0;
+    addDeclaredUnknowns(
+        "structural_coverage_inconsistent",
+        "Declared obligations do not have exactly one finding or unknown.");
+  }
   return result;
 }
 

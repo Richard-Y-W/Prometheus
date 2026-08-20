@@ -1,4 +1,5 @@
 #include "prometheus/structural/structural_benchmarks.hpp"
+#include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_observables.hpp"
 #include "prometheus/structural/structural_refinement.hpp"
 
@@ -86,6 +87,20 @@ ps::CompiledCalculixResult completeResult(
   result.compiled_setup_identity = setup.identity;
   result.identity =
       "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  result.backend =
+      {.executable_sha256 =
+           "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       .version = "CalculiX Version 2.23"};
+  const ps::CalculixArtifactIdentity artifact{
+      .sha256 =
+          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      .byte_length = 1U};
+  result.artifacts = {.deck = artifact,
+                      .sta = artifact,
+                      .dat = artifact,
+                      .frd = artifact,
+                      .standard_output = artifact,
+                      .standard_error = artifact};
   return result;
 }
 
@@ -380,5 +395,59 @@ int main() {
               unstable.value()->status() ==
                   ps::StructuralRefinementStatus::indeterminate,
           "one above-threshold required observable makes the pair indeterminate");
+
+  const auto scopedEvaluation =
+      ps::compile_structural_findings(*scoped.value());
+  require(scopedEvaluation.declared_obligations == 2 &&
+              scopedEvaluation.evaluated_obligations == 1 &&
+              scopedEvaluation.findings.size() == 1U &&
+              scopedEvaluation.findings.front().obligation ==
+                  "maximum_displacement" &&
+              scopedEvaluation.unknowns.size() == 1U &&
+              scopedEvaluation.unknowns.front().obligation ==
+                  "maximum_von_mises_stress" &&
+              scopedEvaluation.unknowns.front().code ==
+                  "matching_converged_scope_missing" &&
+              scopedEvaluation.unknowns.front().detail ==
+                  "The global stress obligation has no accepted all-elements "
+                  "stress observable.",
+          "regional convergence cannot authorize a global stress finding");
+
+  const auto globalCriterion =
+      ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(0.10));
+  const auto globalCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, globalCriterion, coarseOptions,
+      coarseSetup,
+      completedRun(studyResult(coarseSetup, 1.0e-3, 5.0e6, 10.0e6,
+                               'e')));
+  const auto globalFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, globalCriterion, fineOptions,
+      fineSetup,
+      completedRun(studyResult(fineSetup, 1.02e-3, 5.1e6, 10.5e6,
+                               'f')));
+  const auto globalPair = ps::compile_structural_refinement(
+      globalCoarse, globalFine, correspondence);
+  const auto globalEvaluation =
+      ps::compile_structural_findings(*globalPair.value());
+  require(globalPair.complete() &&
+              globalPair.value()->status() ==
+                  ps::StructuralRefinementStatus::accepted &&
+              globalEvaluation.evaluated_obligations == 2 &&
+              globalEvaluation.findings.size() == 2U &&
+              globalEvaluation.unknowns.empty(),
+          "accepted global observables support both global findings");
+
+  const auto unstableEvaluation =
+      ps::compile_structural_findings(*unstable.value());
+  require(unstableEvaluation.evaluated_obligations == 0 &&
+              unstableEvaluation.findings.empty() &&
+              unstableEvaluation.unknowns.size() == 2U &&
+              std::ranges::all_of(
+                  unstableEvaluation.unknowns, [](const auto &unknown) {
+                    return unknown.code ==
+                        "refinement_observable_not_converged";
+                  }),
+          "an indeterminate pair retains both obligations as unknown");
   return 0;
 }
