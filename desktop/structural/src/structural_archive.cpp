@@ -19,31 +19,6 @@ constexpr auto archiveName = "prometheus-structural-run.json";
 constexpr auto schema = "urn:prometheus:schema:structural-run-archive:1.0.0";
 constexpr auto setupSchema = "urn:prometheus:schema:reviewed-structural-setup:1.1.0";
 
-std::string_view quantityLabel(const RequirementQuantity value) {
-  switch (value) {
-  case RequirementQuantity::displacement: return "displacement";
-  case RequirementQuantity::von_mises_stress: return "von_mises_stress";
-  case RequirementQuantity::other: return "other";
-  }
-  return "other";
-}
-
-std::string_view comparatorLabel(const RequirementComparator value) {
-  switch (value) {
-  case RequirementComparator::less_or_equal: return "less_or_equal";
-  }
-  return "less_or_equal";
-}
-
-std::string_view criticalityLabel(const RequirementCriticality value) {
-  switch (value) {
-  case RequirementCriticality::informational: return "informational";
-  case RequirementCriticality::advisory: return "advisory";
-  case RequirementCriticality::critical: return "critical";
-  }
-  return "advisory";
-}
-
 std::string read(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
   if (!input) throw std::runtime_error("archive artifact is missing");
@@ -123,13 +98,13 @@ std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
         Json requirements = Json::array();
         for (const auto &requirement : setup.requirements)
           requirements.push_back(
-              {{"quantity", quantityLabel(requirement.quantity)},
+              {{"quantity", to_string(requirement.quantity)},
                {"other_quantity_description", requirement.other_quantity_description},
-               {"comparator", comparatorLabel(requirement.comparator)},
+               {"comparator", to_string(requirement.comparator)},
                {"limit_value", requirement.limit_value},
                {"unit", requirement.unit},
                {"applicability", requirement.applicability},
-               {"criticality", criticalityLabel(requirement.criticality)},
+               {"criticality", to_string(requirement.criticality)},
                {"source_or_exploratory_rationale",
                 requirement.source_or_exploratory_rationale},
                {"reviewed", requirement.reviewed}});

@@ -2,6 +2,7 @@
 
 #include "prometheus/structural/gmsh_mesh.hpp"
 #include "prometheus/structural/calculix_result.hpp"
+#include "prometheus/structural/structural_setup.hpp"
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/types.hpp"
 
@@ -86,6 +87,7 @@ signals:
 
 private:
   void rebuildPreview();
+  void persistRequirementBindingEdges();
   QString status_{"mesh_required"};
   QString error_;
   QVariantMap mesh_summary_;
@@ -98,6 +100,7 @@ private:
   QVariantMap last_run_;
   QVariantList findings_;
   std::optional<prometheus::structural::StructuralRequest> compiled_request_;
+  std::vector<prometheus::structural::ReviewedRequirement> compiled_requirements_;
   std::string compiled_setup_evidence_;
   prometheus::structural::VolumeMesh mesh_;
   std::vector<prometheus::structural::BoundaryFace> boundary_;

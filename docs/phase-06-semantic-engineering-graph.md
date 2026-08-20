@@ -245,3 +245,155 @@ documented as a comment at both the validation site
 - The persisted edges are provably queryable
   (`run_store::open_read_only` → `execution.joint_bindings`) independent of
   `EngineeringController` — a desktop history panel remains future work.
+
+## Checkpoint 3: promote the reviewed structural requirement to a real graph edge
+
+The third entity pair with a real, human-reviewed relationship is a
+component's geometry and its reviewed structural requirements — built by
+Phase 7 checkpoint 1
+([docs/phase-07-requirements-and-planning.md](phase-07-requirements-and-planning.md)),
+which gave the structural workflow a real `ReviewedRequirement` model
+(quantity, comparator, limit, unit, applicability, criticality, source) but
+left it as transient review-draft state, the same gap checkpoints 1 and 2
+started from before this one.
+
+### What already exists, informally
+
+- **Geometry ↔ reviewed requirement**: `StructuralController::rebuildPreview`
+  compiles a `StructuralSetup`'s `requirements` list into a
+  `StructuralRequest` after `validate_setup` confirms every requirement is
+  reviewed, provenanced, and — for a supported quantity — has a positive
+  limit. Requirements outside CalculiX's coverage compile through
+  unchanged as visible uncovered work rather than being dropped.
+- Until this checkpoint, the reviewed requirement list was `draft_` display
+  state only, exactly like `CadPart::componentRevisionId` before checkpoint
+  1 and the array-indexed joint before checkpoint 2: redefining a
+  requirement silently overwrote the previous review, with no record of
+  when or why a limit changed, and nothing outside `StructuralController`
+  could query "what did this geometry's reviewed requirements say."
+
+### What shipped — unlike checkpoint 1, this needed a small new record type
+
+A requirement has no content-addressed byte blob to embed — like a joint,
+just inline fields a human reviewed — so this checkpoint adds a new
+`RequirementBinding` record (`binding_revision`,
+`supersedes_binding_revision`, `geometry_sha256`, `analysis_id`, `quantity`,
+`other_quantity_description`, `comparator`, `limit_value`, `unit`,
+`applicability`, `criticality`, `source_or_exploratory_rationale`) to
+`ExecutionIndex.requirement_bindings`, with parse/validate/serialize support
+in `project_v2.cpp` and `run_store::install_requirement_binding` in
+`run_store.cpp` — mirroring `install_joint_binding`'s supersession mechanics
+exactly, minus the object-store step.
+
+One deliberate design choice, distinct from both prior checkpoints: a
+requirement is neither a single-entity relationship like a package binding
+nor a symmetric two-entity relationship like a joint. It is identified by
+*which geometry* and *which quantity* it reviews, so its supersession chain
+is keyed by the triple `(geometry_sha256, quantity,
+other_quantity_description)` — documented as `requirement_key` in
+`project_v2.cpp` and mirrored in `run_store.cpp`'s `install_requirement_binding`.
+The description joins the key only for an uncovered (`other`) requirement,
+so two distinct uncovered requirements on the same geometry (e.g. "fatigue
+life" and "corrosion resistance") open independent chains instead of
+colliding, while re-reviewing the *same* uncovered requirement still
+supersedes its own chain.
+
+A second deliberate departure from checkpoints 1 and 2: `reviewSetup` is a
+"Validate and preview request" button click that resubmits every reviewed
+field every time, not a targeted action confirming one relationship the way
+`defineRevoluteJoint` or a bind button is. Appending unconditionally on every
+click — as `install_package_binding`/`install_joint_binding` themselves do,
+by design, since each of *their* calls is already a deliberate one-relationship
+action — would have spammed the graph with a redundant revision per
+requirement on every click, even when nothing changed. `persistRequirementBindingEdges`
+therefore compares each reviewed requirement against the geometry/quantity
+key's currently active binding (a snapshot taken before the loop, since
+`ProjectController::acceptProject` replaces the live project state after
+each successful install) and only calls `install_requirement_binding` when
+the reviewed content actually differs.
+
+- `StructuralController` gained `compiled_requirements_` (the reviewed
+  requirement list `rebuildPreview` already compiles, kept alongside
+  `compiled_request_`) and a private `persistRequirementBindingEdges`,
+  called from `reviewSetup` after `rebuildPreview` succeeds — not from
+  `rebuildPreview` itself, which also runs from patch-selection toggles,
+  mesh loads, and history restores, none of which are a deliberate
+  requirement review.
+- The persist step is best-effort and silent, matching
+  `persistJointBindingEdge`'s contract exactly: no project open, not
+  writable, or no execution store means the edge is simply not persisted —
+  the reviewed requirements already established in the session's `draft_`
+  are never discarded over this, and no error of the controller's own is
+  surfaced. Unlike checkpoints 1 and 2, there is no CAD-entity-id
+  recognition check: a requirement is keyed by `geometry_sha256` (the
+  analyzed component's content identity), not a live CAD entity in the
+  current assembly.
+- `structural_archive.cpp`'s three quantity/comparator/criticality label
+  switch statements (added in Phase 7 checkpoint 1 for the reviewed-setup
+  evidence document) were promoted to canonical `to_string(RequirementQuantity)`
+  / `to_string(RequirementComparator)` / `to_string(RequirementCriticality)`
+  free functions in `structural_setup.hpp`/`.cpp`, so the archive, the
+  controller's QML-facing labels, and the new graph-edge persistence share
+  one mapping instead of three independent copies.
+
+### Proof
+
+- `desktop/run_store/tests/project_v2_tests.cpp`'s
+  `requirement_binding_revision_graph_is_strict` proves the same
+  supersession-chain integrity rules checkpoints 1 and 2 proved — duplicate/
+  non-contiguous revisions reject, cross-key supersession rejects, two
+  simultaneously unsuperseded bindings on one key reject — plus
+  requirement-specific rules: an `other` requirement must carry a
+  description and a supported quantity must not, a supported quantity needs
+  a positive limit, and two distinct uncovered-requirement descriptions on
+  the same geometry open independent chains rather than colliding.
+- `desktop/run_store/tests/run_store_transaction_tests.cpp`'s
+  `test_requirement_binding_supersession` proves `install_requirement_binding`
+  end-to-end: a first bind on (geometry, displacement) appends revision one;
+  a tightened limit on the same key supersedes it; a bind on
+  (geometry, von_mises_stress) opens its own chain; two `other` binds with
+  distinct descriptions each open their own chain without disturbing each
+  other.
+- `desktop/app/tests/structural_controller_tests.cpp` extends its real
+  open→review→run→archive→commit→reopen flow: after reviewing a setup with
+  three reviewed requirements (displacement, von Mises, one uncovered), all
+  three appear in `execution.requirement_bindings` — read back via
+  `run_store::open_read_only`, independent of `StructuralController` — each
+  keyed by its own quantity; re-reviewing with only the displacement limit
+  changed appends exactly one new edge that supersedes the prior
+  displacement binding, while the von Mises and uncovered chains are
+  provably undisturbed.
+
+### Explicitly out of scope for checkpoint 3
+
+- The remaining six entity families (BOM row, material, load/restraint,
+  scenario as its own entity, analysis request/finding, source
+  document/evidence claim beyond what Phase 5 already anchors) — added only
+  when a real workflow needs them.
+- The motor-arm workflow — its four obligations are always-on by design,
+  with no reviewed/human-authored "should this apply" input anywhere in
+  that path, unlike structural's `applicability`/`reviewed` fields. Forcing
+  it into this shape would be exactly the false-schema problem Phase 6's
+  own rules forbid.
+- A general graph query/traversal engine, or a query for "what is the
+  complete reviewed-requirement history for geometry X" — only the
+  per-key active-binding resolution `install_requirement_binding` itself
+  performs exists.
+- A desktop UI for requirement-binding history — the data is persisted and
+  provably queryable, but no panel renders it yet, same as checkpoints 1
+  and 2.
+- Confidence scoring for inferred edges — this edge is always
+  human-reviewed, never inferred.
+
+### Exit gate for this checkpoint — met
+
+- A reviewed structural requirement is a persisted graph edge, keyed by
+  which geometry and which quantity it reviews, not transient `draft_`
+  display state.
+- Re-reviewing a requirement with changed content appends a new edge and
+  preserves the prior one's record instead of discarding it; re-reviewing
+  with unchanged content does not spam the chain with redundant revisions.
+- The persisted edges are provably queryable
+  (`run_store::open_read_only` → `execution.requirement_bindings`)
+  independent of `StructuralController` — a desktop history panel remains
+  future work.

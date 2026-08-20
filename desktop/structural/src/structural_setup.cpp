@@ -56,6 +56,31 @@ bool valid_selection(const BoundarySelection &selection,
 
 } // namespace
 
+std::string_view to_string(const RequirementQuantity value) {
+  switch (value) {
+  case RequirementQuantity::displacement: return "displacement";
+  case RequirementQuantity::von_mises_stress: return "von_mises_stress";
+  case RequirementQuantity::other: return "other";
+  }
+  return "other";
+}
+
+std::string_view to_string(const RequirementComparator value) {
+  switch (value) {
+  case RequirementComparator::less_or_equal: return "less_or_equal";
+  }
+  return "less_or_equal";
+}
+
+std::string_view to_string(const RequirementCriticality value) {
+  switch (value) {
+  case RequirementCriticality::informational: return "informational";
+  case RequirementCriticality::advisory: return "advisory";
+  case RequirementCriticality::critical: return "critical";
+  }
+  return "advisory";
+}
+
 std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
   std::vector<ValidationIssue> issues;
   if (setup.analysis_id.empty())

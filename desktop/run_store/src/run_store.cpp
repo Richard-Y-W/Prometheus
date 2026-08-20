@@ -931,6 +931,91 @@ Result<ProjectV2> install_joint_binding(
   }
 }
 
+Result<ProjectV2> install_requirement_binding(
+    const std::filesystem::path &project_path, RequirementBindingInput input,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    auto project_result = read_locked_project(project_path);
+    if (!project_result.has_value()) {
+      return project_result;
+    }
+    auto project = std::move(project_result.value());
+    if (project.execution.requirement_bindings.size() >=
+        maximum_requirement_bindings) {
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "requirement_binding_limit_exceeded",
+          "project already has the maximum requirement-binding revisions"));
+    }
+    // A requirement is identified by which geometry and which quantity it
+    // reviews -- not a two-entity relationship like a joint, so no
+    // unordered-pair key is needed. An "other" (uncovered) requirement has
+    // no supported quantity to disambiguate it, so its own description is
+    // part of the key instead, matching requirement_key in project_v2.cpp,
+    // which validate_requirement_binding_graph enforces on every read of
+    // the persisted result below.
+    const auto key = [](const std::string &geometry, const std::string &quantity,
+                        const std::string &other_description) {
+      return geometry + '\x01' + quantity + '\x01' + other_description;
+    };
+    const auto target = key(input.geometry_sha256, input.quantity,
+                            input.other_quantity_description);
+    std::optional<std::uint64_t> supersedes;
+    std::unordered_set<std::uint64_t> superseded;
+    for (const auto &binding : project.execution.requirement_bindings) {
+      if (binding.supersedes_binding_revision.has_value()) {
+        superseded.insert(*binding.supersedes_binding_revision);
+      }
+    }
+    for (auto iterator = project.execution.requirement_bindings.rbegin();
+         iterator != project.execution.requirement_bindings.rend(); ++iterator) {
+      if (key(iterator->geometry_sha256, iterator->quantity,
+             iterator->other_quantity_description) == target &&
+          !superseded.contains(iterator->binding_revision)) {
+        supersedes = iterator->binding_revision;
+        break;
+      }
+    }
+    std::uint64_t revision = 1U;
+    if (!project.execution.requirement_bindings.empty()) {
+      const auto previous =
+          project.execution.requirement_bindings.back().binding_revision;
+      if (previous >= maximum_safe_integer) {
+        return Result<ProjectV2>::failure(detail::store_diagnostic(
+            "requirement_binding_revision_exhausted",
+            "requirement-binding revision reached the interoperable integer "
+            "limit"));
+      }
+      revision = previous + 1U;
+    }
+    project.execution.requirement_bindings.push_back(RequirementBinding{
+        revision, supersedes, std::move(input.geometry_sha256),
+        std::move(input.analysis_id), std::move(input.quantity),
+        std::move(input.other_quantity_description),
+        std::move(input.comparator), input.limit_value, std::move(input.unit),
+        std::move(input.applicability), std::move(input.criticality),
+        std::move(input.source_or_exploratory_rationale)});
+    const auto candidate = serialize_project_v2(project);
+    if (!candidate.has_value()) {
+      return Result<ProjectV2>::failure(
+          normalized(candidate.diagnostic(), project_path));
+    }
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "requirement_binding_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "requirement_binding_failed", "unknown requirement-binding failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

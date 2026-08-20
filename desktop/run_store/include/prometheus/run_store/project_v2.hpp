@@ -27,6 +27,7 @@ inline constexpr std::size_t maximum_project_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_package_bindings = 10000U;
 inline constexpr std::size_t maximum_joint_bindings = 10000U;
+inline constexpr std::size_t maximum_requirement_bindings = 10000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
 inline constexpr std::string_view structural_manifest_media_type =
@@ -187,6 +188,25 @@ struct JointBinding final {
   double pivot_z;
 };
 
+// Phase 6 checkpoint 3: the append-only, content-free counterpart of
+// JointBinding for a confirmed reviewed structural requirement. Like a
+// joint, a requirement has no content-addressed byte blob to embed -- its
+// fields are inline and the edge is self-contained.
+struct RequirementBinding final {
+  std::uint64_t binding_revision;
+  std::optional<std::uint64_t> supersedes_binding_revision;
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string quantity;
+  std::string other_quantity_description;
+  std::string comparator;
+  double limit_value;
+  std::string unit;
+  std::string applicability;
+  std::string criticality;
+  std::string source_or_exploratory_rationale;
+};
+
 struct Event final {
   std::uint64_t sequence;
   std::string event_kind;
@@ -202,6 +222,7 @@ struct ExecutionIndex final {
   std::vector<StoredObjectReference> committed_runs;
   std::vector<Event> events;
   std::vector<JointBinding> joint_bindings;
+  std::vector<RequirementBinding> requirement_bindings;
 };
 
 struct ProjectV2 final {

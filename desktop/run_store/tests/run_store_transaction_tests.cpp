@@ -512,6 +512,89 @@ void test_joint_binding_supersession() {
           "binding a different pair did not disturb the arm/base chain");
 }
 
+// Phase 6 checkpoint 3: install_requirement_binding is the RequirementBinding
+// analogue of install_joint_binding -- an append-only chain keyed by
+// (geometry, quantity[, other_quantity_description]), since a requirement is
+// identified by which geometry and which quantity it reviews, not a
+// two-entity relationship.
+void test_requirement_binding_supersession() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "bracket.prometheus";
+  create_project(project_path);
+  const std::string geometry = "sha256:" + std::string(64U, '1');
+
+  const auto &first = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "displacement", "",
+              "less_or_equal", 0.001, "m", "static load case", "advisory",
+              "explicit exploratory limit"}),
+      "first requirement binding");
+  require(first.execution.requirement_bindings.size() == 1U &&
+              first.execution.requirement_bindings.front()
+                      .binding_revision == 1U &&
+              !first.execution.requirement_bindings.front()
+                   .supersedes_binding_revision.has_value(),
+          "first requirement binding appends revision one with no supersession");
+
+  const auto &tightened = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "displacement", "",
+              "less_or_equal", 0.0005, "m", "static load case", "critical",
+              "tightened after review"}),
+      "second requirement binding on the same geometry/quantity");
+  require(tightened.execution.requirement_bindings.size() == 2U &&
+              tightened.execution.requirement_bindings.back()
+                      .supersedes_binding_revision == 1U,
+          "reviewing the same geometry/quantity supersedes the prior revision");
+
+  const auto &von_mises = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "von_mises_stress", "",
+              "less_or_equal", 1.0e8, "Pa", "static load case", "advisory",
+              "explicit exploratory limit"}),
+      "requirement binding on a different quantity");
+  require(von_mises.execution.requirement_bindings.size() == 3U &&
+              !von_mises.execution.requirement_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "a different quantity opens its own, unsuperseded chain");
+
+  const auto &fatigue = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "other", "fatigue life",
+              "less_or_equal", 1.0e6, "cycles", "static load case", "critical",
+              "customer fatigue spec"}),
+      "first uncovered requirement binding");
+  require(fatigue.execution.requirement_bindings.size() == 4U &&
+              !fatigue.execution.requirement_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "an uncovered requirement opens its own chain");
+
+  const auto &corrosion = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "other", "corrosion resistance",
+              "less_or_equal", 500.0, "hours", "static load case", "advisory",
+              "customer corrosion spec"}),
+      "second, distinct uncovered requirement binding");
+  require(corrosion.execution.requirement_bindings.size() == 5U &&
+              !corrosion.execution.requirement_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "a distinct uncovered requirement description opens its own chain "
+          "rather than colliding with the first");
+  require(corrosion.execution.requirement_bindings[3]
+                  .supersedes_binding_revision == std::nullopt,
+          "adding the second uncovered requirement did not disturb the first");
+}
+
 void test_structural_manifest_anchor() {
   TemporaryRoot root;
   const auto projectPath = root.path() / "structural.prometheus";
@@ -1311,6 +1394,7 @@ int main() {
   try {
     test_normal_operations_and_idempotency();
     test_joint_binding_supersession();
+    test_requirement_binding_supersession();
     test_structural_manifest_anchor();
     test_embedded_structural_archive_round_trip();
     test_create_failure_boundaries();

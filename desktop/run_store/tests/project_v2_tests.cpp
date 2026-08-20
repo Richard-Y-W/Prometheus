@@ -305,6 +305,110 @@ void joint_binding_revision_graph_is_strict() {
                   "joint binding endpoints must differ");
 }
 
+Json requirement_binding(const std::uint64_t revision,
+                         const std::optional<std::uint64_t> supersedes,
+                         const std::string &geometry,
+                         const std::string &quantity,
+                         const std::string &other_description = "") {
+  return Json{{"binding_revision", revision},
+              {"supersedes_binding_revision",
+               supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
+              {"geometry_sha256", geometry},
+              {"analysis_id", "bracket-analysis-1"},
+              {"quantity", quantity},
+              {"other_quantity_description", other_description},
+              {"comparator", "less_or_equal"},
+              {"limit_value", quantity == "other" ? 1.0e6 : 0.001},
+              {"unit", quantity == "displacement" ? "m" : "cycles"},
+              {"applicability", "static load case"},
+              {"criticality", "advisory"},
+              {"source_or_exploratory_rationale", "explicit exploratory limit"}};
+}
+
+void requirement_binding_revision_graph_is_strict() {
+  const std::string geometry = "sha256:" + std::string(64U, '3');
+
+  auto duplicate = valid_project();
+  duplicate["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  duplicate["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, 1, geometry, "displacement"));
+  expect_rejected(duplicate.dump(), "requirement_binding_revision_order_invalid",
+                  "duplicate requirement binding revision rejects");
+
+  auto gap = valid_project();
+  gap["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  gap["execution"]["requirement_bindings"].push_back(
+      requirement_binding(3, 1, geometry, "displacement"));
+  expect_rejected(gap.dump(), "requirement_binding_revision_order_invalid",
+                  "non-contiguous requirement binding revision rejects");
+
+  auto valid_first = valid_project();
+  valid_first["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  check(run_store::parse_project_v2(valid_first.dump()).has_value(),
+        "first requirement binding parses");
+
+  auto cross_key = valid_project();
+  cross_key["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  cross_key["execution"]["requirement_bindings"].push_back(
+      requirement_binding(2, 1, geometry, "von_mises_stress"));
+  expect_rejected(cross_key.dump(), "requirement_binding_supersession_cross_key",
+                  "cross-key requirement supersession rejects");
+
+  auto two_active = valid_project();
+  two_active["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  two_active["execution"]["requirement_bindings"].push_back(
+      requirement_binding(2, std::nullopt, geometry, "displacement"));
+  expect_rejected(two_active.dump(), "multiple_active_requirement_bindings",
+                  "multiple unsuperseded requirement bindings on one key reject");
+
+  auto valid_chain = valid_project();
+  valid_chain["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  valid_chain["execution"]["requirement_bindings"].push_back(
+      requirement_binding(2, 1, geometry, "displacement"));
+  check(run_store::parse_project_v2(valid_chain.dump()).has_value(),
+        "re-reviewing the same geometry/quantity supersedes the same chain");
+
+  auto distinct_uncovered = valid_project();
+  distinct_uncovered["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "other", "fatigue life"));
+  distinct_uncovered["execution"]["requirement_bindings"].push_back(
+      requirement_binding(2, std::nullopt, geometry, "other",
+                          "corrosion resistance"));
+  check(run_store::parse_project_v2(distinct_uncovered.dump()).has_value(),
+        "two distinct uncovered requirement descriptions open independent "
+        "chains instead of colliding");
+
+  auto unsupported_without_description = valid_project();
+  unsupported_without_description["execution"]["requirement_bindings"]
+      .push_back(requirement_binding(1, std::nullopt, geometry, "other", ""));
+  expect_rejected(unsupported_without_description.dump(),
+                  "invalid_requirement_binding_description",
+                  "an 'other' requirement binding needs a description");
+
+  auto supported_with_description = valid_project();
+  auto stray_description =
+      requirement_binding(1, std::nullopt, geometry, "displacement");
+  stray_description["other_quantity_description"] = "should not have one";
+  supported_with_description["execution"]["requirement_bindings"].push_back(
+      stray_description);
+  expect_rejected(supported_with_description.dump(),
+                  "invalid_requirement_binding_description",
+                  "a supported quantity must not carry a description");
+
+  auto nonpositive_limit = valid_project();
+  auto negative = requirement_binding(1, std::nullopt, geometry, "displacement");
+  negative["limit_value"] = -0.001;
+  nonpositive_limit["execution"]["requirement_bindings"].push_back(negative);
+  expect_rejected(nonpositive_limit.dump(), "invalid_requirement_binding_limit",
+                  "a supported requirement binding needs a positive limit");
+}
+
 void collection_and_event_bounds_are_strict() {
   auto events = valid_project();
   for (std::uint64_t sequence = 1U; sequence <= 257U; ++sequence) {
@@ -340,6 +444,7 @@ int main() {
   syntax_and_identity_fail_closed();
   binding_revision_graph_is_strict();
   joint_binding_revision_graph_is_strict();
+  requirement_binding_revision_graph_is_strict();
   collection_and_event_bounds_are_strict();
   return failures == 0 ? 0 : 1;
 }

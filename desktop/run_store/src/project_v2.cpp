@@ -709,6 +709,154 @@ void validate_joint_binding_graph(const std::vector<JointBinding> &bindings) {
   }
 }
 
+RequirementBinding parse_requirement_binding(const Json &value,
+                                             const std::size_t index) {
+  const auto field =
+      "execution.requirement_bindings[" + std::to_string(index) + "]";
+  require_exact_members(
+      value,
+      {"binding_revision", "supersedes_binding_revision", "geometry_sha256",
+       "analysis_id", "quantity", "other_quantity_description", "comparator",
+       "limit_value", "unit", "applicability", "criticality",
+       "source_or_exploratory_rationale"},
+      field);
+  std::optional<std::uint64_t> supersedes;
+  if (!value.at("supersedes_binding_revision").is_null()) {
+    supersedes = require_unsigned(value, "supersedes_binding_revision",
+                                  field + ".supersedes_binding_revision");
+  }
+  const auto &geometry =
+      require_string(value, "geometry_sha256", field + ".geometry_sha256",
+                     maximum_identity_bytes);
+  const auto &analysis_id = require_string(
+      value, "analysis_id", field + ".analysis_id", maximum_identity_bytes);
+  const auto &quantity =
+      require_string(value, "quantity", field + ".quantity", 32U);
+  if (!contains({"displacement", "von_mises_stress", "other"}, quantity)) {
+    reject("invalid_requirement_binding_quantity",
+           "requirement binding quantity is unsupported", field + ".quantity");
+  }
+  const auto &description =
+      require_string(value, "other_quantity_description",
+                     field + ".other_quantity_description", maximum_text_bytes,
+                     true);
+  if ((quantity == "other") == description.empty()) {
+    reject("invalid_requirement_binding_description",
+           "an 'other' requirement binding needs a description and a "
+           "supported quantity must not have one",
+           field + ".other_quantity_description");
+  }
+  const auto &comparator =
+      require_string(value, "comparator", field + ".comparator", 32U);
+  if (!contains({"less_or_equal"}, comparator)) {
+    reject("invalid_requirement_binding_comparator",
+           "requirement binding comparator is unsupported",
+           field + ".comparator");
+  }
+  const auto limit =
+      require_finite_number(value, "limit_value", field + ".limit_value");
+  if (quantity != "other" && limit <= 0.0) {
+    reject("invalid_requirement_binding_limit",
+           "a supported requirement binding quantity needs a positive limit",
+           field + ".limit_value");
+  }
+  const auto &unit =
+      require_string(value, "unit", field + ".unit", 32U);
+  const auto &applicability = require_string(
+      value, "applicability", field + ".applicability", maximum_text_bytes, true);
+  const auto &criticality =
+      require_string(value, "criticality", field + ".criticality", 32U);
+  if (!contains({"informational", "advisory", "critical"}, criticality)) {
+    reject("invalid_requirement_binding_criticality",
+           "requirement binding criticality is unsupported",
+           field + ".criticality");
+  }
+  const auto &rationale =
+      require_string(value, "source_or_exploratory_rationale",
+                     field + ".source_or_exploratory_rationale",
+                     maximum_text_bytes);
+  return {require_unsigned(value, "binding_revision",
+                           field + ".binding_revision"),
+          supersedes,
+          geometry,
+          analysis_id,
+          quantity,
+          description,
+          comparator,
+          limit,
+          unit,
+          applicability,
+          criticality,
+          rationale};
+}
+
+// A requirement is identified by which geometry and which quantity it
+// reviews -- not a symmetric two-entity relationship like a joint, so no
+// unordered-pair key is needed. An "other" (uncovered) requirement has no
+// supported quantity to disambiguate it, so its own description joins the
+// key, letting two distinct uncovered requirements on the same geometry
+// open independent chains instead of colliding.
+std::string requirement_key(const RequirementBinding &binding) {
+  return binding.geometry_sha256 + '\x01' + binding.quantity + '\x01' +
+        binding.other_quantity_description;
+}
+
+void validate_requirement_binding_graph(
+    const std::vector<RequirementBinding> &bindings) {
+  struct Revision final {
+    std::string key;
+    bool superseded{false};
+  };
+  std::unordered_map<std::uint64_t, Revision> revisions;
+  std::unordered_set<std::string> active_keys;
+  revisions.reserve(bindings.size());
+  active_keys.reserve(bindings.size());
+  for (std::size_t index = 0U; index < bindings.size(); ++index) {
+    const auto &binding = bindings[index];
+    const auto expected = static_cast<std::uint64_t>(index) + 1U;
+    if (binding.binding_revision != expected) {
+      reject("requirement_binding_revision_order_invalid",
+             "requirement binding revisions must be unique, contiguous, and "
+             "ordered",
+             "execution.requirement_bindings[" + std::to_string(index) +
+                 "].binding_revision");
+    }
+    const auto key = requirement_key(binding);
+    if (binding.supersedes_binding_revision.has_value()) {
+      const auto prior = revisions.find(*binding.supersedes_binding_revision);
+      if (prior == revisions.end()) {
+        reject("requirement_binding_supersession_invalid",
+               "requirement binding supersession must identify an earlier "
+               "revision",
+               "execution.requirement_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.key != key) {
+        reject("requirement_binding_supersession_cross_key",
+               "a requirement binding cannot supersede a different "
+               "geometry/quantity key",
+               "execution.requirement_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.superseded) {
+        reject("requirement_binding_supersession_invalid",
+               "a requirement binding revision cannot be superseded twice",
+               "execution.requirement_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      prior->second.superseded = true;
+      active_keys.erase(key);
+    } else if (active_keys.contains(key)) {
+      reject("multiple_active_requirement_bindings",
+             "a geometry/quantity key may have only one unsuperseded "
+             "requirement binding",
+             "execution.requirement_bindings[" + std::to_string(index) + "]");
+    }
+    active_keys.insert(key);
+    revisions.emplace(binding.binding_revision, Revision{key, false});
+  }
+}
+
 void validate_binding_graph(const std::vector<PackageBinding> &bindings) {
   struct Revision final {
     std::string entity;
@@ -799,7 +947,7 @@ ExecutionIndex parse_execution(const Json &value) {
   require_exact_members(
       value,
       {"package_bindings", "current_scenario", "committed_runs", "events",
-       "joint_bindings"},
+       "joint_bindings", "requirement_bindings"},
       "execution");
   ExecutionIndex execution;
   const auto &bindings = require_array(value, "package_bindings",
@@ -821,6 +969,17 @@ ExecutionIndex parse_execution(const Json &value) {
         parse_joint_binding(joint_bindings[index], index));
   }
   validate_joint_binding_graph(execution.joint_bindings);
+
+  const auto &requirement_bindings =
+      require_array(value, "requirement_bindings",
+                    "execution.requirement_bindings",
+                    maximum_requirement_bindings);
+  execution.requirement_bindings.reserve(requirement_bindings.size());
+  for (std::size_t index = 0U; index < requirement_bindings.size(); ++index) {
+    execution.requirement_bindings.push_back(
+        parse_requirement_binding(requirement_bindings[index], index));
+  }
+  validate_requirement_binding_graph(execution.requirement_bindings);
 
   if (!value.at("current_scenario").is_null()) {
     execution.current_scenario =
@@ -1063,6 +1222,26 @@ Json project_json(const ProjectV2 &project) {
              {"pivot_y", binding.pivot_y},
              {"pivot_z", binding.pivot_z}});
   }
+  Json requirement_bindings = Json::array();
+  for (const auto &binding : project.execution.requirement_bindings) {
+    requirement_bindings.push_back(
+        Json{{"binding_revision", binding.binding_revision},
+             {"supersedes_binding_revision",
+              binding.supersedes_binding_revision.has_value()
+                  ? Json(*binding.supersedes_binding_revision)
+                  : Json(nullptr)},
+             {"geometry_sha256", binding.geometry_sha256},
+             {"analysis_id", binding.analysis_id},
+             {"quantity", binding.quantity},
+             {"other_quantity_description", binding.other_quantity_description},
+             {"comparator", binding.comparator},
+             {"limit_value", binding.limit_value},
+             {"unit", binding.unit},
+             {"applicability", binding.applicability},
+             {"criticality", binding.criticality},
+             {"source_or_exploratory_rationale",
+              binding.source_or_exploratory_rationale}});
+  }
   Json current_scenario = nullptr;
   if (project.execution.current_scenario.has_value()) {
     current_scenario = reference_json(*project.execution.current_scenario);
@@ -1107,7 +1286,8 @@ Json project_json(const ProjectV2 &project) {
             {"current_scenario", std::move(current_scenario)},
             {"committed_runs", std::move(committed_runs)},
             {"events", std::move(events)},
-            {"joint_bindings", std::move(joint_bindings)}}}};
+            {"joint_bindings", std::move(joint_bindings)},
+            {"requirement_bindings", std::move(requirement_bindings)}}}};
 }
 
 } // namespace

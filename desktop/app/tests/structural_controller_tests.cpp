@@ -16,6 +16,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <filesystem>
+#include <set>
+#include <string>
 
 namespace {
 
@@ -118,6 +120,61 @@ int main(int argc, char **argv) {
               controller.uncoveredRequirements().front().toMap()
                       .value("criticality").toString() == "critical",
           "a requirement outside the CalculiX capability stays visible as uncovered work");
+  {
+    // Phase 6 checkpoint 3: reviewing a setup promotes each requirement into
+    // a real, persisted, append-only RequirementBinding graph edge -- proven
+    // by reading it back independent of the controller, mirroring how
+    // checkpoints 1 and 2 proved CAD-binding and joint supersession.
+    const auto after_first_review =
+        prometheus::run_store::open_read_only(projectPath);
+    require(after_first_review.has_value() &&
+                after_first_review.value().execution.requirement_bindings.size() ==
+                    3U,
+            "reviewing a setup with three reviewed requirements appends "
+            "three graph edges");
+    const auto quantities = [&] {
+      std::set<std::string> found;
+      for (const auto &binding :
+           after_first_review.value().execution.requirement_bindings) {
+        found.insert(binding.quantity);
+      }
+      return found;
+    }();
+    require(quantities == std::set<std::string>{"displacement",
+                                                 "von_mises_stress", "other"},
+            "each reviewed requirement is keyed by its own quantity");
+
+    auto changed_limit = reviewedDraft();
+    changed_limit["displacement_limit_m"] = 0.002;
+    controller.reviewSetup(changed_limit);
+    require(controller.status() == "ready_for_execution" && controller.canRun(),
+            "re-reviewing with a changed displacement limit still compiles");
+    const auto after_second_review =
+        prometheus::run_store::open_read_only(projectPath);
+    require(after_second_review.has_value() &&
+                after_second_review.value().execution.requirement_bindings.size() ==
+                    4U,
+            "a changed displacement limit appends a fourth graph edge");
+    const auto &latest =
+        after_second_review.value().execution.requirement_bindings.back();
+    require(latest.quantity == "displacement" && latest.limit_value == 0.002 &&
+                latest.supersedes_binding_revision.has_value(),
+            "the new displacement binding supersedes the prior one");
+    std::size_t undisturbed = 0U;
+    for (const auto &binding :
+         after_second_review.value().execution.requirement_bindings) {
+      if (binding.quantity != "displacement" &&
+          !binding.supersedes_binding_revision.has_value()) {
+        ++undisturbed;
+      }
+    }
+    require(undisturbed == 2U,
+            "the von Mises and uncovered requirement chains are undisturbed "
+            "by a displacement-only re-review");
+    controller.reviewSetup(reviewedDraft());
+    require(controller.status() == "ready_for_execution" && controller.canRun(),
+            "restoring the original draft for the rest of the suite still compiles");
+  }
   QEventLoop runLoop;
   QObject::connect(&controller, &StructuralController::runFinished,
                    &runLoop, &QEventLoop::quit);

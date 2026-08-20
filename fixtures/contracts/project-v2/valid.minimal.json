@@ -35,6 +35,7 @@
     "current_scenario": null,
     "committed_runs": [],
     "events": [],
-    "joint_bindings": []
+    "joint_bindings": [],
+    "requirement_bindings": []
   }
 }

@@ -7,6 +7,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace prometheus::structural {
@@ -52,6 +53,10 @@ struct ReviewedRequirement final {
   std::string source_or_exploratory_rationale;
   bool reviewed{};
 };
+
+[[nodiscard]] std::string_view to_string(RequirementQuantity value);
+[[nodiscard]] std::string_view to_string(RequirementComparator value);
+[[nodiscard]] std::string_view to_string(RequirementCriticality value);
 
 struct ReviewedMeshControls final {
   double minimum_size_m{};

@@ -159,17 +159,13 @@ speculatively ahead of a second capability that would need one.
   and motor-arm — each subsystem keeps its own scenario notion (structural:
   `scenario_description`/`scenario_confirmed`; motor-arm:
   `MotorArmScenario`) until a real workflow needs them unified.
-- New Phase 6 graph entities (requirement/scenario, analysis
-  request/finding) — this checkpoint proves the requirement shape is real
-  inside one subsystem first; promoting it to a persisted, provenanced graph
-  edge (mirroring how Phase 6's checkpoints promoted the CAD-binding and
-  joint relationships) is natural future Phase 6 checkpoint 3 work, not part
-  of this checkpoint.
-- A desktop UI for requirement *history* — redefining a requirement
-  overwrites the live review draft exactly as before; nothing here makes
-  requirement review append-only or provenanced across edits the way Phase 6
-  made CAD bindings and joints append-only graph edges. That remains future
-  work once (or if) requirement review itself is promoted to a graph edge.
+- New Phase 6 graph entities (analysis request/finding; scenario as its own
+  entity) — the requirement/scenario entity family itself is no longer out
+  of scope: [Phase 6 checkpoint 3](phase-06-semantic-engineering-graph.md#checkpoint-3-promote-the-reviewed-structural-requirement-to-a-real-graph-edge)
+  promoted the reviewed structural requirement built here to a real,
+  persisted, append-only `RequirementBinding` graph edge, keyed by geometry
+  and quantity, closing the requirement-history gap noted below. Analysis
+  request/finding remains future work.
 
 ### Exit gate for this checkpoint — partially met
 

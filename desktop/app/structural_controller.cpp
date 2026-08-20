@@ -43,12 +43,8 @@ ps::RequirementCriticality parseCriticality(const QString &value) {
 }
 
 QString criticalityLabel(const ps::RequirementCriticality value) {
-  switch (value) {
-  case ps::RequirementCriticality::critical: return "critical";
-  case ps::RequirementCriticality::informational: return "informational";
-  case ps::RequirementCriticality::advisory: return "advisory";
-  }
-  return "advisory";
+  const auto label = ps::to_string(value);
+  return QString::fromUtf8(label.data(), static_cast<qsizetype>(label.size()));
 }
 
 QString dispositionLabel(const ps::StructuralFindingDisposition value) {
@@ -278,6 +274,7 @@ StructuralController::StructuralController(ProjectController *project,
     connect(project_, &ProjectController::assemblyArtifactInvalidated, this,
             [this] {
       compiled_request_.reset();
+      compiled_requirements_.clear();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       const auto present = std::any_of(
@@ -623,6 +620,7 @@ void StructuralController::restoreStoredRun(const int index,
     rebuildPreview();
     if (!sourceCurrent) {
       compiled_request_.reset();
+      compiled_requirements_.clear();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       blockers_.append(QVariantMap{
@@ -877,7 +875,83 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   result_geometry_ = nullptr;
   result_view_.clear();
   rebuildPreview();
+  persistRequirementBindingEdges();
   emit changed();
+}
+
+void StructuralController::persistRequirementBindingEdges() {
+  // Phase 6 checkpoint 3: promotes each reviewed requirement from transient
+  // display state into a real, persisted, append-only graph edge -- the
+  // RequirementBinding analogue of EngineeringController::
+  // persistJointBindingEdge. Best-effort and silent by the same contract:
+  // a project that is not open or not writable must never discard the
+  // reviewed requirements this session already established in draft_, and
+  // must never surface an error of its own. Triggered only from the
+  // explicit "review this setup" action, not from rebuildPreview() itself,
+  // which also runs from patch-selection toggles, mesh loads, and history
+  // restores -- none of which are a deliberate requirement review.
+  if (!can_run_ || !compiled_request_ || project_ == nullptr ||
+      !project_->project().has_value() || project_->saveAsRequired() ||
+      !project_->executionStoreAvailable()) {
+    return;
+  }
+  const auto geometry = compiled_request_->geometry_sha256;
+  const auto analysisId = compiled_request_->analysis_id;
+  // reviewSetup resubmits the whole reviewed-requirement set on every
+  // "Validate and preview" click, not just the fields the user actually
+  // changed -- unlike a joint or CAD binding, which is confirmed one
+  // relationship at a time. Appending unconditionally here would spam the
+  // graph with a redundant revision per requirement on every click, even
+  // when nothing changed. A snapshot (not a reference: acceptProject below
+  // replaces the live project state mid-loop) of the currently active
+  // bindings lets each requirement supersede its prior revision only when
+  // its reviewed content actually differs.
+  const auto priorBindings =
+      project_->project()->execution.requirement_bindings;
+  std::set<std::uint64_t> superseded;
+  for (const auto &binding : priorBindings) {
+    if (binding.supersedes_binding_revision.has_value()) {
+      superseded.insert(*binding.supersedes_binding_revision);
+    }
+  }
+  for (const auto &requirement : compiled_requirements_) {
+    const auto quantity = std::string(ps::to_string(requirement.quantity));
+    const auto comparator = std::string(ps::to_string(requirement.comparator));
+    const auto criticality = std::string(ps::to_string(requirement.criticality));
+    const prometheus::run_store::RequirementBinding *active = nullptr;
+    for (auto iterator = priorBindings.rbegin();
+         iterator != priorBindings.rend(); ++iterator) {
+      if (iterator->geometry_sha256 == geometry &&
+          iterator->quantity == quantity &&
+          iterator->other_quantity_description ==
+              requirement.other_quantity_description &&
+          !superseded.contains(iterator->binding_revision)) {
+        active = &*iterator;
+        break;
+      }
+    }
+    if (active != nullptr && active->analysis_id == analysisId &&
+        active->comparator == comparator &&
+        active->limit_value == requirement.limit_value &&
+        active->unit == requirement.unit &&
+        active->applicability == requirement.applicability &&
+        active->criticality == criticality &&
+        active->source_or_exploratory_rationale ==
+            requirement.source_or_exploratory_rationale) {
+      continue;
+    }
+    const auto installed = prometheus::run_store::install_requirement_binding(
+        project_->projectPath(),
+        prometheus::run_store::RequirementBindingInput{
+            geometry, analysisId, quantity,
+            requirement.other_quantity_description, comparator,
+            requirement.limit_value, requirement.unit,
+            requirement.applicability, criticality,
+            requirement.source_or_exploratory_rationale});
+    if (installed.has_value()) {
+      project_->acceptProject(installed.value());
+    }
+  }
 }
 
 void StructuralController::rebuildPreview() {
@@ -885,6 +959,7 @@ void StructuralController::rebuildPreview() {
   request_preview_.clear();
   can_run_ = false;
   compiled_request_.reset();
+  compiled_requirements_.clear();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (mesh_.nodes.empty() || patches_.empty()) {
@@ -966,7 +1041,7 @@ void StructuralController::rebuildPreview() {
                draft_.value("load_reviewed").toBool()},
       .restraint = {std::move(restraint),
                     draft_.value("restraint_reviewed").toBool()},
-      .requirements = std::move(requirements),
+      .requirements = requirements,
       .mesh_controls = {draft_.value("mesh_minimum_size_m").toDouble(),
                         draft_.value("mesh_maximum_size_m").toDouble(),
                         draft_.value("mesher_identity").toString().toStdString(),
@@ -993,6 +1068,7 @@ void StructuralController::rebuildPreview() {
   try {
     const auto request = ps::compile_structural_request(setup);
     compiled_request_ = request;
+    compiled_requirements_ = requirements;
     compiled_setup_evidence_ = ps::serialize_structural_setup_evidence(setup);
     request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
                         {"component_name", QString::fromStdString(request.component_name)},
@@ -1242,6 +1318,7 @@ void StructuralController::reset() {
   last_run_.clear();
   findings_.clear();
   compiled_request_.reset();
+  compiled_requirements_.clear();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (result_geometry_) result_geometry_->deleteLater();

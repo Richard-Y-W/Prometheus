@@ -107,6 +107,33 @@ save_project_snapshot(const std::filesystem::path &project_path,
     double maximum_deg, double pivot_x, double pivot_y, double pivot_z,
     TransactionOptions options = {}) noexcept;
 
+// Input for install_requirement_binding. A plain struct rather than
+// positional parameters: RequirementBinding carries ten caller-supplied
+// fields (unlike install_joint_binding's nine), past the point where
+// positional arguments stay safe to read or order correctly at a call site.
+struct RequirementBindingInput final {
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string quantity;
+  std::string other_quantity_description;
+  std::string comparator;
+  double limit_value{};
+  std::string unit;
+  std::string applicability;
+  std::string criticality;
+  std::string source_or_exploratory_rationale;
+};
+
+// Appends a new, append-only RequirementBinding graph edge for a confirmed
+// reviewed structural requirement, superseding the prior active binding for
+// the same (geometry, quantity[, other_quantity_description]) key, if any.
+// Like install_joint_binding, there is no associated content-addressed
+// object to install -- the requirement's fields are inline in the project
+// index.
+[[nodiscard]] Result<ProjectV2> install_requirement_binding(
+    const std::filesystem::path &project_path,
+    RequirementBindingInput input, TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

@@ -521,14 +521,16 @@ Allow users to add components beyond the synthetic catalog while retaining trust
 - a supported analysis consumes the reviewed values;
 - conflicting or missing values remain visible and block unsupported claims.
 
-## Phase 6: Build the first semantic engineering graph — checkpoint 2 landed
+## Phase 6: Build the first semantic engineering graph — checkpoint 3 landed
 
 See [docs/phase-06-semantic-engineering-graph.md](phase-06-semantic-engineering-graph.md)
-for evidence. Two edges have landed so far: checkpoint 1 promotes the
-CAD-to-component binding into a real, persisted, append-only graph edge, and
-checkpoint 2 does the same for a confirmed CAD-to-CAD revolute joint. The
-other seven entity families remain future work, added only as real
-workflows need them.
+for evidence. Three edges have landed so far: checkpoint 1 promotes the
+CAD-to-component binding into a real, persisted, append-only graph edge,
+checkpoint 2 does the same for a confirmed CAD-to-CAD revolute joint, and
+checkpoint 3 does the same for a reviewed structural requirement (keyed by
+geometry and quantity rather than a CAD entity or entity pair), reusing the
+requirement model Phase 7 checkpoint 1 built. The remaining six entity
+families remain future work, added only as real workflows need them.
 
 ### Objective
 

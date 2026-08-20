@@ -371,6 +371,43 @@
         "pivot_z": {"type": "number"}
       }
     },
+    "RequirementBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "geometry_sha256",
+        "analysis_id",
+        "quantity",
+        "other_quantity_description",
+        "comparator",
+        "limit_value",
+        "unit",
+        "applicability",
+        "criticality",
+        "source_or_exploratory_rationale"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "geometry_sha256": {"$ref": "#/$defs/Identifier"},
+        "analysis_id": {"$ref": "#/$defs/Identifier"},
+        "quantity": {"enum": ["displacement", "von_mises_stress", "other"]},
+        "other_quantity_description": {"type": "string", "maxLength": 4096},
+        "comparator": {"enum": ["less_or_equal"]},
+        "limit_value": {"type": "number"},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+        "applicability": {"type": "string", "maxLength": 4096},
+        "criticality": {"enum": ["informational", "advisory", "critical"]},
+        "source_or_exploratory_rationale": {"$ref": "#/$defs/BoundedString"}
+      }
+    },
     "EventV1": {
       "type": "object",
       "additionalProperties": false,
@@ -403,7 +440,7 @@
     "ExecutionIndexV1": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings"],
+      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings", "requirement_bindings"],
       "properties": {
         "package_bindings": {
           "type": "array",
@@ -427,6 +464,11 @@
           "type": "array",
           "maxItems": 10000,
           "items": {"$ref": "#/$defs/JointBindingV1"}
+        },
+        "requirement_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/RequirementBindingV1"}
         }
       }
     }
