@@ -1,7 +1,7 @@
 # Quantity- and Region-Specific Structural Convergence Design
 
 **Date:** 2026-08-20  
-**Status:** Proposed for implementation
+**Status:** Implemented and locally verified
 
 ## Problem
 
@@ -243,7 +243,7 @@ than a malformed-evidence error.
 
 ## Verification
 
-Implementation will proceed test-first and cover:
+The implementation was developed test-first and covers:
 
 - criterion identity changes for quantity, region, reduction, and threshold;
 - invalid and duplicate observable definitions;
@@ -260,5 +260,76 @@ Implementation will proceed test-first and cover:
 
 The expensive 120 x 18 x 18 mesh construction and native CalculiX execution
 remain out of the ordinary unit-test suite. Unit tests use small deterministic
-fixtures; the approved real pair runs once at the explicit structural
-validation checkpoint.
+fixtures; the approved real pair runs only at an explicit structural validation
+checkpoint.
+
+## Local validation record
+
+The final code was verified on 2026-08-20 with the following bounded release
+checks:
+
+- the macOS headless build and all 17 headless tests passed;
+- the macOS desktop-no-OCCT build and all 31 desktop tests passed, with the
+  suite run outside the managed socket sandbox so its two loopback HTTP tests
+  could open local listeners;
+- the Linux ARM64 structural targets built in the pinned validation container,
+  and the native `prometheus_structural_observable_tests` test passed (1/1);
+- and `git diff --check` and CMake preset parsing passed.
+
+The authoritative validation backend was CalculiX 2.23 at
+`/usr/local/bin/ccx_2.23`, with executable SHA-256
+`bc194da233b1ad0308596a0d96feebe0fa416f4191b9f9d0c35e00c3ced8b731`.
+The successful study used 69,120 coarse C3D4 elements and 233,280 fine C3D4
+elements. CalculiX completed both samples with exit code 0 and one converged
+increment per sample.
+
+The fine-mesh maximum displacement was `1.9703812834505696e-4 m`, 1.48094%
+from the analytic reference. The fine-mesh regional von Mises maximum was
+`5.271190191038865e6 Pa`, 2.38537% from the analytic section reference. The
+coarse-to-fine changes were:
+
+| Observable | Change | Locked threshold | Result |
+| --- | ---: | ---: | --- |
+| Maximum displacement over all nodes | 2.18218% | 10% | accepted |
+| Maximum von Mises stress in the declared section box | 2.35441% | 10% | accepted |
+| Global maximum von Mises stress | 10.34177% | 10% | diagnostic only; not converged |
+
+The global stress diagnostic did not participate in acceptance. The finding
+compiler therefore emitted one scoped displacement finding and retained the
+global stress obligation as
+`matching_converged_scope_missing`; archive replay reported one evaluated
+obligation out of two declared obligations. This benchmark does not establish
+a global stress result for YUBI or another real component.
+
+The v4 manifest is retained locally at
+`out/validation/structural-linux-arm64/scoped-cantilever/prometheus-structural-run.json`
+with SHA-256
+`3fdd97810b08aa8febb1ef1503c4a39be34a0138941a449d08625a98c9d80fe9`.
+Native ARM64 replay returned `status=verified`. SHA-256 checks before and after
+replay matched for both samples' INP, DAT, FRD, and STA artifacts, so replay did
+not modify solver evidence or execute another analysis.
+
+### Validation recovery record
+
+The first 80/120 execution pair completed both CalculiX solves, but archive
+creation then rejected the fine reviewed setup because its 233,280 element IDs
+exceeded a 100,000-element canonical-JSON array ceiling. Those raw outputs are
+preserved under
+`out/validation/structural-linux-arm64/scoped-cantilever-prearchive-limit-failure/`.
+The archive reader and writer now share a 500,000-element evidence limit. The
+pair was run a second time because the first failed package did not retain all
+process evidence needed for a truthful archive; no missing stdout or elapsed
+time was reconstructed.
+
+The first replay of the successful archive also exposed deterministic decimal
+round-trip drift in distributed nodal forces. A representative stored value of
+`-1.5432098765e+00` regenerated as `-1.5432098767e+00` after ten-digit deck
+coordinates were converted to face areas. Replay now accepts relative numeric
+drift up to `5e-10` when comparing a regenerated reviewed deck. Stored artifact
+bytes and SHA-256 identities remain exact. The subsequent native ARM64 replay
+verified the archive without invoking CalculiX.
+
+Across this validation session, CalculiX therefore executed two coarse/fine
+pairs: the pre-archive-limit attempt and the documented recovery attempt. The
+successful active run still contains exactly one coarse execution and one fine
+execution, while Save/publication and replay perform no duplicate solver work.
