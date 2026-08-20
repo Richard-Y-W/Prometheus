@@ -174,6 +174,24 @@ int main(int argc,char** argv){
   const auto& joint_edges=after_second_joint_edge.value().execution.joint_bindings;
   if(!joint_edges.back().supersedes_binding_revision.has_value()||*joint_edges.back().supersedes_binding_revision!=joint_edges.front().binding_revision){std::cerr<<"second joint graph edge did not supersede the first\n";return 22;}
 
+  // Phase 6 checkpoint 7: bindingHistory/jointHistory are pure, on-demand
+  // reads of the exact chains just proven above -- reusing this scenario's
+  // real project instead of a new fixture, since one already exists here.
+  const auto binding_history=rebindingCtrl.bindingHistory(motor_entity);
+  if(binding_history.size()!=3){std::cerr<<"binding history did not return the full three-revision chain\n";return 23;}
+  const auto binding_history_0=binding_history[0].toMap();
+  const auto binding_history_1=binding_history[1].toMap();
+  const auto binding_history_2=binding_history[2].toMap();
+  if(!binding_history_0.value("active").toBool()||binding_history_1.value("active").toBool()||binding_history_2.value("active").toBool()){std::cerr<<"binding history marked the wrong revision active\n";return 23;}
+  if(binding_history_0.value("package_hash").toString()!=hash(motor_a)||binding_history_1.value("package_hash").toString()!=hash(motor_b)||binding_history_2.value("package_hash").toString()!=hash(motor_a)){std::cerr<<"binding history lost the exact package identity at some revision\n";return 23;}
+
+  const auto joint_history=reopened_checks.jointHistory(motor_entity);
+  if(joint_history.size()!=2){std::cerr<<"joint history did not return the full two-revision chain\n";return 24;}
+  const auto joint_history_0=joint_history[0].toMap();
+  const auto joint_history_1=joint_history[1].toMap();
+  if(!joint_history_0.value("active").toBool()||joint_history_1.value("active").toBool()){std::cerr<<"joint history marked the wrong revision active\n";return 24;}
+  if(joint_history_0.value("other_entity_id").toString()!=arm_entity||joint_history_1.value("other_entity_id").toString()!=arm_entity){std::cerr<<"joint history named the wrong other entity\n";return 24;}
+
   return 0;
 }
 

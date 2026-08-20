@@ -45,6 +45,14 @@ public:
                                 const QString &revisionId);
   Q_INVOKABLE void cancel();
 
+  // Phase 6 checkpoint 7: a pure, on-demand read of this CAD entity's full
+  // PackageBinding supersession chain -- {revision, active, package_hash}
+  // per entry, most recent first. No cached state and no new signal: reads
+  // project_->project() fresh on every call, the same way persistBindingEdge
+  // already does, so it can never drift from what persistBindingEdge itself
+  // just wrote.
+  Q_INVOKABLE QVariantList bindingHistory(const QString &cadEntityId) const;
+
 signals:
   void changed();
   void componentBindingVerified(QString cadEntityId, QVariantMap component);

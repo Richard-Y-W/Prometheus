@@ -641,3 +641,75 @@ session-local state.
   same logic the persist functions use, so the two can't disagree.
 - The panel reflects a reopened project's persisted history, not just the
   current session's edits.
+
+## Checkpoint 7: make CAD-binding and joint history reviewable
+
+Checkpoints 1 and 2's edges — `PackageBinding` (CAD-to-component) and
+`JointBinding` (confirmed CAD-to-CAD joint) — had the same "provably
+queryable, not reviewable" gap checkpoint 6 closed for the structural
+workflow's four edge kinds. This checkpoint closes it for these two, and
+required a genuinely different design, not a copy of checkpoint 6's:
+
+- Neither `ComponentBindingController` nor `EngineeringController` has a
+  `reloadProject`-style hook or a project-opened/saved connection the way
+  `StructuralController` does.
+- Neither has a controller-owned "current entity" concept — the selected
+  CAD part is QML-local state in `Main.qml`
+  (`selectedIndex`/`selectedPart`), not a C++ property either controller
+  can read.
+
+Given that, this checkpoint adds two **pure, on-demand query methods**
+instead of cached, event-driven state:
+`ComponentBindingController::bindingHistory(cadEntityId)` and
+`EngineeringController::jointHistory(cadEntityId)`. Each reads
+`project_->project()->execution.{package,joint}_bindings` fresh on every
+call — the same way `persistBindingEdge`/`persistJointBindingEdge`
+themselves read it — filters to the given entity (as either endpoint, for
+a joint), and marks each revision active/superseded using the same
+superseded-revision-set computation checkpoint 6 established. No new
+signal, no new reload wiring, no risk to the existing bind/joint-define
+flows: these methods touch nothing existing controllers already do.
+
+`Main.qml` reads both reactively without adding new `Connections` blocks,
+by deliberately reusing existing NOTIFY-tracked properties as dependency
+anchors: `componentBindingController.busy` (which already toggles
+true→false around every bind) and `engineeringController.joint` (which
+already changes synchronously on every `defineRevoluteJoint` call) are
+referenced inside the binding expressions purely so QML knows to
+re-evaluate them at exactly the moments each chain can change. Two small
+history lists render next to the existing component-binding status in the
+CAD part sidebar, styled like checkpoint 6's panel (dimmed for superseded
+entries).
+
+### Proof
+
+`desktop/app/tests/project_tests.cpp` already built a real project and
+drove both controllers against it to prove checkpoints 1 and 2's
+persistence (a 3-revision `package_bindings` chain for one CAD entity from
+three `ComponentBindingController` binds; a 2-revision `joint_bindings`
+chain from two `defineRevoluteJoint` calls) — this checkpoint extends that
+existing scenario rather than building new fixtures. `bindingHistory`
+returns all 3 revisions with the correct active flag and exact package
+hash at each step (motor A → motor B → motor A); `jointHistory` returns
+both revisions with the correct active flag and the correct
+`other_entity_id` at each step.
+
+### Explicitly out of scope for checkpoint 7
+
+- Any new project-reload signal wiring on either controller — not needed
+  given the pure-query design.
+- A persistent "current CAD entity" concept promoted out of `Main.qml` into
+  a controller — reading `selectedPart.persistentId` at the QML call site
+  is sufficient.
+- Filtering, pagination, or a "revert to this revision" action — same
+  reasoning as checkpoint 6.
+
+### Exit gate for this checkpoint — met
+
+- Every `PackageBinding` and `JointBinding` revision for the selected CAD
+  entity is visible in the desktop app, not just queryable from a test or
+  the CLI.
+- The panel distinguishes active from superseded revisions using the exact
+  same logic the persist functions use.
+- No new controller state, signals, or reload wiring were needed to get
+  there — the query methods are pure reads of what already exists.

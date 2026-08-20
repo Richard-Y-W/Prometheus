@@ -26,6 +26,13 @@ ApplicationWindow {
     readonly property bool hasSelection: selectedIndex >= 0 && selectedIndex < cadController.parts.length
     readonly property var selectedPart: hasSelection ? cadController.parts[selectedIndex] : null
     readonly property bool hasJointParts: engineeringController.jointConfigured && engineeringController.joint.source_index >= 0 && engineeringController.joint.target_index >= 0 && engineeringController.joint.source_index < cadController.parts.length && engineeringController.joint.target_index < cadController.parts.length
+    // Phase 6 checkpoint 7: on-demand reads of the selected part's full
+    // PackageBinding/JointBinding supersession chains. componentBindingController.busy
+    // and engineeringController.joint are read purely to give these bindings something
+    // to re-evaluate on: a bind's async busy->!busy toggle and a (re)defined joint's
+    // synchronous property change respectively, at exactly the moments the chain changes.
+    readonly property var componentBindingHistory: (hasSelection && !componentBindingController.busy) ? componentBindingController.bindingHistory(selectedPart.persistentId) : []
+    readonly property var jointHistoryForSelection: (hasSelection && engineeringController.joint !== undefined) ? engineeringController.jointHistory(selectedPart.persistentId) : []
     property bool xrayMode: false
     property bool boundsMode: false
     property var measurement: ({})
@@ -1173,6 +1180,74 @@ ApplicationWindow {
                     text: componentBindingController.error
                     color: "#e87972"
                     wrapMode: Text.WordWrap
+                }
+                Label {
+                    visible: componentBindingHistory.length > 0
+                    text: "COMPONENT BINDING HISTORY"
+                    color: muted
+                    font.bold: true
+                    font.pixelSize: 10
+                    topPadding: 8
+                }
+                ListView {
+                    id: componentBindingHistoryList
+                    visible: componentBindingHistory.length > 0
+                    width: parent.width
+                    height: Math.min(contentHeight, 90)
+                    clip: true
+                    spacing: 3
+                    model: componentBindingHistory
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: componentBindingHistoryList.width
+                        height: bindingHistoryText.implicitHeight + 12
+                        color: modelData.active ? "#182420" : "#181b1e"
+                        border.color: modelData.active ? "#365f4b" : "#2c3238"
+                        opacity: modelData.active ? 1.0 : 0.65
+                        Label {
+                            id: bindingHistoryText
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            text: "rev " + modelData.revision + (modelData.active ? "" : " (superseded)") + "\n" + modelData.package_hash
+                            color: modelData.active ? "#9fd6bd" : muted
+                            elide: Text.ElideMiddle
+                            font.pixelSize: 9
+                        }
+                    }
+                }
+                Label {
+                    visible: jointHistoryForSelection.length > 0
+                    text: "JOINT HISTORY"
+                    color: muted
+                    font.bold: true
+                    font.pixelSize: 10
+                    topPadding: 8
+                }
+                ListView {
+                    id: jointHistoryList
+                    visible: jointHistoryForSelection.length > 0
+                    width: parent.width
+                    height: Math.min(contentHeight, 90)
+                    clip: true
+                    spacing: 3
+                    model: jointHistoryForSelection
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: jointHistoryList.width
+                        height: jointHistoryText.implicitHeight + 12
+                        color: modelData.active ? "#182420" : "#181b1e"
+                        border.color: modelData.active ? "#365f4b" : "#2c3238"
+                        opacity: modelData.active ? 1.0 : 0.65
+                        Label {
+                            id: jointHistoryText
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            text: "rev " + modelData.revision + (modelData.active ? "" : " (superseded)") + "\naxis " + modelData.axis + "  [" + modelData.minimum_deg + "°, " + modelData.maximum_deg + "°]  with " + modelData.other_entity_id
+                            color: modelData.active ? "#9fd6bd" : muted
+                            elide: Text.ElideMiddle
+                            font.pixelSize: 9
+                        }
+                    }
                 }
                 Label {
                     visible: cadController.sourceName !== ""

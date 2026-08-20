@@ -12,6 +12,9 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
+#include <cstdint>
+#include <set>
+
 namespace {
 
 std::string bytes(const QByteArray &value) {
@@ -178,6 +181,32 @@ void ComponentBindingController::persistBindingEdge(
   if (installed.has_value()) {
     project_->acceptProject(installed.value());
   }
+}
+
+QVariantList ComponentBindingController::bindingHistory(
+    const QString &cadEntityId) const {
+  QVariantList result;
+  if (project_ == nullptr || !project_->project().has_value()) {
+    return result;
+  }
+  const auto &bindings = project_->project()->execution.package_bindings;
+  const auto entityId = cadEntityId.toStdString();
+  std::set<std::uint64_t> superseded;
+  for (const auto &binding : bindings) {
+    if (binding.supersedes_binding_revision.has_value()) {
+      superseded.insert(*binding.supersedes_binding_revision);
+    }
+  }
+  for (auto iterator = bindings.rbegin(); iterator != bindings.rend();
+       ++iterator) {
+    if (iterator->cad_entity_id != entityId) continue;
+    result.append(QVariantMap{
+        {"revision", static_cast<qlonglong>(iterator->binding_revision)},
+        {"active", !superseded.contains(iterator->binding_revision)},
+        {"package_hash",
+         QString::fromStdString(iterator->package.object_hash)}});
+  }
+  return result;
 }
 
 void ComponentBindingController::cancel() {

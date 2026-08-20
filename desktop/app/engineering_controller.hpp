@@ -51,6 +51,14 @@ public:
                                      bool staticInterferenceEvaluated = true);
   Q_INVOKABLE void restoreGeometryState(const QVariantMap &state);
 
+  // Phase 6 checkpoint 7: a pure, on-demand read of every JointBinding
+  // involving this CAD entity (as either source or target) --
+  // {revision, active, other_entity_id, axis, minimum_deg, maximum_deg} per
+  // entry, most recent first. Mirrors ComponentBindingController::
+  // bindingHistory: no cached state, no new signal, reads project_->
+  // project() fresh on every call.
+  Q_INVOKABLE QVariantList jointHistory(const QString &cadEntityId) const;
+
 signals:
   void changed();
 
