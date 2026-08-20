@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -174,6 +175,81 @@ Json convergence_json(const CalculixConvergenceEvidence &convergence) {
           {"total_time", convergence.total_time},
           {"step_time", convergence.step_time},
           {"increment_time", convergence.increment_time}};
+}
+
+bool nonnegative_json_integer(const Json &value) {
+  return value.is_number_integer() &&
+         (value.is_number_unsigned() || value.get<std::int64_t>() >= 0);
+}
+
+void validate_stored_result_fields(const Json &convergence,
+                                   const Json &metrics,
+                                   const std::string_view context) {
+  if (!exact_keys(convergence,
+                  {"step", "increment", "attempt", "iterations",
+                   "total_time", "step_time", "increment_time"}) ||
+      !convergence.at("step").is_number_integer() ||
+      !convergence.at("increment").is_number_integer() ||
+      !convergence.at("attempt").is_number_integer() ||
+      !convergence.at("iterations").is_number_integer())
+    reject("archive_contract_invalid",
+           std::string(context) + " convergence is invalid");
+  (void)json_number(convergence, "total_time");
+  (void)json_number(convergence, "step_time");
+  (void)json_number(convergence, "increment_time");
+
+  if (!exact_keys(metrics,
+                  {"maximum_displacement_m", "maximum_von_mises_pa",
+                   "displacement_rows", "stress_rows"}) ||
+      !nonnegative_json_integer(metrics.at("displacement_rows")) ||
+      !nonnegative_json_integer(metrics.at("stress_rows")))
+    reject("archive_contract_invalid",
+           std::string(context) + " metrics are invalid");
+  (void)json_number(metrics, "maximum_displacement_m");
+  (void)json_number(metrics, "maximum_von_mises_pa");
+}
+
+std::string legacy_v2_result_identity(
+    const std::string &setupIdentity,
+    const std::string &geometryIdentity,
+    const Json &backend,
+    const Json &artifacts,
+    const Json &convergence,
+    const Json &metrics) {
+  const Json document{
+      {"$schema",
+       "urn:prometheus:schema:compiled-calculix-result:2.0.0"},
+      {"schema_version", "2.0.0"},
+      {"compiler_version", "calculix-evidence-compiler-v2"},
+      {"compiled_setup_identity", setupIdentity},
+      {"request_geometry_sha256", geometryIdentity},
+      {"backend",
+       {{"executable_sha256",
+         json_string(backend, "executable_sha256")},
+        {"version", json_string(backend, "version")}}},
+      {"artifacts",
+       {{"deck", json_string(artifacts.at("deck"), "sha256")},
+        {"sta", json_string(artifacts.at("sta"), "sha256")},
+        {"dat", json_string(artifacts.at("dat"), "sha256")},
+        {"frd", json_string(artifacts.at("frd"), "sha256")},
+        {"stdout", json_string(artifacts.at("stdout"), "sha256")},
+        {"stderr", json_string(artifacts.at("stderr"), "sha256")}}},
+      {"convergence",
+       {{"step", convergence.at("step")},
+        {"increment", convergence.at("increment")},
+        {"attempt", convergence.at("attempt")},
+        {"iterations", convergence.at("iterations")},
+        {"total_time", convergence.at("total_time")},
+        {"step_time", convergence.at("step_time")},
+        {"increment_time", convergence.at("increment_time")}}},
+      {"metrics",
+       {{"maximum_displacement_m",
+         metrics.at("maximum_displacement_m")},
+        {"maximum_von_mises_pa", metrics.at("maximum_von_mises_pa")},
+        {"displacement_rows", metrics.at("displacement_rows")},
+        {"stress_rows", metrics.at("stress_rows")}}}};
+  return integrity::sha256_bytes(
+      integrity::canonicalize_json_bytes(document.dump()));
 }
 
 Json requirements_json(const StructuralRequest &request) {
@@ -1415,6 +1491,9 @@ CompletedStructuralSamplePtr replay_v3_sample(
   if (!strict_sha256(backendHash) || backendVersion.empty())
     reject("archive_contract_invalid",
            "v3 sample backend identity is invalid");
+  validate_stored_result_fields(value.at("convergence"),
+                                value.at("metrics"),
+                                "v3 sample");
 
   const auto artifacts = verify_and_load_artifacts(
       directory, value.at("artifacts"), &allArtifactNames);
@@ -1462,10 +1541,14 @@ CompletedStructuralSamplePtr replay_v3_sample(
                                   replayedResult.issues.front().message;
     reject("replay_result_invalid", detail);
   }
+  const auto legacyIdentity = legacy_v2_result_identity(
+      setupIdentity, geometryIdentity, backend, value.at("artifacts"),
+      value.at("convergence"), value.at("metrics"));
   if (replayedResult.compiled_setup_identity != setupIdentity ||
-      replayedResult.identity != resultIdentity)
+      (replayedResult.identity != resultIdentity &&
+       legacyIdentity != resultIdentity))
     reject("replay_result_identity_mismatch",
-           "v3 solver evidence produces a different result identity");
+           "v3 solver evidence matches neither supported result identity");
   if (backend !=
           Json{{"executable_sha256",
                 replayedResult.backend.executable_sha256},
@@ -1475,6 +1558,7 @@ CompletedStructuralSamplePtr replay_v3_sample(
       value.at("metrics") != metrics_json(*replayedResult.metrics))
     reject("replay_result_mismatch",
            "v3 solver evidence differs from stored result fields");
+  replayedResult.identity = resultIdentity;
 
   SolverRunOptions options{
       .executable = {},
@@ -1725,6 +1809,8 @@ StructuralArchiveVerification verify_v2_archive(
   const auto backendVersion = json_string(backend, "version");
   if (!strict_sha256(backendHash) || backendVersion.empty())
     return failure("archive_contract_invalid", "archive backend identity is invalid");
+  validate_stored_result_fields(root.at("convergence"),
+                                root.at("metrics"), "archive v2");
 
   const auto artifacts = verify_and_load_artifacts(
       manifestPath.parent_path(), root.at("artifacts"));
@@ -1762,8 +1848,11 @@ StructuralArchiveVerification verify_v2_archive(
                                   replayedResult.issues.front().message;
     return failure("replay_result_invalid", detail);
   }
+  const auto legacyIdentity = legacy_v2_result_identity(
+      setupIdentity, geometryIdentity, backend, root.at("artifacts"),
+      root.at("convergence"), root.at("metrics"));
   if (replayedResult.compiled_setup_identity != setupIdentity ||
-      replayedResult.identity != resultIdentity)
+      legacyIdentity != resultIdentity)
     return failure("replay_result_identity_mismatch",
                    "persisted solver evidence produces a different result identity");
   if (root.at("backend") !=
@@ -1773,6 +1862,7 @@ StructuralArchiveVerification verify_v2_archive(
       root.at("metrics") != metrics_json(*replayedResult.metrics))
     return failure("replay_result_mismatch",
                    "persisted solver evidence differs from archived result fields");
+  replayedResult.identity = resultIdentity;
 
   const auto refinement =
       legacy_v2_refinement_from_json(root.at("refinement"));

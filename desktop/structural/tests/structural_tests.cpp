@@ -151,6 +151,69 @@ std::string evidenceRootV3Identity(
       prometheus::integrity::canonicalize_json_bytes(document.dump()));
 }
 
+std::string legacyV2ResultIdentity(
+    const std::string &setupIdentity,
+    const std::string &geometryIdentity,
+    const nlohmann::json &backend,
+    const nlohmann::json &artifacts,
+    const nlohmann::json &convergence,
+    const nlohmann::json &metrics) {
+  const nlohmann::json document{
+      {"$schema",
+       "urn:prometheus:schema:compiled-calculix-result:2.0.0"},
+      {"schema_version", "2.0.0"},
+      {"compiler_version", "calculix-evidence-compiler-v2"},
+      {"compiled_setup_identity", setupIdentity},
+      {"request_geometry_sha256", geometryIdentity},
+      {"backend", backend},
+      {"artifacts",
+       {{"deck", artifacts.at("deck").at("sha256")},
+        {"sta", artifacts.at("sta").at("sha256")},
+        {"dat", artifacts.at("dat").at("sha256")},
+        {"frd", artifacts.at("frd").at("sha256")},
+        {"stdout", artifacts.at("stdout").at("sha256")},
+        {"stderr", artifacts.at("stderr").at("sha256")}}},
+      {"convergence", convergence},
+      {"metrics", metrics}};
+  return prometheus::integrity::sha256_bytes(
+      prometheus::integrity::canonicalize_json_bytes(document.dump()));
+}
+
+std::string legacyV2ResultIdentity(
+    const std::string &setupIdentity,
+    const std::string &geometryIdentity,
+    const ps::CompiledCalculixResult &result) {
+  require(result.metrics && result.convergence,
+          "legacy identity requires a complete result");
+  const nlohmann::json backend{
+      {"executable_sha256", result.backend.executable_sha256},
+      {"version", result.backend.version}};
+  const nlohmann::json artifacts{
+      {"deck", {{"sha256", result.artifacts.deck.sha256}}},
+      {"sta", {{"sha256", result.artifacts.sta.sha256}}},
+      {"dat", {{"sha256", result.artifacts.dat.sha256}}},
+      {"frd", {{"sha256", result.artifacts.frd.sha256}}},
+      {"stdout", {{"sha256", result.artifacts.standard_output.sha256}}},
+      {"stderr", {{"sha256", result.artifacts.standard_error.sha256}}}};
+  const auto &storedConvergence = *result.convergence;
+  const nlohmann::json convergence{
+      {"step", storedConvergence.step},
+      {"increment", storedConvergence.increment},
+      {"attempt", storedConvergence.attempt},
+      {"iterations", storedConvergence.iterations},
+      {"total_time", storedConvergence.total_time},
+      {"step_time", storedConvergence.step_time},
+      {"increment_time", storedConvergence.increment_time}};
+  const auto &storedMetrics = *result.metrics;
+  const nlohmann::json metrics{
+      {"maximum_displacement_m", storedMetrics.maximum_displacement_m},
+      {"maximum_von_mises_pa", storedMetrics.maximum_von_mises_pa},
+      {"displacement_rows", storedMetrics.displacement_rows},
+      {"stress_rows", storedMetrics.stress_rows}};
+  return legacyV2ResultIdentity(setupIdentity, geometryIdentity, backend,
+                                artifacts, convergence, metrics);
+}
+
 fs::path createLegacyV1Archive(
     const fs::path &root, const ps::StructuralRequest &request,
     const ps::CalculixRunEvidence &evidence,
@@ -266,8 +329,10 @@ fs::path createLegacyV2Archive(
   const auto &request = setup.request;
   const auto &metrics = *validated.metrics;
   const auto &convergence = *validated.convergence;
+  const auto legacyIdentity = legacyV2ResultIdentity(
+      setup.identity, request.geometry_sha256, validated);
   std::vector<std::string> findingEvidence{
-      std::string(secondResultIdentity), validated.identity};
+      std::string(secondResultIdentity), legacyIdentity};
   std::ranges::sort(findingEvidence);
   findingEvidence.erase(
       std::unique(findingEvidence.begin(), findingEvidence.end()),
@@ -367,7 +432,7 @@ fs::path createLegacyV2Archive(
       "\"refinement\":{\"coarse_to_fine_change_fraction\":0.04,"
       "\"complete\":true,\"criteria_satisfied\":true,"
       "\"maximum_allowed_change_fraction\":0.1,\"result_sha256\":[" +
-      jsonString(secondResultIdentity) + ',' + jsonString(validated.identity) +
+      jsonString(secondResultIdentity) + ',' + jsonString(legacyIdentity) +
       "]},\"requirements\":{\"displacement_limit_basis\":" +
       jsonString(request.displacement_limit_basis) +
       ",\"displacement_limit_m\":" +
@@ -377,7 +442,7 @@ fs::path createLegacyV2Archive(
       ",\"von_mises_limit_pa\":" +
       optionalJsonNumber(request.von_mises_limit_pa) +
       "},\"schema_version\":\"2.0.0\",\"validated_result_identity\":" +
-      jsonString(validated.identity) + "}" );
+      jsonString(legacyIdentity) + "}" );
   const auto path = root / "prometheus-structural-run.json";
   writeFixtureBytes(path, manifest);
   return path;
@@ -1762,12 +1827,18 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   const auto legacyV2Manifest = createLegacyV2Archive(
       processRoot / "legacy-v2", processRoot, "success", compiled,
       completed, legacySecondResultIdentity);
+  const auto storedLegacyV2Identity =
+      nlohmann::json::parse(fixtureBytes(legacyV2Manifest))
+          .at("validated_result_identity")
+          .get<std::string>();
+  require(storedLegacyV2Identity != completed.validated_result->identity,
+          "legacy v2 fixture retains the historical metric-bearing identity");
   const auto archiveVerification =
       ps::verify_structural_archive(legacyV2Manifest);
   require(archiveVerification.valid &&
               archiveVerification.schema_version == "2.0.0" &&
               archiveVerification.validated_result_identity ==
-                  completed.validated_result->identity &&
+                  storedLegacyV2Identity &&
               archiveVerification.normalized.has_value() &&
               archiveVerification.reviewed_setup.has_value() &&
               archiveVerification.compiled_setup.has_value() &&
@@ -1784,7 +1855,7 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   detachedLegacyV2Bytes = replaceOnce(
       std::move(detachedLegacyV2Bytes),
       "\"result_sha256\":[" + jsonString(legacySecondResultIdentity) + ',' +
-          jsonString(completed.validated_result->identity) + ']',
+          jsonString(storedLegacyV2Identity) + ']',
       "\"result_sha256\":[" + jsonString(legacySecondResultIdentity) + ',' +
           jsonString(
               "sha256:2222222222222222222222222222222222222222222222222222222222222222") +
