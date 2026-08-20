@@ -1,7 +1,7 @@
 # Portable Structural Result Identity Design
 
 **Date:** 2026-08-20
-**Status:** Approved for implementation
+**Status:** Implemented and locally verified
 
 ## Problem
 
@@ -175,19 +175,23 @@ Numeric mismatch detail names the JSON-style field path and prints the stored
 and replayed values at round-trip precision. A mismatch never becomes an
 accepted finding.
 
-## Verification
+## Verification record
 
-Implementation will proceed test-first.
+Implementation proceeded through four recorded red-green cycles. The first
+failure established that production still emitted the metric-bearing v2
+identity. Subsequent failures isolated legacy identity replay, sample metrics,
+and two-sample comparisons before the corresponding production changes were
+made.
 
-The primary regression fixture will start from a small valid structural
-archive. Its copied manifest will represent a coherent legacy archive produced
-by an alternate math library: one stored displacement maximum will move by one
-binary64 step, and the helper will recompute the affected legacy result
+The primary regression fixture starts from a small valid structural archive.
+Its copied manifest represents a coherent legacy archive produced by an
+alternate math library: one stored displacement maximum moves by one binary64
+step, and the helper recomputes the affected legacy result
 identity, result-lineage references, observable/global values, changes, and
-finding values. Exact raw artifacts remain unchanged. This fixture must fail
-before the compatibility implementation and pass afterward.
+finding values. Exact raw artifacts remain unchanged. The fixture failed at
+the exact comparison before the compatibility change and passed afterward.
 
-Additional tests will require:
+The focused structural test also covers:
 
 - a coherent derived difference within the bound to pass;
 - a coherent derived difference beyond the bound to fail with
@@ -197,13 +201,45 @@ Additional tests will require:
 - changes to artifacts, thresholds, entities, counts, statuses, findings, or
   unknown reasons to remain rejected;
 - existing v1-v4 compatibility and tamper suites to pass; and
-- active-run archive creation and replay to retain one parse per sample and no
+- active-run archive creation and replay retaining one parse per sample and no
   solver call during Save, publication, or replay.
 
-After focused tests pass, the release check runs the complete headless and
-desktop-no-OCCT suites once. The existing Linux ARM64 cantilever archive is
-then replayed with the macOS binary. Its manifest and all INP, DAT, FRD, and
-STA hashes must remain unchanged. CalculiX will not run during this checkpoint.
+The final local checkpoint produced these results on macOS:
+
+- focused `prometheus_structural_tests`: 1/1 passed in 4.09 seconds;
+- complete headless suite: 17/17 passed in 53.54 seconds;
+- desktop-no-OCCT suite: 29/31 passed inside the managed socket sandbox; the
+  two listener-bound tests, `prometheus_exact_package_download` and
+  `prometheus_component_binding_controller`, then passed 2/2 when rerun
+  outside that socket sandbox; and
+- unchanged Linux ARM64 archive replay: exit code 0 with
+  `status=verified`, maximum displacement `0.000197038 m`, maximum von Mises
+  stress `6.83325e+06 Pa`, and 1/2 evaluated obligations.
+
+The one-ULP variants passed for archive-v1 metrics and findings, archive-v2
+metrics and findings with a recomputed historical identity, archive-v3
+comparison values, and archive-v4 samples, comparisons, global extrema, and
+findings. Coherent `1.0e-10` relative changes failed with
+`replay_numeric_mismatch`. Existing threshold, selected-row, entity,
+participation, status, unknown, artifact, and setup tamper cases remained
+rejected.
+
+The ARM64 replay retained these SHA-256 values before and after execution:
+
+- coarse INP: `e31d297471576b3245e33f228720de4420e49de8b50144e4ae4b613ba9dc2a84`;
+- coarse DAT: `6fad931d8a3620f0404801d158253989d9ce4c6dfa3b920eeae7257f70ad0fc3`;
+- coarse FRD: `f3b73d723d5fc053964c5074f88e07cb75e414b6c6d54da20de85e78a9bd1ed3`;
+- coarse STA: `01e324ec0ea28f4d1fd7f5e2da1277af53812b873e218be1604c17a4c8e4990d`;
+- fine INP: `43443a33266ffbb5e3804c3420e91dba7d4fcbee34f6cfbef4918b4d9f95e5d1`;
+- fine DAT: `ad8f317af1f7869afff6301f65e007a0dcd6246b18872999d0ad521d8ba9cead`;
+- fine FRD: `8d6557bd588d2fde6c28e61d184b768c9b7a8ee1b9daff24a427e4d262544fe2`;
+- fine STA: `01e324ec0ea28f4d1fd7f5e2da1277af53812b873e218be1604c17a4c8e4990d`; and
+- archive manifest: `3fdd97810b08aa8febb1ef1503c4a39be34a0138941a449d08625a98c9d80fe9`.
+
+CalculiX was not executed during this checkpoint. The replay CLI accepts only
+an archive path, and the archive audit found one evidence-compilation call in
+the shared v3/v4 sample path, one in the v2 root path, one DAT parse in the v1
+path, and no solver-runner call.
 
 ## Non-goals
 
