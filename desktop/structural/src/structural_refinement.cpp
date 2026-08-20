@@ -5,7 +5,10 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <map>
 #include <stdexcept>
 #include <utility>
 
@@ -83,12 +86,164 @@ void add_issue(std::vector<StructuralRefinementIssue> &issues,
     issues.push_back({std::move(code), std::move(message)});
 }
 
+std::string quantity_string(const StructuralObservableQuantity quantity) {
+  switch (quantity) {
+  case StructuralObservableQuantity::displacement_magnitude_m:
+    return "displacement_magnitude_m";
+  case StructuralObservableQuantity::von_mises_stress_pa:
+    return "von_mises_stress_pa";
+  }
+  throw std::invalid_argument("Unsupported structural observable quantity");
+}
+
+Json observable_region_json(const StructuralObservableRegion &region) {
+  switch (region.kind) {
+  case StructuralObservableRegionKind::all_nodes:
+    return {{"kind", "all_nodes"}};
+  case StructuralObservableRegionKind::all_elements:
+    return {{"kind", "all_elements"}};
+  case StructuralObservableRegionKind::element_centroid_box_m:
+    return {{"kind", "element_centroid_box_m"},
+            {"minimum_m", region.element_centroid_box_m.minimum_m},
+            {"maximum_m", region.element_centroid_box_m.maximum_m}};
+  }
+  throw std::invalid_argument("Unsupported structural observable region");
+}
+
+Json observable_definition_json(
+    const StructuralObservableDefinition &definition) {
+  return {{"identity", definition.identity},
+          {"id", definition.spec.id},
+          {"quantity", quantity_string(definition.spec.quantity)},
+          {"reduction", "maximum"},
+          {"region", observable_region_json(definition.spec.region)},
+          {"maximum_change_fraction",
+           definition.spec.maximum_change_fraction}};
+}
+
+std::array<double, 3> element_centroid(
+    const Tetrahedron &element,
+    const std::map<int, const Node *> &nodes) {
+  std::array<double, 3> result{};
+  for (const int nodeId : element.node_ids) {
+    const auto found = nodes.find(nodeId);
+    if (found == nodes.end())
+      throw std::invalid_argument(
+          "Global stress extremum references an unknown node");
+    for (std::size_t axis = 0; axis < 3U; ++axis)
+      result[axis] += found->second->position_m[axis] / 4.0;
+  }
+  return result;
+}
+
+struct LocatedExtremum final {
+  double value{};
+  int entity_id{};
+  std::array<double, 3> position_m{};
+};
+
+LocatedExtremum displacement_extremum(
+    const CompletedStructuralSample &sample) {
+  LocatedExtremum result{
+      .value = -std::numeric_limits<double>::infinity(),
+      .entity_id = std::numeric_limits<int>::max()};
+  std::map<int, const Node *> nodes;
+  for (const auto &node : sample.setup().request.nodes)
+    nodes.emplace(node.id, &node);
+  for (const auto &row :
+       sample.run().validated_result->normalized.displacements) {
+    const auto node = nodes.find(row.node_id);
+    if (node == nodes.end())
+      throw std::invalid_argument(
+          "Global displacement extremum references an unknown node");
+    if (row.magnitude_m > result.value ||
+        (row.magnitude_m == result.value && row.node_id < result.entity_id))
+      result = {row.magnitude_m, row.node_id, node->second->position_m};
+  }
+  if (!std::isfinite(result.value))
+    throw std::invalid_argument("Global displacement extremum is missing");
+  return result;
+}
+
+LocatedExtremum stress_extremum(const CompletedStructuralSample &sample) {
+  LocatedExtremum result{
+      .value = -std::numeric_limits<double>::infinity(),
+      .entity_id = std::numeric_limits<int>::max()};
+  std::map<int, const Node *> nodes;
+  std::map<int, const Tetrahedron *> elements;
+  for (const auto &node : sample.setup().request.nodes)
+    nodes.emplace(node.id, &node);
+  for (const auto &element : sample.setup().request.elements)
+    elements.emplace(element.id, &element);
+  for (const auto &row : sample.run().validated_result->normalized.stresses) {
+    const auto element = elements.find(row.element_id);
+    if (element == elements.end())
+      throw std::invalid_argument(
+          "Global stress extremum references an unknown element");
+    if (row.von_mises_pa > result.value ||
+        (row.von_mises_pa == result.value &&
+         row.element_id < result.entity_id))
+      result = {row.von_mises_pa, row.element_id,
+                element_centroid(*element->second, nodes)};
+  }
+  if (!std::isfinite(result.value))
+    throw std::invalid_argument("Global stress extremum is missing");
+  return result;
+}
+
+StructuralGlobalExtremumDiagnostic global_diagnostic(
+    const CompletedStructuralSample &coarse,
+    const CompletedStructuralSample &fine,
+    const StructuralObservableQuantity quantity) {
+  const auto coarseExtremum =
+      quantity == StructuralObservableQuantity::displacement_magnitude_m
+          ? displacement_extremum(coarse)
+          : stress_extremum(coarse);
+  const auto fineExtremum =
+      quantity == StructuralObservableQuantity::displacement_magnitude_m
+          ? displacement_extremum(fine)
+          : stress_extremum(fine);
+  const auto &criterion = coarse.criterion();
+  double threshold = criterion.maximum_change_fraction();
+  bool participates = criterion.legacy_global_extrema_only();
+  for (const auto &definition : criterion.observables()) {
+    if (definition.spec.quantity != quantity) continue;
+    threshold = std::min(threshold,
+                         definition.spec.maximum_change_fraction);
+    const bool globalRegion =
+        (quantity ==
+             StructuralObservableQuantity::displacement_magnitude_m &&
+         definition.spec.region.kind ==
+             StructuralObservableRegionKind::all_nodes) ||
+        (quantity == StructuralObservableQuantity::von_mises_stress_pa &&
+         definition.spec.region.kind ==
+             StructuralObservableRegionKind::all_elements);
+    participates = participates || globalRegion;
+  }
+  const auto change = relative_change(coarseExtremum.value,
+                                      fineExtremum.value);
+  return {.quantity = quantity,
+          .coarse_value = coarseExtremum.value,
+          .fine_value = fineExtremum.value,
+          .coarse_entity_id = coarseExtremum.entity_id,
+          .fine_entity_id = fineExtremum.entity_id,
+          .coarse_position_m = coarseExtremum.position_m,
+          .fine_position_m = fineExtremum.position_m,
+          .change_fraction = change,
+          .comparison_threshold = threshold,
+          .participated_in_acceptance = participates,
+          .within_threshold = change <= threshold};
+}
+
 } // namespace
 
 StructuralRefinementCriterion::StructuralRefinementCriterion(
-    const double maximumChangeFraction, std::string identity)
+    const double maximumChangeFraction, std::string identity,
+    std::vector<StructuralObservableDefinition> observables,
+    const bool legacyGlobalExtremaOnly)
     : maximum_change_fraction_(maximumChangeFraction),
-      identity_(std::move(identity)) {}
+      identity_(std::move(identity)), observables_(std::move(observables)),
+      legacy_global_extrema_only_(legacyGlobalExtremaOnly) {}
 
 double StructuralRefinementCriterion::maximum_change_fraction() const
     noexcept {
@@ -97,6 +252,16 @@ double StructuralRefinementCriterion::maximum_change_fraction() const
 
 const std::string &StructuralRefinementCriterion::identity() const noexcept {
   return identity_;
+}
+
+const std::vector<StructuralObservableDefinition> &
+StructuralRefinementCriterion::observables() const noexcept {
+  return observables_;
+}
+
+bool StructuralRefinementCriterion::legacy_global_extrema_only() const
+    noexcept {
+  return legacy_global_extrema_only_;
 }
 
 CompletedStructuralSample::CompletedStructuralSample(
@@ -199,12 +364,16 @@ VerifiedStructuralRefinement::VerifiedStructuralRefinement(
     const double displacementChangeFraction,
     const double stressChangeFraction,
     const double maximumChangeFraction,
-    const StructuralRefinementStatus status)
+    const StructuralRefinementStatus status,
+    std::vector<StructuralObservableComparison> observableComparisons,
+    std::vector<StructuralGlobalExtremumDiagnostic> globalDiagnostics)
     : coarse_(std::move(coarse)), fine_(std::move(fine)),
       boundary_correspondence_(std::move(boundaryCorrespondence)),
       displacement_change_fraction_(displacementChangeFraction),
       stress_change_fraction_(stressChangeFraction),
-      maximum_change_fraction_(maximumChangeFraction), status_(status) {}
+      maximum_change_fraction_(maximumChangeFraction), status_(status),
+      observable_comparisons_(std::move(observableComparisons)),
+      global_extremum_diagnostics_(std::move(globalDiagnostics)) {}
 
 const CompletedStructuralSample &VerifiedStructuralRefinement::coarse() const
     noexcept {
@@ -240,6 +409,16 @@ StructuralRefinementStatus VerifiedStructuralRefinement::status() const
   return status_;
 }
 
+const std::vector<StructuralObservableComparison> &
+VerifiedStructuralRefinement::observable_comparisons() const noexcept {
+  return observable_comparisons_;
+}
+
+const std::vector<StructuralGlobalExtremumDiagnostic> &
+VerifiedStructuralRefinement::global_extremum_diagnostics() const noexcept {
+  return global_extremum_diagnostics_;
+}
+
 StructuralRefinementCompilation::StructuralRefinementCompilation(
     VerifiedStructuralRefinementPtr value,
     std::vector<StructuralRefinementIssue> issues)
@@ -273,7 +452,29 @@ StructuralRefinementCriterion compile_structural_refinement_criterion(
       {"maximum_change_fraction", maximumChangeFraction}};
   const auto canonical =
       integrity::canonicalize_json_bytes(criterion.dump());
-  return {maximumChangeFraction, integrity::sha256_bytes(canonical)};
+  return {maximumChangeFraction, integrity::sha256_bytes(canonical), {},
+          true};
+}
+
+StructuralRefinementCriterion compile_structural_refinement_criterion(
+    std::vector<StructuralObservableSpec> observableSpecs) {
+  auto definitions = compile_structural_observable_definitions(
+      std::move(observableSpecs));
+  Json serialized = Json::array();
+  double maximumChange{};
+  for (const auto &definition : definitions) {
+    serialized.push_back(observable_definition_json(definition));
+    maximumChange = std::max(maximumChange,
+                             definition.spec.maximum_change_fraction);
+  }
+  const Json criterion{
+      {"$schema",
+       "urn:prometheus:schema:structural-refinement-criterion:2.0.0"},
+      {"schema_version", "2.0.0"},
+      {"observables", std::move(serialized)}};
+  const auto canonical = integrity::canonicalize_json_bytes(criterion.dump());
+  return {maximumChange, integrity::sha256_bytes(canonical),
+          std::move(definitions), false};
 }
 
 CompletedStructuralSamplePtr compile_completed_structural_sample(
@@ -385,25 +586,99 @@ StructuralRefinementCompilation compile_structural_refinement(
 
   const auto &coarseMetrics = *coarse->run().validated_result->metrics;
   const auto &fineMetrics = *fine->run().validated_result->metrics;
-  const double displacementChange = relative_change(
-      coarseMetrics.maximum_displacement_m,
-      fineMetrics.maximum_displacement_m);
-  const double stressChange = relative_change(
-      coarseMetrics.maximum_von_mises_pa,
-      fineMetrics.maximum_von_mises_pa);
-  const double maximumChange = std::max(displacementChange, stressChange);
+  std::vector<StructuralGlobalExtremumDiagnostic> diagnostics;
+  try {
+    diagnostics.push_back(global_diagnostic(
+        *coarse, *fine,
+        StructuralObservableQuantity::displacement_magnitude_m));
+    diagnostics.push_back(global_diagnostic(
+        *coarse, *fine,
+        StructuralObservableQuantity::von_mises_stress_pa));
+  } catch (const std::exception &error) {
+    return {nullptr,
+            {{"refinement_result_incomplete", error.what()}}};
+  }
+  if (diagnostics[0].coarse_value !=
+          coarseMetrics.maximum_displacement_m ||
+      diagnostics[0].fine_value != fineMetrics.maximum_displacement_m ||
+      diagnostics[1].coarse_value !=
+          coarseMetrics.maximum_von_mises_pa ||
+      diagnostics[1].fine_value != fineMetrics.maximum_von_mises_pa)
+    return {nullptr,
+            {{"refinement_result_incomplete",
+              "Normalized extrema differ from compiled result metrics."}}};
+
+  const double displacementChange = diagnostics[0].change_fraction;
+  const double stressChange = diagnostics[1].change_fraction;
+  double maximumChange = std::max(displacementChange, stressChange);
+  StructuralRefinementStatus status =
+      maximumChange <= coarse->criterion().maximum_change_fraction()
+          ? StructuralRefinementStatus::accepted
+          : StructuralRefinementStatus::indeterminate;
+  std::vector<StructuralObservableComparison> comparisons;
+
+  if (!coarse->criterion().legacy_global_extrema_only()) {
+    const auto coarseEvaluated = evaluate_structural_observables(
+        coarse->criterion().observables(), coarse->setup(),
+        *coarse->run().validated_result);
+    const auto fineEvaluated = evaluate_structural_observables(
+        fine->criterion().observables(), fine->setup(),
+        *fine->run().validated_result);
+    for (const auto *evaluated : {&coarseEvaluated, &fineEvaluated})
+      for (const auto &issue : evaluated->issues)
+        add_issue(issues, issue.code,
+                  issue.observable_id.empty()
+                      ? issue.message
+                      : issue.observable_id + ": " + issue.message);
+    if (!issues.empty()) return {nullptr, std::move(issues)};
+    if (coarseEvaluated.values.size() != fineEvaluated.values.size() ||
+        coarseEvaluated.values.size() !=
+            coarse->criterion().observables().size())
+      return {nullptr,
+              {{"refinement_result_incomplete",
+                "Both samples must evaluate every declared observable."}}};
+
+    maximumChange = 0.0;
+    status = StructuralRefinementStatus::accepted;
+    comparisons.reserve(coarseEvaluated.values.size());
+    for (std::size_t index = 0; index < coarseEvaluated.values.size();
+         ++index) {
+      const auto &coarseValue = coarseEvaluated.values[index];
+      const auto &fineValue = fineEvaluated.values[index];
+      if (coarseValue.definition.identity !=
+          fineValue.definition.identity)
+        return {nullptr,
+                {{"refinement_lineage_mismatch",
+                  "Observable definitions differ between samples."}}};
+      const auto change = relative_change(coarseValue.value,
+                                          fineValue.value);
+      const auto comparisonStatus =
+          change <= coarseValue.definition.spec.maximum_change_fraction
+              ? StructuralObservableConvergenceStatus::accepted
+              : StructuralObservableConvergenceStatus::indeterminate;
+      if (comparisonStatus ==
+          StructuralObservableConvergenceStatus::indeterminate)
+        status = StructuralRefinementStatus::indeterminate;
+      maximumChange = std::max(maximumChange, change);
+      comparisons.push_back(
+          {.definition = coarseValue.definition,
+           .coarse_value = coarseValue.value,
+           .fine_value = fineValue.value,
+           .coarse_selected_rows = coarseValue.selected_rows,
+           .fine_selected_rows = fineValue.selected_rows,
+           .change_fraction = change,
+           .status = comparisonStatus});
+    }
+  }
   if (!std::isfinite(displacementChange) || !std::isfinite(stressChange) ||
       !std::isfinite(maximumChange))
     return {nullptr,
             {{"refinement_result_incomplete",
               "Derived refinement changes must be finite."}}};
-  const auto status =
-      maximumChange <= coarse->criterion().maximum_change_fraction()
-          ? StructuralRefinementStatus::accepted
-          : StructuralRefinementStatus::indeterminate;
   VerifiedStructuralRefinementPtr value(new VerifiedStructuralRefinement(
       std::move(coarse), std::move(fine), boundaryCorrespondence,
-      displacementChange, stressChange, maximumChange, status));
+      displacementChange, stressChange, maximumChange, status,
+      std::move(comparisons), std::move(diagnostics)));
   return {std::move(value), {}};
 }
 

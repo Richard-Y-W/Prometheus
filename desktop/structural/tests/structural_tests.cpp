@@ -1217,10 +1217,22 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   auto equalityFineRun = fineRun;
   const double equalityLimit =
       *fineSetup.request.displacement_limit_m;
-  equalityCoarseRun.validated_result->metrics->maximum_displacement_m =
-      equalityLimit * 0.99;
-  equalityFineRun.validated_result->metrics->maximum_displacement_m =
-      equalityLimit;
+  const auto setMaximumDisplacement = [](ps::SolverRunResult &run,
+                                         const double magnitude) {
+    for (auto &row : run.validated_result->normalized.displacements) {
+      row.x_m = 0.0;
+      row.y_m = 0.0;
+      row.z_m = 0.0;
+      row.magnitude_m = 0.0;
+    }
+    auto &maximum = run.validated_result->normalized.displacements.front();
+    maximum.z_m = -magnitude;
+    maximum.magnitude_m = magnitude;
+    run.validated_result->metrics = ps::summarize_calculix_dat(
+        run.validated_result->normalized);
+  };
+  setMaximumDisplacement(equalityCoarseRun, equalityLimit * 0.99);
+  setMaximumDisplacement(equalityFineRun, equalityLimit);
   equalityCoarseRun.validated_result->identity =
       "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
   equalityFineRun.validated_result->identity =

@@ -1,8 +1,12 @@
 #include "prometheus/structural/structural_benchmarks.hpp"
 #include "prometheus/structural/structural_observables.hpp"
+#include "prometheus/structural/structural_refinement.hpp"
 
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -103,6 +107,63 @@ std::vector<ps::StructuralObservableSpec> validSpecs() {
                 {.minimum_m = {0.25, 0.0, -0.05},
                  .maximum_m = {0.50, 0.1, 0.05}}},
        .maximum_change_fraction = 0.10}};
+}
+
+std::array<double, 3> elementCentroid(
+    const ps::CompiledStructuralSetup &setup,
+    const ps::Tetrahedron &element) {
+  std::array<double, 3> centroid{};
+  for (const int nodeId : element.node_ids) {
+    const auto node = std::ranges::find_if(
+        setup.request.nodes,
+        [&](const auto &candidate) { return candidate.id == nodeId; });
+    require(node != setup.request.nodes.end(),
+            "synthetic result element nodes exist");
+    for (std::size_t axis = 0; axis < 3U; ++axis)
+      centroid[axis] += node->position_m[axis] / 4.0;
+  }
+  return centroid;
+}
+
+ps::CompiledCalculixResult studyResult(
+    const ps::CompiledStructuralSetup &setup, const double displacement,
+    const double regionalStress, const double globalPeak,
+    const char identityCharacter) {
+  auto result = completeResult(setup);
+  for (auto &row : result.normalized.displacements) {
+    row.x_m = displacement;
+    row.y_m = 0.0;
+    row.z_m = 0.0;
+    row.magnitude_m = displacement;
+  }
+  for (auto &row : result.normalized.stresses) {
+    const auto element = std::ranges::find_if(
+        setup.request.elements,
+        [&](const auto &candidate) { return candidate.id == row.element_id; });
+    require(element != setup.request.elements.end(),
+            "synthetic stress element exists");
+    const auto centroid = elementCentroid(setup, *element);
+    const bool inRegion = centroid[0] >= 0.25 && centroid[0] <= 0.50 &&
+                          centroid[1] >= 0.0 && centroid[1] <= 0.1 &&
+                          centroid[2] >= -0.05 && centroid[2] <= 0.05;
+    row.xx_pa = inRegion ? regionalStress : 1.0e5;
+    row.von_mises_pa = row.xx_pa;
+  }
+  result.normalized.stresses.front().xx_pa = globalPeak;
+  result.normalized.stresses.front().von_mises_pa = globalPeak;
+  result.metrics = ps::summarize_calculix_dat(result.normalized);
+  result.identity = "sha256:" + std::string(64U, identityCharacter);
+  return result;
+}
+
+ps::SolverRunResult completedRun(ps::CompiledCalculixResult result) {
+  return {.status = ps::SolverRunStatus::completed,
+          .exit_code = 0,
+          .elapsed = std::chrono::milliseconds(1),
+          .standard_output = {},
+          .standard_error = {},
+          .detail = "synthetic completed run",
+          .validated_result = std::move(result)};
 }
 
 } // namespace
@@ -246,5 +307,78 @@ int main() {
                        emptyRegionDefinitions, setup, result),
                    "refinement_region_empty"),
           "empty physical regions fail closed");
+
+  const auto coarseSetup = ps::cantilever_benchmark(4, 2, 2).setup;
+  const auto fineSetup = ps::cantilever_benchmark(8, 4, 4).setup;
+  auto pairSpecs = validSpecs();
+  pairSpecs[0].id = "study.maximum_displacement";
+  pairSpecs[1].id = "study.section_stress";
+  const auto criterion =
+      ps::compile_structural_refinement_criterion(pairSpecs);
+  const ps::SolverRunOptions coarseOptions{
+      .executable = "synthetic-ccx",
+      .working_directory = std::filesystem::temp_directory_path(),
+      .job_name = "observable_coarse",
+      .timeout = std::chrono::seconds(1)};
+  const ps::SolverRunOptions fineOptions{
+      .executable = "synthetic-ccx",
+      .working_directory = std::filesystem::temp_directory_path(),
+      .job_name = "observable_fine",
+      .timeout = std::chrono::seconds(1)};
+  const auto coarseSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, criterion, coarseOptions,
+      coarseSetup,
+      completedRun(studyResult(coarseSetup, 1.0e-3, 5.0e6, 10.0e6,
+                               'b')));
+  const auto fineSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, fineOptions, fineSetup,
+      completedRun(studyResult(fineSetup, 1.02e-3, 5.1e6, 11.2e6,
+                               'c')));
+  const auto correspondence =
+      ps::review_structural_boundary_correspondence(
+          coarseSetup, fineSetup, true, true);
+  const auto scoped = ps::compile_structural_refinement(
+      coarseSample, fineSample, correspondence);
+  require(scoped.complete() &&
+              scoped.value()->status() ==
+                  ps::StructuralRefinementStatus::accepted &&
+              scoped.value()->observable_comparisons().size() == 2U,
+          "all declared scoped observables control refinement acceptance");
+  const auto stressComparison = std::ranges::find_if(
+      scoped.value()->observable_comparisons(), [](const auto &comparison) {
+        return comparison.definition.spec.quantity ==
+            ps::StructuralObservableQuantity::von_mises_stress_pa;
+      });
+  require(stressComparison !=
+              scoped.value()->observable_comparisons().end() &&
+              stressComparison->change_fraction < 0.02 &&
+              stressComparison->status ==
+                  ps::StructuralObservableConvergenceStatus::accepted,
+          "regional stress comparison accepts its stable physical window");
+  const auto stressDiagnostic = std::ranges::find_if(
+      scoped.value()->global_extremum_diagnostics(), [](const auto &diagnostic) {
+        return diagnostic.quantity ==
+            ps::StructuralObservableQuantity::von_mises_stress_pa;
+      });
+  require(stressDiagnostic !=
+              scoped.value()->global_extremum_diagnostics().end() &&
+              stressDiagnostic->change_fraction > 0.10 &&
+              !stressDiagnostic->participated_in_acceptance &&
+              !stressDiagnostic->within_threshold &&
+              stressDiagnostic->coarse_entity_id == 1 &&
+              stressDiagnostic->fine_entity_id == 1,
+          "unstable global peak remains located and diagnostic-only");
+
+  auto unstableFineResult =
+      studyResult(fineSetup, 1.2e-3, 5.1e6, 11.2e6, 'd');
+  const auto unstableFineSample = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, criterion, fineOptions, fineSetup,
+      completedRun(std::move(unstableFineResult)));
+  const auto unstable = ps::compile_structural_refinement(
+      coarseSample, unstableFineSample, correspondence);
+  require(unstable.complete() &&
+              unstable.value()->status() ==
+                  ps::StructuralRefinementStatus::indeterminate,
+          "one above-threshold required observable makes the pair indeterminate");
   return 0;
 }
