@@ -11,6 +11,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace ps = prometheus::structural;
 namespace fs = std::filesystem;
@@ -61,6 +62,30 @@ ExecutedBenchmark execute(const fs::path &ccx, const fs::path &root,
   return {options, std::move(run), comparison};
 }
 
+const ps::StructuralObservableComparison &observable(
+    const ps::VerifiedStructuralRefinement &refinement,
+    const std::string_view id) {
+  const auto found = std::ranges::find_if(
+      refinement.observable_comparisons(), [&](const auto &comparison) {
+        return comparison.definition.spec.id == id;
+      });
+  if (found == refinement.observable_comparisons().end())
+    throw std::runtime_error("required refinement observable is missing");
+  return *found;
+}
+
+const ps::StructuralGlobalExtremumDiagnostic &globalStressDiagnostic(
+    const ps::VerifiedStructuralRefinement &refinement) {
+  const auto found = std::ranges::find_if(
+      refinement.global_extremum_diagnostics(), [](const auto &diagnostic) {
+        return diagnostic.quantity ==
+            ps::StructuralObservableQuantity::von_mises_stress_pa;
+      });
+  if (found == refinement.global_extremum_diagnostics().end())
+    throw std::runtime_error("global stress diagnostic is missing");
+  return *found;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -96,8 +121,10 @@ int main(int argc, char **argv) {
     const auto fine = execute(ccx, output,
                               "prometheus_" + benchmark + "_fine",
                               fineReference);
-    const auto criterion =
-        ps::compile_structural_refinement_criterion(0.10);
+    const auto criterion = ps::compile_structural_refinement_criterion(
+        benchmark == "axial"
+            ? ps::global_structural_observable_specs(0.10)
+            : ps::cantilever_validation_observable_specs());
     const auto coarseSample = ps::compile_completed_structural_sample(
         ps::StructuralSampleRole::coarse, criterion, coarse.options,
         coarseReference.setup, coarse.run);
@@ -114,32 +141,68 @@ int main(int argc, char **argv) {
                                compiled.issues().front().message);
     const auto evaluation =
         ps::compile_structural_findings(*compiled.value());
-    const bool scopedPass = evaluation.evaluated_obligations == 2 &&
-        std::ranges::all_of(evaluation.findings, [](const auto &finding) {
-          return finding.disposition ==
-              ps::StructuralFindingDisposition::no_violation_detected_within_scope;
-        });
+    const bool axial = benchmark == "axial";
+    const bool scopedPass =
+        axial
+            ? evaluation.evaluated_obligations == 2 &&
+                  evaluation.unknowns.empty() &&
+                  std::ranges::all_of(
+                      evaluation.findings, [](const auto &finding) {
+                        return finding.disposition ==
+                            ps::StructuralFindingDisposition::no_violation_detected_within_scope;
+                      })
+            : evaluation.declared_obligations == 2 &&
+                  evaluation.evaluated_obligations == 1 &&
+                  evaluation.findings.size() == 1U &&
+                  evaluation.findings.front().obligation ==
+                      "maximum_displacement" &&
+                  evaluation.findings.front().disposition ==
+                      ps::StructuralFindingDisposition::no_violation_detected_within_scope &&
+                  evaluation.unknowns.size() == 1U &&
+                  evaluation.unknowns.front().code ==
+                      "matching_converged_scope_missing";
+    const auto analytic =
+        axial ? fine.analytic_comparison
+              : ps::compare_cantilever_validation(*compiled.value());
 
     std::cout << std::scientific << std::setprecision(10)
               << "fine_displacement_relative_error="
-              << fine.analytic_comparison.displacement_relative_error << '\n'
+              << analytic.displacement_relative_error << '\n'
               << "fine_stress_relative_error="
-              << fine.analytic_comparison.stress_relative_error << '\n'
-              << "displacement_change_fraction="
-              << compiled.value()->displacement_change_fraction() << '\n'
-              << "stress_change_fraction="
-              << compiled.value()->stress_change_fraction() << '\n'
-              << "maximum_change_fraction="
-              << compiled.value()->maximum_change_fraction() << '\n';
-    if (!fine.analytic_comparison.passed() ||
+              << analytic.stress_relative_error << '\n';
+    bool diagnosticPass = true;
+    if (!axial) {
+      const auto &displacement = observable(
+          *compiled.value(), "cantilever.maximum_displacement");
+      const auto &sectionStress = observable(
+          *compiled.value(), "cantilever.section_von_mises");
+      const auto &globalStress = globalStressDiagnostic(*compiled.value());
+      diagnosticPass = !globalStress.participated_in_acceptance;
+      std::cout
+          << "observable.cantilever.maximum_displacement.change_fraction="
+          << displacement.change_fraction << '\n'
+          << "observable.cantilever.section_von_mises.change_fraction="
+          << sectionStress.change_fraction << '\n'
+          << "global.maximum_von_mises_stress.change_fraction="
+          << globalStress.change_fraction << '\n'
+          << "global.maximum_von_mises_stress.participated_in_acceptance="
+          << std::boolalpha << globalStress.participated_in_acceptance << '\n'
+          << "global.maximum_von_mises_stress.status="
+          << (globalStress.within_threshold
+                  ? "converged_diagnostic_only"
+                  : "not_converged_in_this_study")
+          << '\n';
+    }
+    if (!analytic.passed() ||
         compiled.value()->status() != ps::StructuralRefinementStatus::accepted ||
-        !scopedPass) {
+        !diagnosticPass || !scopedPass) {
       std::cerr << "benchmark validation gate failed\n";
       return 5;
     }
     const auto archive = ps::write_structural_refinement_archive(
         *compiled.value(), evaluation);
     std::cout << "benchmark=passed\n"
+              << "archive_schema_version=" << archive.schema_version << '\n'
               << "archive_manifest=" << archive.manifest_path.string() << '\n'
               << "archive_sha256=" << archive.manifest_sha256 << '\n';
     return 0;

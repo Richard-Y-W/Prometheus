@@ -21,6 +21,17 @@ function Invoke-CheckedTool(
   return $output
 }
 
+function Assert-RequiredMarkers(
+    [string]$Output,
+    [string[]]$Markers,
+    [string]$FailureMessage) {
+  foreach ($marker in $Markers) {
+    if ($Output -notmatch [regex]::Escape($marker)) {
+      throw "$FailureMessage Missing marker: $marker."
+    }
+  }
+}
+
 $repo = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $repo 'out/validation/structural'
 $axialOutput = Join-Path $output 'axial'
@@ -81,6 +92,15 @@ $refinementLog = Invoke-CheckedTool $refinement `
   @($solver, $cantileverOutput) `
   'refinement=passed' `
   'The cantilever refinement gate failed.'
+Assert-RequiredMarkers $refinementLog `
+  @(
+    'archive_schema_version=4.0.0',
+    'observable.cantilever.maximum_displacement.change_fraction=',
+    'observable.cantilever.section_von_mises.change_fraction=',
+    'global.maximum_von_mises_stress.participated_in_acceptance=false',
+    'global.maximum_von_mises_stress.status=not_converged_in_this_study'
+  ) `
+  'The cantilever scoped-convergence evidence is incomplete.'
 Write-Output $refinementLog.TrimEnd()
 
 $summary = [ordered]@{

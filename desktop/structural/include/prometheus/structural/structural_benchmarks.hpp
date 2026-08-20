@@ -4,6 +4,8 @@
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_setup.hpp"
 
+#include <vector>
+
 namespace prometheus::structural {
 
 struct BenchmarkReference final {
@@ -50,6 +52,12 @@ struct CantileverValidationMeshPair final {
 // Approved validation pair for the real CalculiX cantilever refinement gate.
 [[nodiscard]] CantileverValidationMeshPair
 cantilever_validation_mesh_pair() noexcept;
+
+[[nodiscard]] std::vector<StructuralObservableSpec>
+cantilever_validation_observable_specs();
+
+[[nodiscard]] BenchmarkComparison compare_cantilever_validation(
+    const VerifiedStructuralRefinement &refinement);
 
 [[nodiscard]] BenchmarkComparison compare_benchmark(
     const BenchmarkReference &reference, const CalculixMetrics &actual);

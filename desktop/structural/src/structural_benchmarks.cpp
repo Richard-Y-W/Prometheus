@@ -228,6 +228,70 @@ CantileverValidationMeshPair cantilever_validation_mesh_pair() noexcept {
   };
 }
 
+std::vector<StructuralObservableSpec>
+cantilever_validation_observable_specs() {
+  return {
+      {.id = "cantilever.maximum_displacement",
+       .quantity = StructuralObservableQuantity::displacement_magnitude_m,
+       .reduction = StructuralObservableReduction::maximum,
+       .region = {.kind = StructuralObservableRegionKind::all_nodes},
+       .maximum_change_fraction = 0.10},
+      {.id = "cantilever.section_von_mises",
+       .quantity = StructuralObservableQuantity::von_mises_stress_pa,
+       .reduction = StructuralObservableReduction::maximum,
+       .region =
+           {.kind =
+                StructuralObservableRegionKind::element_centroid_box_m,
+            .element_centroid_box_m =
+                {.minimum_m = {0.100, 0.000, -0.050},
+                 .maximum_m = {0.125, 0.100, 0.050}}},
+       .maximum_change_fraction = 0.10}};
+}
+
+BenchmarkComparison compare_cantilever_validation(
+    const VerifiedStructuralRefinement &refinement) {
+  constexpr double expectedDisplacementM = 0.0002;
+  constexpr double expectedSectionStressPa = 5.4e6;
+  constexpr double displacementTolerance = 0.15;
+  constexpr double stressTolerance = 0.25;
+  const auto expectedCriterion = compile_structural_refinement_criterion(
+      cantilever_validation_observable_specs());
+  const auto &expectedDefinitions = expectedCriterion.observables();
+  if (refinement.coarse().criterion().legacy_global_extrema_only() ||
+      refinement.coarse().criterion().identity() !=
+          expectedCriterion.identity() ||
+      refinement.observable_comparisons().size() !=
+          expectedDefinitions.size())
+    throw std::invalid_argument(
+        "Cantilever validation requires its exact typed observable profile");
+
+  const auto valueFor = [&](const StructuralObservableDefinition &expected) {
+    const auto comparison = std::ranges::find_if(
+        refinement.observable_comparisons(), [&](const auto &candidate) {
+          return candidate.definition.spec.id == expected.spec.id;
+        });
+    if (comparison == refinement.observable_comparisons().end() ||
+        comparison->definition.identity != expected.identity ||
+        !std::isfinite(comparison->fine_value) ||
+        comparison->fine_value < 0.0)
+      throw std::invalid_argument(
+          "Cantilever validation observable is missing or does not match "
+          "its locked definition");
+    return comparison->fine_value;
+  };
+  const double displacement = valueFor(expectedDefinitions[0]);
+  const double sectionStress = valueFor(expectedDefinitions[1]);
+  const double displacementError =
+      std::abs(displacement - expectedDisplacementM) /
+      expectedDisplacementM;
+  const double stressError =
+      std::abs(sectionStress - expectedSectionStressPa) /
+      expectedSectionStressPa;
+  return {displacementError, stressError,
+          displacementError <= displacementTolerance,
+          stressError <= stressTolerance};
+}
+
 BenchmarkComparison compare_benchmark(const BenchmarkReference &reference,
                                       const CalculixMetrics &actual) {
   if (!std::isfinite(reference.expected_maximum_displacement_m) ||

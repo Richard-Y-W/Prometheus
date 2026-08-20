@@ -171,6 +171,38 @@ ps::CompiledCalculixResult studyResult(
   return result;
 }
 
+ps::CompiledCalculixResult cantileverValidationResult(
+    const ps::CompiledStructuralSetup &setup, const double displacement,
+    const double sectionStress, const double globalPeak,
+    const char identityCharacter) {
+  auto result = completeResult(setup);
+  for (auto &row : result.normalized.displacements) {
+    row.x_m = displacement;
+    row.y_m = 0.0;
+    row.z_m = 0.0;
+    row.magnitude_m = displacement;
+  }
+  for (auto &row : result.normalized.stresses) {
+    const auto element = std::ranges::find_if(
+        setup.request.elements,
+        [&](const auto &candidate) { return candidate.id == row.element_id; });
+    require(element != setup.request.elements.end(),
+            "cantilever validation element exists");
+    const auto centroid = elementCentroid(setup, *element);
+    const bool inSection =
+        centroid[0] >= 0.100 && centroid[0] <= 0.125 &&
+        centroid[1] >= 0.000 && centroid[1] <= 0.100 &&
+        centroid[2] >= -0.050 && centroid[2] <= 0.050;
+    row.xx_pa = inSection ? sectionStress : 1.0e5;
+    row.von_mises_pa = row.xx_pa;
+  }
+  result.normalized.stresses.front().xx_pa = globalPeak;
+  result.normalized.stresses.front().von_mises_pa = globalPeak;
+  result.metrics = ps::summarize_calculix_dat(result.normalized);
+  result.identity = "sha256:" + std::string(64U, identityCharacter);
+  return result;
+}
+
 ps::SolverRunResult completedRun(ps::CompiledCalculixResult result) {
   return {.status = ps::SolverRunStatus::completed,
           .exit_code = 0,
@@ -184,6 +216,33 @@ ps::SolverRunResult completedRun(ps::CompiledCalculixResult result) {
 } // namespace
 
 int main() {
+  const auto cantileverProfile =
+      ps::cantilever_validation_observable_specs();
+  require(cantileverProfile.size() == 2U &&
+              cantileverProfile[0].id ==
+                  "cantilever.maximum_displacement" &&
+              cantileverProfile[0].quantity ==
+                  ps::StructuralObservableQuantity::displacement_magnitude_m &&
+              cantileverProfile[0].reduction ==
+                  ps::StructuralObservableReduction::maximum &&
+              cantileverProfile[0].region.kind ==
+                  ps::StructuralObservableRegionKind::all_nodes &&
+              cantileverProfile[0].maximum_change_fraction == 0.10,
+          "cantilever validation pins the global displacement observable");
+  const auto &section = cantileverProfile[1];
+  require(section.id == "cantilever.section_von_mises" &&
+              section.quantity ==
+                  ps::StructuralObservableQuantity::von_mises_stress_pa &&
+              section.reduction == ps::StructuralObservableReduction::maximum &&
+              section.region.kind ==
+                  ps::StructuralObservableRegionKind::element_centroid_box_m &&
+              section.region.element_centroid_box_m.minimum_m ==
+                  std::array<double, 3>{0.100, 0.000, -0.050} &&
+              section.region.element_centroid_box_m.maximum_m ==
+                  std::array<double, 3>{0.125, 0.100, 0.050} &&
+              section.maximum_change_fraction == 0.10,
+          "cantilever validation pins the reviewed section stress window");
+
   const auto setup = ps::cantilever_benchmark(4, 2, 2).setup;
   const auto result = completeResult(setup);
   const auto definitions =
@@ -449,5 +508,43 @@ int main() {
                         "refinement_observable_not_converged";
                   }),
           "an indeterminate pair retains both obligations as unknown");
+  requireThrowsCode(
+      [&] { (void)ps::compare_cantilever_validation(*scoped.value()); },
+      "Cantilever validation",
+      "cantilever analytic comparison rejects a differently named profile");
+
+  const auto validationCoarseSetup =
+      ps::cantilever_benchmark(20, 3, 3).setup;
+  const auto validationFineSetup =
+      ps::cantilever_benchmark(40, 6, 6).setup;
+  const auto validationCriterion =
+      ps::compile_structural_refinement_criterion(cantileverProfile);
+  const auto validationCoarse = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::coarse, validationCriterion, coarseOptions,
+      validationCoarseSetup,
+      completedRun(cantileverValidationResult(
+          validationCoarseSetup, 1.98e-4, 5.3e6, 8.0e6, '1')));
+  const auto validationFine = ps::compile_completed_structural_sample(
+      ps::StructuralSampleRole::fine, validationCriterion, fineOptions,
+      validationFineSetup,
+      completedRun(cantileverValidationResult(
+          validationFineSetup, 2.0e-4, 5.4e6, 9.0e6, '2')));
+  const auto validationPair = ps::compile_structural_refinement(
+      validationCoarse, validationFine,
+      ps::review_structural_boundary_correspondence(
+          validationCoarseSetup, validationFineSetup, true, true));
+  require(validationPair.complete() &&
+              validationPair.value()->status() ==
+                  ps::StructuralRefinementStatus::accepted &&
+              validationPair.value()
+                      ->global_extremum_diagnostics()[1]
+                      .fine_value == 9.0e6,
+          "cantilever analytic fixture retains a distinct global stress peak");
+  const auto validationComparison =
+      ps::compare_cantilever_validation(*validationPair.value());
+  require(validationComparison.passed() &&
+              validationComparison.displacement_relative_error == 0.0 &&
+              validationComparison.stress_relative_error == 0.0,
+          "cantilever analytic comparison reads exact typed regional values");
   return 0;
 }

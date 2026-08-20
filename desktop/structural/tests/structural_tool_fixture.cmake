@@ -47,13 +47,18 @@ if(NOT benchmark_result EQUAL 0 OR
 endif()
 
 execute_process(
-  COMMAND "${REFINEMENT}" "${SOLVER}" "${OUTPUT_ROOT}/refinement"
+  COMMAND "${REFINEMENT}" "${SOLVER}" "${OUTPUT_ROOT}/refinement" --smoke
   RESULT_VARIABLE refinement_result
   OUTPUT_VARIABLE refinement_stdout
   ERROR_VARIABLE refinement_stderr
 )
 if(NOT refinement_result EQUAL 0 OR
-   NOT refinement_stdout MATCHES "refinement=passed")
+   NOT refinement_stdout MATCHES "validation_profile=smoke_non_authoritative" OR
+   NOT refinement_stdout MATCHES "refinement=smoke_passed" OR
+   NOT refinement_stdout MATCHES "observable.cantilever.maximum_displacement.change_fraction=" OR
+   NOT refinement_stdout MATCHES "observable.cantilever.section_von_mises.change_fraction=" OR
+   NOT refinement_stdout MATCHES "global.maximum_von_mises_stress.participated_in_acceptance=false" OR
+   NOT refinement_stdout MATCHES "archive_schema_version=4.0.0")
   message(FATAL_ERROR
     "structural refinement failed (${refinement_result})\n${refinement_stdout}\n${refinement_stderr}")
 endif()
