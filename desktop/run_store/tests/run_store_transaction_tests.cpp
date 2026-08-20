@@ -293,13 +293,14 @@ fs::path create_structural_archive_fixture(
   return archive / "prometheus-structural-run.json";
 }
 
-fs::path create_structural_archive_v3_fixture(
+fs::path create_structural_refinement_archive_fixture(
     const fs::path &root, const std::string &directoryName,
+    const std::string_view schemaId, const std::string_view schemaVersion,
     const std::string &geometrySha256 =
         "sha256:377302b669b12b89e2c020dc4c29e1c63c4920587920eb8f02ff54ca73bf977d") {
   const auto archive = root / directoryName;
   require(fs::create_directory(archive),
-          "create structural archive v3 fixture");
+          "create structural refinement archive fixture");
   constexpr std::array<std::string_view, 7> artifactKeys{
       "setup", "deck", "dat", "frd", "sta", "stdout", "stderr"};
   const auto filename = [](const std::string_view role,
@@ -347,9 +348,9 @@ fs::path create_structural_archive_v3_fixture(
         {"artifacts", std::move(artifacts)},
         {"metrics", nlohmann::json::object()}};
   };
-  const auto document = nlohmann::json{
-      {"$schema", run_store::structural_manifest_schema_id_v3},
-      {"schema_version", "3.0.0"},
+  auto document = nlohmann::json{
+      {"$schema", schemaId},
+      {"schema_version", schemaVersion},
       {"archive_kind", "linear_static_refinement_study"},
       {"analysis_id", "embedded-refinement-analysis"},
       {"component_name", "component"},
@@ -363,6 +364,8 @@ fs::path create_structural_archive_v3_fixture(
       {"coverage", nlohmann::json::object()},
       {"findings", nlohmann::json::array()},
       {"limitation", "bounded"}};
+  if (schemaVersion == "4.0.0")
+    document["unknowns"] = nlohmann::json::array();
   write_file(archive / "prometheus-structural-run.json",
              integrity::canonicalize_json_bytes(document.dump()));
   return archive / "prometheus-structural-run.json";
@@ -1143,8 +1146,9 @@ void test_embedded_structural_archive_v3_round_trip() {
   auto project = initial_project();
   project.cad_source = cadPath.string();
   project.assembly_artifact_hash = geometryHash;
-  const auto sourceManifest = create_structural_archive_v3_fixture(
-      root.path(), "structural-archive-v3", geometryHash);
+  const auto sourceManifest = create_structural_refinement_archive_fixture(
+      root.path(), "structural-archive-v3",
+      run_store::structural_manifest_schema_id_v3, "3.0.0", geometryHash);
   auto packed = require_success(
       run_store::build_structural_archive_objects(
           sourceManifest, geometryHash),
@@ -1210,8 +1214,9 @@ void test_embedded_structural_archive_v3_round_trip() {
 
   const auto modifiedSource =
       [&](const std::string &directoryName, const auto &modify) {
-        const auto manifest = create_structural_archive_v3_fixture(
-            root.path(), directoryName);
+        const auto manifest = create_structural_refinement_archive_fixture(
+            root.path(), directoryName,
+            run_store::structural_manifest_schema_id_v3, "3.0.0");
         auto document = nlohmann::json::parse(read_file(manifest));
         modify(document);
         write_file(manifest,
@@ -1330,6 +1335,127 @@ void test_embedded_structural_archive_v3_round_trip() {
       "reconstructed v3 archive detached from its project geometry");
   require(!fs::exists(forgedDestination),
           "rejected forged v3 reconstruction leaves no destination");
+}
+
+void test_embedded_structural_archive_v4_round_trip() {
+  TemporaryRoot root;
+  const auto cadPath = root.path() / "embedded-scoped-refinement.step";
+  write_file(cadPath, "embedded scoped refinement CAD source bytes\n");
+  const auto geometryHash = integrity::sha256_file(cadPath);
+  auto project = initial_project();
+  project.cad_source = cadPath.string();
+  project.assembly_artifact_hash = geometryHash;
+  const auto sourceManifest = create_structural_refinement_archive_fixture(
+      root.path(), "structural-archive-v4",
+      run_store::structural_manifest_schema_id_v4, "4.0.0", geometryHash);
+  const auto packed = require_success(
+      run_store::build_structural_archive_objects(sourceManifest,
+                                                  geometryHash),
+      "pack structural v4 archive");
+  require(packed.archive_manifest.reference.schema_id ==
+                  run_store::structural_manifest_schema_id_v4 &&
+              packed.archive_manifest.reference.schema_version == "4.0.0" &&
+              packed.project_manifest.reference.schema_id ==
+                  run_store::structural_project_run_schema_id_v2 &&
+              packed.chunks.size() >= 14U,
+          "v4 archives retain the existing two-sample project graph");
+  auto directReferenceProject = project;
+  directReferenceProject.execution.committed_runs.push_back(
+      packed.archive_manifest.reference);
+  const auto directReferenceBytes = require_success(
+      run_store::serialize_project_v2(directReferenceProject),
+      "serialize direct structural v4 committed reference");
+  const auto parsedDirectReference = require_success(
+      run_store::parse_project_v2(directReferenceBytes),
+      "parse direct structural v4 committed reference");
+  require(parsedDirectReference.execution.committed_runs.front() ==
+              packed.archive_manifest.reference,
+          "project v2 preserves a registered structural v4 reference");
+
+  auto incompatibleProjectRun = packed;
+  auto incompatibleDocument =
+      nlohmann::json::parse(incompatibleProjectRun.project_manifest.bytes);
+  incompatibleDocument["$schema"] =
+      run_store::structural_project_run_schema_id_v1;
+  incompatibleDocument["schema_version"] = "1.0.0";
+  incompatibleProjectRun.project_manifest.bytes =
+      integrity::canonicalize_json_bytes(incompatibleDocument.dump());
+  incompatibleProjectRun.project_manifest.reference = reference_for(
+      incompatibleProjectRun.project_manifest.bytes,
+      std::string(run_store::structural_project_run_media_type),
+      std::string(run_store::structural_project_run_schema_id_v1), "1.0.0");
+  const auto incompatiblePath = root.path() / "incompatible-v4.prometheus";
+  require_success(run_store::create_project_v2(incompatiblePath, project),
+                  "create incompatible structural v4 project fixture");
+  require_failure(
+      run_store::publish_structural_archive(incompatiblePath,
+                                            incompatibleProjectRun),
+      "structural_project_manifest_invalid",
+      "structural archive v4 under project-run v1");
+
+  const auto projectPath = root.path() / "embedded-v4.prometheus";
+  require_success(run_store::create_project_v2(projectPath, project),
+                  "create embedded structural v4 project");
+  const auto published = require_success(
+      run_store::publish_structural_archive(projectPath, packed),
+      "publish embedded structural v4 archive");
+  require(!published.already_committed &&
+              published.project.execution.committed_runs.front() ==
+                  packed.project_manifest.reference,
+          "v4 publication commits its registered project reference");
+  const auto reopened = require_success(
+      run_store::open_read_only(projectPath),
+      "parse committed structural v4 reference");
+  require(std::ranges::find(reopened.execution.committed_runs,
+                            packed.project_manifest.reference) !=
+              reopened.execution.committed_runs.end(),
+          "the project index preserves the committed v4 graph reference");
+
+  const auto destination = root.path() / "reconstructed-v4";
+  const auto reconstructed = run_store::reconstruct_structural_archive(
+      projectPath, packed.project_manifest.reference, destination);
+  require(reconstructed.has_value(),
+          "embedded structural v4 archive reconstructs");
+  std::size_t reconstructedFiles = 0U;
+  for (const auto &entry :
+       fs::directory_iterator(sourceManifest.parent_path())) {
+    ++reconstructedFiles;
+    require(read_file(entry.path()) ==
+                read_file(destination / entry.path().filename()),
+            "reconstructed structural v4 file is byte-identical");
+  }
+  require(reconstructedFiles == 15U,
+          "v4 reconstruction retains fourteen artifacts and one manifest");
+
+  const auto bundleDirectory = root.path() / "embedded-v4-bundle";
+  const auto bundle = run_store::export_project_bundle(
+      projectPath, bundleDirectory);
+  require(bundle.has_value(),
+          "v4 structural project exports as a portable bundle");
+  const auto restored = run_store::restore_project_bundle(
+      bundleDirectory, root.path() / "restored-v4-bundle");
+  require(restored.has_value(),
+          "v4 structural project bundle restores on a clean path");
+  const auto restoredArchive = run_store::reconstruct_structural_archive(
+      restored.value().project_path, packed.project_manifest.reference,
+      root.path() / "restored-v4-archive");
+  require(restoredArchive.has_value(),
+          "relocated v4 bundle retains the complete structural object graph");
+
+  const auto relabelledV3 = create_structural_refinement_archive_fixture(
+      root.path(), "v3-shape-labelled-v4",
+      run_store::structural_manifest_schema_id_v3, "3.0.0", geometryHash);
+  auto relabelledDocument = nlohmann::json::parse(read_file(relabelledV3));
+  relabelledDocument["$schema"] =
+      run_store::structural_manifest_schema_id_v4;
+  relabelledDocument["schema_version"] = "4.0.0";
+  write_file(relabelledV3, integrity::canonicalize_json_bytes(
+                               relabelledDocument.dump()));
+  require_failure(
+      run_store::build_structural_archive_objects(relabelledV3,
+                                                  geometryHash),
+      "structural_manifest_contract_invalid",
+      "canonical v3 bytes relabelled as structural archive v4");
 }
 
 void test_create_failure_boundaries() {
@@ -1792,6 +1918,7 @@ int main() {
     test_structural_manifest_v2_anchor();
     test_embedded_structural_archive_round_trip();
     test_embedded_structural_archive_v3_round_trip();
+    test_embedded_structural_archive_v4_round_trip();
     test_create_failure_boundaries();
     test_binding_failure_boundaries();
     test_scenario_failure_is_atomic();

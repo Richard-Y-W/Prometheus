@@ -773,8 +773,10 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   if (!baseline_sample_) {
     refinement_criterion_.reset();
     try {
+      const auto maximumChange =
+          draft_.value("refinement_maximum_change_fraction").toDouble();
       refinement_criterion_ = ps::compile_structural_refinement_criterion(
-          draft_.value("refinement_maximum_change_fraction").toDouble());
+          ps::global_structural_observable_specs(maximumChange));
     } catch (const std::exception &error) {
       criterionError = QString::fromUtf8(error.what());
     }
@@ -1393,8 +1395,10 @@ void StructuralController::reloadProject() {
                             .object();
       display["analysis_id"] = root.value("analysis_id").toString();
       display["component_name"] = root.value("component_name").toString();
+      const auto schemaVersion =
+          root.value("schema_version").toString();
       const auto metrics =
-          root.value("schema_version").toString() == "3.0.0"
+          schemaVersion == "3.0.0" || schemaVersion == "4.0.0"
               ? root.value("samples")
                     .toObject()
                     .value("fine")

@@ -458,8 +458,11 @@ validate_structural_manifest(const ObjectToStore &manifest) {
   const bool referenceV3 =
       manifest.reference.schema_id == structural_manifest_schema_id_v3 &&
       manifest.reference.schema_version == "3.0.0";
+  const bool referenceV4 =
+      manifest.reference.schema_id == structural_manifest_schema_id_v4 &&
+      manifest.reference.schema_version == "4.0.0";
   if (manifest.reference.media_type != structural_manifest_media_type ||
-      (!referenceV1 && !referenceV2 && !referenceV3)) {
+      (!referenceV1 && !referenceV2 && !referenceV3 && !referenceV4)) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_manifest_reference_invalid",
         "structural manifest reference has the wrong registered contract"));
@@ -493,8 +496,18 @@ validate_structural_manifest(const ObjectToStore &manifest) {
                           "comparison", "coverage", "findings", "limitation"}) &&
         string_equals(root, "$schema", structural_manifest_schema_id_v3) &&
         string_equals(root, "schema_version", "3.0.0");
-    if ((!documentV1 && !documentV2 && !documentV3) ||
-        (documentV3
+    const bool documentV4 =
+        referenceV4 &&
+        exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                          "analysis_id", "component_name", "geometry_sha256",
+                          "criterion", "boundary_correspondence", "samples",
+                          "comparison", "coverage", "findings", "unknowns",
+                          "limitation"}) &&
+        string_equals(root, "$schema", structural_manifest_schema_id_v4) &&
+        string_equals(root, "schema_version", "4.0.0");
+    const bool twoSampleDocument = documentV3 || documentV4;
+    if ((!documentV1 && !documentV2 && !twoSampleDocument) ||
+        (twoSampleDocument
              ? !string_equals(root, "archive_kind",
                               "linear_static_refinement_study")
              : !string_equals(root, "archive_kind",
@@ -529,7 +542,7 @@ validate_structural_manifest(const ObjectToStore &manifest) {
       return true;
     };
     bool artifactSetValid = false;
-    if (!documentV3) {
+    if (!twoSampleDocument) {
       artifactSetValid = root.contains("artifacts") &&
                          validArtifacts(root.at("artifacts"));
     } else if (root.contains("samples") &&
@@ -586,6 +599,11 @@ Result<detail::Unit> validate_embedded_structural_graph(
         objects.archive_manifest.reference.schema_id ==
             structural_manifest_schema_id_v3 &&
         objects.archive_manifest.reference.schema_version == "3.0.0";
+    const bool archiveV4 =
+        objects.archive_manifest.reference.schema_id ==
+            structural_manifest_schema_id_v4 &&
+        objects.archive_manifest.reference.schema_version == "4.0.0";
+    const bool twoSampleArchive = archiveV3 || archiveV4;
     const auto expectedProjectSchema =
         projectReferenceV2 ? structural_project_run_schema_id_v2
                            : structural_project_run_schema_id_v1;
@@ -603,7 +621,7 @@ Result<detail::Unit> validate_embedded_structural_graph(
                        "embedded_structural_run") ||
         !projectManifest.at("artifacts").is_array() ||
         projectManifest.at("artifacts").size() != expectedArtifactCount ||
-        projectReferenceV2 != archiveV3)
+        projectReferenceV2 != twoSampleArchive)
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_project_manifest_invalid",
           "embedded structural project manifest is invalid"));

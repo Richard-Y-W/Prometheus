@@ -285,22 +285,32 @@ int main(int argc, char **argv) {
       };
 
   auto acceptedBackend = std::make_shared<CountingStructuralBackend>();
+  const auto acceptedCriterion =
+      ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(0.10));
+  require(acceptedCriterion.observables().size() == 2U &&
+              acceptedCriterion.observables()[0].spec.region.kind ==
+                  ps::StructuralObservableRegionKind::all_nodes &&
+              acceptedCriterion.observables()[1].spec.region.kind ==
+                  ps::StructuralObservableRegionKind::all_elements,
+          "desktop default declarations conservatively cover both global obligations");
   const auto completed = runBackendRefinement(
       acceptedBackend,
       std::filesystem::path(temporary.path().toStdWString()) /
           "accepted-backend-refinement",
-      ps::compile_structural_refinement_criterion(0.10));
+      acceptedCriterion);
   require(acceptedBackend->counts().execute_sample == 2 &&
               acceptedBackend->counts().finalize_refinement == 1,
           "one refinement study executes exactly two samples and finalizes once");
   require(completed.comparison && completed.archive &&
-              completed.archive->schema_version == "3.0.0" &&
+              completed.archive->schema_version == "4.0.0" &&
               completed.evaluation.comparison.has_value(),
-          "backend finalization returns the typed pair, evaluation, and v3 archive");
+          "backend finalization returns the typed pair, evaluation, and v4 archive");
 
   auto strictBackend = std::make_shared<CountingStructuralBackend>();
   const auto strictCriterion =
-      ps::compile_structural_refinement_criterion(0.01);
+      ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(0.01));
   const auto indeterminate = runBackendRefinement(
       strictBackend,
       std::filesystem::path(temporary.path().toStdWString()) /
@@ -312,7 +322,9 @@ int main(int argc, char **argv) {
               indeterminate.comparison->status() ==
                   ps::StructuralRefinementStatus::indeterminate &&
               indeterminate.evaluation.evaluated_obligations == 0 &&
-              indeterminate.evaluation.findings.empty(),
+              indeterminate.evaluation.findings.empty() &&
+              indeterminate.evaluation.unknowns.size() == 2U &&
+              indeterminate.archive->schema_version == "4.0.0",
           "a predeclared strict criterion archives one honest indeterminate pair");
 
   auto countingBackend = std::make_shared<CountingStructuralBackend>();
@@ -465,16 +477,28 @@ int main(int argc, char **argv) {
   require(controller.status() == "comparison_accepted" &&
               controller.refinementStage() == "completed" &&
               controller.lastRun().value("archived").toBool() &&
-              controller.lastRun().value("archive_schema_version") == "3.0.0" &&
+              controller.lastRun().value("archive_schema_version") == "4.0.0" &&
               controller.refinementComparison().value("status") == "accepted" &&
               controller.findings().size() == 2,
-          "the second controller run creates accepted findings and a v3 archive");
+          "the second controller run creates accepted findings and a v4 archive");
   const auto archivePath = std::filesystem::path(
       controller.lastRun().value("archive_manifest").toString().toStdString());
   const auto verified =
       prometheus::structural::verify_structural_archive(archivePath);
-  require(verified.valid && verified.schema_version == "3.0.0" &&
-              verified.refinement && verified.evaluated_obligations == 2,
+  require(verified.valid && verified.schema_version == "4.0.0" &&
+              verified.refinement && verified.evaluated_obligations == 2 &&
+              verified.refinement->coarse().criterion().observables().size() ==
+                  2U &&
+              verified.refinement->coarse()
+                      .criterion()
+                      .observables()[0]
+                      .spec.region.kind ==
+                  ps::StructuralObservableRegionKind::all_nodes &&
+              verified.refinement->coarse()
+                      .criterion()
+                      .observables()[1]
+                      .spec.region.kind ==
+                  ps::StructuralObservableRegionKind::all_elements,
           "offline archive verification replays both retained samples");
   const auto exportedDirectory = std::filesystem::path(temporary.path().toStdWString()) /
                                  "relocated-structural-run";
@@ -500,6 +524,17 @@ int main(int argc, char **argv) {
               countingBackend->counts().execute_sample == 2 &&
               countingBackend->counts().finalize_refinement == 1,
           "reads, export, and publication never repeat structural calculation");
+  (void)controller.lastRun();
+  (void)controller.lastRun();
+  (void)controller.storedRuns();
+  (void)controller.storedRuns();
+  controller.commitLastRun();
+  waitForPublication(controller);
+  require(project.committedRunCount() == 1 &&
+              controller.lastRun().value("project_already_committed").toBool() &&
+              countingBackend->counts().execute_sample == 2 &&
+              countingBackend->counts().finalize_refinement == 1,
+          "repeated display reads and idempotent save do not repeat structural calculations");
   CadController reopenedCad;
   EngineeringController reopenedEngineering;
   ProjectController reopened(&reopenedCad, &reopenedEngineering);

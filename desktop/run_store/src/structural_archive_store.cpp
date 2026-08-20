@@ -55,7 +55,7 @@ struct DeclaredStructuralArtifact final {
 };
 
 std::vector<DeclaredStructuralArtifact> declaredArtifacts(
-    const Json &archive, const bool version3) {
+    const Json &archive, const bool twoSampleArchive) {
   std::vector<DeclaredStructuralArtifact> result;
   std::set<std::string> filenames;
   const auto append = [&](std::string role, const Json &declared) {
@@ -76,7 +76,7 @@ std::vector<DeclaredStructuralArtifact> declaredArtifacts(
                       std::move(sha256)});
   };
 
-  if (!version3) {
+  if (!twoSampleArchive) {
     if (!archive.contains("artifacts") ||
         !exactKeys(archive.at("artifacts"),
                    {"setup", "deck", "dat", "frd", "sta", "stdout",
@@ -90,7 +90,8 @@ std::vector<DeclaredStructuralArtifact> declaredArtifacts(
 
   if (!archive.contains("samples") ||
       !exactKeys(archive.at("samples"), {"coarse", "fine"}))
-    throw std::invalid_argument("v3 structural sample set is invalid");
+    throw std::invalid_argument(
+        "structural refinement sample set is invalid");
   for (const auto role : {"coarse", "fine"}) {
     const auto &sample = archive.at("samples").at(role);
     if (!exactKeys(sample, {"role", "compiled_setup_identity",
@@ -101,12 +102,28 @@ std::vector<DeclaredStructuralArtifact> declaredArtifacts(
         !exactKeys(sample.at("artifacts"),
                    {"setup", "deck", "dat", "frd", "sta", "stdout",
                     "stderr"}))
-      throw std::invalid_argument("v3 structural sample is invalid");
+      throw std::invalid_argument("structural refinement sample is invalid");
     for (const auto key : artifactKeys)
       append(std::string(role) + "/" + std::string(key),
              sample.at("artifacts").at(std::string(key)));
   }
   return result;
+}
+
+bool exactRefinementRoot(const Json &archive, const bool version4) {
+  if (version4)
+    return exactKeys(
+        archive,
+        {"$schema", "schema_version", "archive_kind", "analysis_id",
+         "component_name", "geometry_sha256", "criterion",
+         "boundary_correspondence", "samples", "comparison", "coverage",
+         "findings", "unknowns", "limitation"});
+  return exactKeys(
+      archive,
+      {"$schema", "schema_version", "archive_kind", "analysis_id",
+       "component_name", "geometry_sha256", "criterion",
+       "boundary_correspondence", "samples", "comparison", "coverage",
+       "findings", "limitation"});
 }
 
 std::string readFile(const std::filesystem::path &path) {
@@ -232,10 +249,14 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
                           schemaVersion == "2.0.0";
     const bool version3 = schemaId == structural_manifest_schema_id_v3 &&
                           schemaVersion == "3.0.0";
-    if ((!version1 && !version2 && !version3) ||
-        (version3
+    const bool version4 = schemaId == structural_manifest_schema_id_v4 &&
+                          schemaVersion == "4.0.0";
+    const bool twoSampleArchive = version3 || version4;
+    if ((!version1 && !version2 && !twoSampleArchive) ||
+        (twoSampleArchive
              ? archive.value("archive_kind", "") !=
-                   "linear_static_refinement_study"
+                       "linear_static_refinement_study" ||
+                   !exactRefinementRoot(archive, version4)
              : archive.value("archive_kind", "") !=
                    "completed_linear_static_run"))
       return failure<StructuralArchiveObjects>(
@@ -243,7 +264,7 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
           "source is not a completed structural archive manifest", manifestPath);
     std::vector<DeclaredStructuralArtifact> declared;
     try {
-      declared = declaredArtifacts(archive, version3);
+      declared = declaredArtifacts(archive, twoSampleArchive);
     } catch (const std::exception &error) {
       return failure<StructuralArchiveObjects>(
           "structural_manifest_contract_invalid", error.what(), manifestPath);
@@ -328,9 +349,9 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
            {"sha256", sha256}, {"chunks", std::move(chunkReferences)}});
     }
     const auto projectSchema =
-        version3 ? structural_project_run_schema_id_v2
-                 : structural_project_run_schema_id_v1;
-    const auto projectVersion = version3 ? "2.0.0" : "1.0.0";
+        twoSampleArchive ? structural_project_run_schema_id_v2
+                         : structural_project_run_schema_id_v1;
+    const auto projectVersion = twoSampleArchive ? "2.0.0" : "1.0.0";
     const Json projectManifest{
         {"$schema", projectSchema},
         {"schema_version", projectVersion},
@@ -413,7 +434,12 @@ Result<std::filesystem::path> reconstruct_structural_archive(
         archiveReference.media_type == structural_manifest_media_type &&
         archiveReference.schema_id == structural_manifest_schema_id_v3 &&
         archiveReference.schema_version == "3.0.0";
-    if ((projectVersion2 && !archiveVersion3) ||
+    const bool archiveVersion4 =
+        archiveReference.media_type == structural_manifest_media_type &&
+        archiveReference.schema_id == structural_manifest_schema_id_v4 &&
+        archiveReference.schema_version == "4.0.0";
+    const bool twoSampleArchive = archiveVersion3 || archiveVersion4;
+    if ((projectVersion2 && !twoSampleArchive) ||
         (projectVersion1 && !archiveVersion1 && !archiveVersion2))
       return failure<std::filesystem::path>(
           "structural_project_manifest_invalid",
@@ -425,6 +451,8 @@ Result<std::filesystem::path> reconstruct_structural_archive(
     if (archive.value("$schema", "") != archiveReference.schema_id ||
         archive.value("schema_version", "") !=
             archiveReference.schema_version ||
+        (twoSampleArchive &&
+         !exactRefinementRoot(archive, archiveVersion4)) ||
         (projectVersion2
              ? archive.value("archive_kind", "") !=
                    "linear_static_refinement_study"
