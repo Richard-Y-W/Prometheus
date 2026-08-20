@@ -1016,6 +1016,75 @@ Result<ProjectV2> install_requirement_binding(
   }
 }
 
+Result<ProjectV2> install_material_binding(
+    const std::filesystem::path &project_path, MaterialBindingInput input,
+    TransactionOptions options) noexcept {
+  try {
+    auto lock = detail::acquire_project_lock(
+        project_path, detail::LockMode::exclusive, false, options.lock_timeout);
+    if (!lock.has_value()) {
+      return failure_from<ProjectV2>(lock.diagnostic());
+    }
+    auto project_result = read_locked_project(project_path);
+    if (!project_result.has_value()) {
+      return project_result;
+    }
+    auto project = std::move(project_result.value());
+    if (project.execution.material_bindings.size() >=
+        maximum_material_bindings) {
+      return Result<ProjectV2>::failure(detail::store_diagnostic(
+          "material_binding_limit_exceeded",
+          "project already has the maximum material-binding revisions"));
+    }
+    std::optional<std::uint64_t> supersedes;
+    std::unordered_set<std::uint64_t> superseded;
+    for (const auto &binding : project.execution.material_bindings) {
+      if (binding.supersedes_binding_revision.has_value()) {
+        superseded.insert(*binding.supersedes_binding_revision);
+      }
+    }
+    for (auto iterator = project.execution.material_bindings.rbegin();
+         iterator != project.execution.material_bindings.rend(); ++iterator) {
+      if (iterator->geometry_sha256 == input.geometry_sha256 &&
+          !superseded.contains(iterator->binding_revision)) {
+        supersedes = iterator->binding_revision;
+        break;
+      }
+    }
+    std::uint64_t revision = 1U;
+    if (!project.execution.material_bindings.empty()) {
+      const auto previous =
+          project.execution.material_bindings.back().binding_revision;
+      if (previous >= maximum_safe_integer) {
+        return Result<ProjectV2>::failure(detail::store_diagnostic(
+            "material_binding_revision_exhausted",
+            "material-binding revision reached the interoperable integer "
+            "limit"));
+      }
+      revision = previous + 1U;
+    }
+    project.execution.material_bindings.push_back(MaterialBinding{
+        revision, supersedes, std::move(input.geometry_sha256),
+        std::move(input.analysis_id), std::move(input.designation),
+        std::move(input.source_sha256), std::move(input.applicability),
+        input.youngs_modulus_pa, input.poisson_ratio});
+    const auto candidate = serialize_project_v2(project);
+    if (!candidate.has_value()) {
+      return Result<ProjectV2>::failure(
+          normalized(candidate.diagnostic(), project_path));
+    }
+    return persist_project(project_path, project, true, options);
+  } catch (const std::exception &failure) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "material_binding_failed", failure.what(), std::nullopt,
+        project_path));
+  } catch (...) {
+    return Result<ProjectV2>::failure(detail::store_diagnostic(
+        "material_binding_failed", "unknown material-binding failure",
+        std::nullopt, project_path));
+  }
+}
+
 Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

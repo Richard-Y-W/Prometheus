@@ -408,6 +408,37 @@
         "source_or_exploratory_rationale": {"$ref": "#/$defs/BoundedString"}
       }
     },
+    "MaterialBindingV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_revision",
+        "supersedes_binding_revision",
+        "geometry_sha256",
+        "analysis_id",
+        "designation",
+        "source_sha256",
+        "applicability",
+        "youngs_modulus_pa",
+        "poisson_ratio"
+      ],
+      "properties": {
+        "binding_revision": {"type": "integer", "minimum": 1},
+        "supersedes_binding_revision": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "geometry_sha256": {"$ref": "#/$defs/Identifier"},
+        "analysis_id": {"$ref": "#/$defs/Identifier"},
+        "designation": {"$ref": "#/$defs/BoundedString"},
+        "source_sha256": {"$ref": "#/$defs/Identifier"},
+        "applicability": {"$ref": "#/$defs/BoundedString"},
+        "youngs_modulus_pa": {"type": "number", "exclusiveMinimum": 0},
+        "poisson_ratio": {"type": "number", "exclusiveMinimum": -1, "exclusiveMaximum": 0.5}
+      }
+    },
     "EventV1": {
       "type": "object",
       "additionalProperties": false,
@@ -440,7 +471,7 @@
     "ExecutionIndexV1": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings", "requirement_bindings"],
+      "required": ["package_bindings", "current_scenario", "committed_runs", "events", "joint_bindings", "requirement_bindings", "material_bindings"],
       "properties": {
         "package_bindings": {
           "type": "array",
@@ -469,6 +500,11 @@
           "type": "array",
           "maxItems": 10000,
           "items": {"$ref": "#/$defs/RequirementBindingV1"}
+        },
+        "material_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/MaterialBindingV1"}
         }
       }
     }

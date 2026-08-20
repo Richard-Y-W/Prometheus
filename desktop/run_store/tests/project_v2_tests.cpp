@@ -409,6 +409,89 @@ void requirement_binding_revision_graph_is_strict() {
                   "a supported requirement binding needs a positive limit");
 }
 
+Json material_binding(const std::uint64_t revision,
+                      const std::optional<std::uint64_t> supersedes,
+                      const std::string &geometry,
+                      const double modulus = 7.0e10,
+                      const double ratio = 0.33) {
+  return Json{{"binding_revision", revision},
+              {"supersedes_binding_revision",
+               supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
+              {"geometry_sha256", geometry},
+              {"analysis_id", "bracket-analysis-1"},
+              {"designation", "6061-T6 aluminum"},
+              {"source_sha256", "sha256:" + std::string(64U, '4')},
+              {"applicability", "static load case"},
+              {"youngs_modulus_pa", modulus},
+              {"poisson_ratio", ratio}};
+}
+
+void material_binding_revision_graph_is_strict() {
+  const std::string geometry = "sha256:" + std::string(64U, '5');
+
+  auto duplicate = valid_project();
+  duplicate["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  duplicate["execution"]["material_bindings"].push_back(
+      material_binding(1, 1, geometry));
+  expect_rejected(duplicate.dump(), "material_binding_revision_order_invalid",
+                  "duplicate material binding revision rejects");
+
+  auto gap = valid_project();
+  gap["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  gap["execution"]["material_bindings"].push_back(
+      material_binding(3, 1, geometry));
+  expect_rejected(gap.dump(), "material_binding_revision_order_invalid",
+                  "non-contiguous material binding revision rejects");
+
+  auto valid_first = valid_project();
+  valid_first["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  check(run_store::parse_project_v2(valid_first.dump()).has_value(),
+        "first material binding parses");
+
+  auto cross_geometry = valid_project();
+  cross_geometry["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  cross_geometry["execution"]["material_bindings"].push_back(
+      material_binding(2, 1, "sha256:" + std::string(64U, '6')));
+  expect_rejected(cross_geometry.dump(),
+                  "material_binding_supersession_cross_geometry",
+                  "cross-geometry material supersession rejects");
+
+  auto two_active = valid_project();
+  two_active["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  two_active["execution"]["material_bindings"].push_back(
+      material_binding(2, std::nullopt, geometry));
+  expect_rejected(two_active.dump(), "multiple_active_material_bindings",
+                  "multiple unsuperseded material bindings on one geometry "
+                  "reject");
+
+  auto valid_chain = valid_project();
+  valid_chain["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry));
+  valid_chain["execution"]["material_bindings"].push_back(
+      material_binding(2, 1, geometry, 6.9e10, 0.3));
+  check(run_store::parse_project_v2(valid_chain.dump()).has_value(),
+        "re-reviewing the same geometry's material supersedes the same chain");
+
+  auto invalid_modulus = valid_project();
+  auto nonpositive = material_binding(1, std::nullopt, geometry);
+  nonpositive["youngs_modulus_pa"] = 0.0;
+  invalid_modulus["execution"]["material_bindings"].push_back(nonpositive);
+  expect_rejected(invalid_modulus.dump(), "invalid_material_binding_modulus",
+                  "a reviewed material needs a positive Young's modulus");
+
+  auto invalid_ratio = valid_project();
+  auto out_of_range = material_binding(1, std::nullopt, geometry);
+  out_of_range["poisson_ratio"] = 0.5;
+  invalid_ratio["execution"]["material_bindings"].push_back(out_of_range);
+  expect_rejected(invalid_ratio.dump(), "invalid_material_binding_poisson_ratio",
+                  "an out-of-range Poisson ratio rejects");
+}
+
 void collection_and_event_bounds_are_strict() {
   auto events = valid_project();
   for (std::uint64_t sequence = 1U; sequence <= 257U; ++sequence) {
@@ -445,6 +528,7 @@ int main() {
   binding_revision_graph_is_strict();
   joint_binding_revision_graph_is_strict();
   requirement_binding_revision_graph_is_strict();
+  material_binding_revision_graph_is_strict();
   collection_and_event_bounds_are_strict();
   return failures == 0 ? 0 : 1;
 }

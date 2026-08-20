@@ -143,6 +143,9 @@ int main(int argc, char **argv) {
     require(quantities == std::set<std::string>{"displacement",
                                                  "von_mises_stress", "other"},
             "each reviewed requirement is keyed by its own quantity");
+    require(after_first_review.value().execution.material_bindings.size() ==
+                1U,
+            "reviewing a setup also appends one MaterialBinding graph edge");
 
     auto changed_limit = reviewedDraft();
     changed_limit["displacement_limit_m"] = 0.002;
@@ -171,6 +174,28 @@ int main(int argc, char **argv) {
     require(undisturbed == 2U,
             "the von Mises and uncovered requirement chains are undisturbed "
             "by a displacement-only re-review");
+    require(after_second_review.value().execution.material_bindings.size() ==
+                1U,
+            "re-reviewing with an unchanged material does not append a "
+            "redundant MaterialBinding revision");
+
+    auto changed_material = reviewedDraft();
+    changed_material["youngs_modulus_pa"] = 7.2e10;
+    controller.reviewSetup(changed_material);
+    require(controller.status() == "ready_for_execution" && controller.canRun(),
+            "re-reviewing with a changed material still compiles");
+    const auto after_material_review =
+        prometheus::run_store::open_read_only(projectPath);
+    require(after_material_review.has_value() &&
+                after_material_review.value().execution.material_bindings
+                        .size() == 2U &&
+                after_material_review.value().execution.material_bindings
+                        .back().youngs_modulus_pa == 7.2e10 &&
+                after_material_review.value().execution.material_bindings
+                    .back().supersedes_binding_revision.has_value(),
+            "a changed material appends a second MaterialBinding revision "
+            "that supersedes the first");
+
     controller.reviewSetup(reviewedDraft());
     require(controller.status() == "ready_for_execution" && controller.canRun(),
             "restoring the original draft for the rest of the suite still compiles");

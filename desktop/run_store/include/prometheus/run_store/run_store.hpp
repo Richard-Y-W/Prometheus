@@ -134,6 +134,28 @@ struct RequirementBindingInput final {
     const std::filesystem::path &project_path,
     RequirementBindingInput input, TransactionOptions options = {}) noexcept;
 
+// Input for install_material_binding -- a plain struct for the same
+// readability reason as RequirementBindingInput.
+struct MaterialBindingInput final {
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string designation;
+  std::string source_sha256;
+  std::string applicability;
+  double youngs_modulus_pa{};
+  double poisson_ratio{};
+};
+
+// Appends a new, append-only MaterialBinding graph edge for a reviewed
+// structural material, superseding the prior active binding for the same
+// geometry, if any. Like install_package_binding, exactly one material is
+// active per geometry at a time -- but like install_joint_binding and
+// install_requirement_binding, there is no content-addressed object to
+// install, since the material's fields are inline in the project index.
+[[nodiscard]] Result<ProjectV2> install_material_binding(
+    const std::filesystem::path &project_path, MaterialBindingInput input,
+    TransactionOptions options = {}) noexcept;
+
 [[nodiscard]] Result<ProjectV2>
 set_current_scenario(const std::filesystem::path &project_path,
                      const StoredObjectReference &scenario_reference,

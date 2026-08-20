@@ -88,6 +88,7 @@ signals:
 private:
   void rebuildPreview();
   void persistRequirementBindingEdges();
+  void persistMaterialBindingEdge();
   QString status_{"mesh_required"};
   QString error_;
   QVariantMap mesh_summary_;
@@ -101,6 +102,7 @@ private:
   QVariantList findings_;
   std::optional<prometheus::structural::StructuralRequest> compiled_request_;
   std::vector<prometheus::structural::ReviewedRequirement> compiled_requirements_;
+  std::optional<prometheus::structural::ReviewedMaterial> compiled_material_;
   std::string compiled_setup_evidence_;
   prometheus::structural::VolumeMesh mesh_;
   std::vector<prometheus::structural::BoundaryFace> boundary_;

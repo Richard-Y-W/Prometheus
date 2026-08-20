@@ -3,8 +3,8 @@
 ## Document status
 
 - **Purpose:** Define the product Prometheus is intended to become, record the capabilities already established, and provide an evidence-driven path from the current prototype to a usable deployed product.
-- **Current implementation reference:** `main` as of 2026-08-20 (uncommitted at time of writing; see [docs/phase-07-requirements-and-planning.md](phase-07-requirements-and-planning.md) for the latest checkpoint evidence).
-- **Current maturity:** Phase 1 (real-folder screening) and Phase 5 (reviewed component and evidence intake) are complete against their exit gates. Phase 2 (multi-project evidence), Phase 3 (CalculiX structural workflow), and Phase 4 (persistence/portability) have substantial checkpoint evidence recorded in their own `docs/phase-0N-*.md` files but remain open pending outside-user/physical-hardware trial evidence. Phase 6 (semantic engineering graph) and Phase 7 (requirements and thin planning) are underway in small, evidence-scoped checkpoints rather than closed. The prototype has a strong trust boundary, real STEP/XDE import, a package-driven C++ motor-arm analysis backend that now also consumes manually entered (non-fixture) components, hash-verified CAD-to-component binding with supersede detection, a persisted CAD-to-CAD joint graph edge, a real reviewed-requirement/uncovered-work model for the structural workflow, and multiple materially different open-source project inputs under trial.
+- **Current implementation reference:** `main` as of 2026-08-20 (uncommitted at time of writing; see [docs/phase-06-semantic-engineering-graph.md](phase-06-semantic-engineering-graph.md) for the latest checkpoint evidence).
+- **Current maturity:** Phase 1 (real-folder screening) and Phase 5 (reviewed component and evidence intake) are complete against their exit gates. Phase 2 (multi-project evidence), Phase 3 (CalculiX structural workflow), and Phase 4 (persistence/portability) have substantial checkpoint evidence recorded in their own `docs/phase-0N-*.md` files but remain open pending outside-user/physical-hardware trial evidence. Phase 6 (semantic engineering graph) and Phase 7 (requirements and thin planning) are underway in small, evidence-scoped checkpoints rather than closed. The prototype has a strong trust boundary, real STEP/XDE import, a package-driven C++ motor-arm analysis backend that now also consumes manually entered (non-fixture) components, hash-verified CAD-to-component binding with supersede detection, persisted CAD-to-CAD joint, reviewed-requirement, and reviewed-material graph edges for the structural workflow (each append-only, deduplicated against unchanged re-review, and independently queryable), and multiple materially different open-source project inputs under trial.
 - **First deployable target:** A bounded Windows mechanical-design screening application. It is not initially a universal engineering authority.
 - **Long-term target:** A local CAD-centered engineering project compiler and solver-orchestration environment that can assemble reviewed real-world component data, model operating scenarios, run appropriate bounded analyses, and reveal failures, unknowns, and incomplete coverage before an expensive physical prototype is built.
 
@@ -521,16 +521,18 @@ Allow users to add components beyond the synthetic catalog while retaining trust
 - a supported analysis consumes the reviewed values;
 - conflicting or missing values remain visible and block unsupported claims.
 
-## Phase 6: Build the first semantic engineering graph — checkpoint 3 landed
+## Phase 6: Build the first semantic engineering graph — checkpoint 4 landed
 
 See [docs/phase-06-semantic-engineering-graph.md](phase-06-semantic-engineering-graph.md)
-for evidence. Three edges have landed so far: checkpoint 1 promotes the
+for evidence. Four edges have landed so far: checkpoint 1 promotes the
 CAD-to-component binding into a real, persisted, append-only graph edge,
-checkpoint 2 does the same for a confirmed CAD-to-CAD revolute joint, and
+checkpoint 2 does the same for a confirmed CAD-to-CAD revolute joint,
 checkpoint 3 does the same for a reviewed structural requirement (keyed by
 geometry and quantity rather than a CAD entity or entity pair), reusing the
-requirement model Phase 7 checkpoint 1 built. The remaining six entity
-families remain future work, added only as real workflows need them.
+requirement model Phase 7 checkpoint 1 built, and checkpoint 4 does the same
+for the reviewed structural material (keyed by geometry alone). The
+remaining five entity families remain future work, added only as real
+workflows need them.
 
 ### Objective
 

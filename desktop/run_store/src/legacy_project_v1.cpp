@@ -328,7 +328,8 @@ Json convert_document(const Json &legacy) {
                                  {"committed_runs", Json::array()},
                                  {"events", Json::array()},
                                  {"joint_bindings", Json::array()},
-                                 {"requirement_bindings", Json::array()}}}};
+                                 {"requirement_bindings", Json::array()},
+                                 {"material_bindings", Json::array()}}}};
 }
 
 } // namespace

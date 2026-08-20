@@ -595,6 +595,62 @@ void test_requirement_binding_supersession() {
           "adding the second uncovered requirement did not disturb the first");
 }
 
+// Phase 6 checkpoint 4: install_material_binding is the MaterialBinding
+// analogue of install_package_binding -- exactly one material is active for
+// a given geometry at a time, like a package binding is for a CAD entity,
+// but with no content-addressed object to install.
+void test_material_binding_supersession() {
+  TemporaryRoot root;
+  const auto project_path = root.path() / "bracket-material.prometheus";
+  create_project(project_path);
+  const std::string geometry = "sha256:" + std::string(64U, '7');
+
+  const auto &first = require_success(
+      run_store::install_material_binding(
+          project_path,
+          run_store::MaterialBindingInput{
+              geometry, "bracket-analysis-1", "6061-T6 aluminum",
+              "sha256:" + std::string(64U, '8'), "static load case", 6.9e10,
+              0.33}),
+      "first material binding");
+  require(first.execution.material_bindings.size() == 1U &&
+              first.execution.material_bindings.front().binding_revision ==
+                  1U &&
+              !first.execution.material_bindings.front()
+                   .supersedes_binding_revision.has_value(),
+          "first material binding appends revision one with no supersession");
+
+  const auto &revised = require_success(
+      run_store::install_material_binding(
+          project_path,
+          run_store::MaterialBindingInput{
+              geometry, "bracket-analysis-1", "7075-T6 aluminum",
+              "sha256:" + std::string(64U, '9'), "static load case", 7.2e10,
+              0.33}),
+      "second material binding on the same geometry");
+  require(revised.execution.material_bindings.size() == 2U &&
+              revised.execution.material_bindings.back()
+                      .supersedes_binding_revision == 1U,
+          "reviewing a different material for the same geometry supersedes "
+          "the prior revision");
+
+  const auto &different_geometry = require_success(
+      run_store::install_material_binding(
+          project_path,
+          run_store::MaterialBindingInput{
+              "sha256:" + std::string(64U, 'a'), "other-analysis",
+              "6061-T6 aluminum", "sha256:" + std::string(64U, '8'),
+              "static load case", 6.9e10, 0.33}),
+      "material binding on a different geometry");
+  require(different_geometry.execution.material_bindings.size() == 3U &&
+              !different_geometry.execution.material_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "a different geometry opens its own, unsuperseded chain");
+  require(different_geometry.execution.material_bindings[1]
+                  .supersedes_binding_revision == 1U,
+          "binding a different geometry did not disturb the first chain");
+}
+
 void test_structural_manifest_anchor() {
   TemporaryRoot root;
   const auto projectPath = root.path() / "structural.prometheus";
@@ -1395,6 +1451,7 @@ int main() {
     test_normal_operations_and_idempotency();
     test_joint_binding_supersession();
     test_requirement_binding_supersession();
+    test_material_binding_supersession();
     test_structural_manifest_anchor();
     test_embedded_structural_archive_round_trip();
     test_create_failure_boundaries();

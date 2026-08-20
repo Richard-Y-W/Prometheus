@@ -28,6 +28,7 @@ inline constexpr std::size_t maximum_object_bytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t maximum_package_bindings = 10000U;
 inline constexpr std::size_t maximum_joint_bindings = 10000U;
 inline constexpr std::size_t maximum_requirement_bindings = 10000U;
+inline constexpr std::size_t maximum_material_bindings = 10000U;
 inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
 inline constexpr std::string_view structural_manifest_media_type =
@@ -207,6 +208,24 @@ struct RequirementBinding final {
   std::string source_or_exploratory_rationale;
 };
 
+// Phase 6 checkpoint 4: the append-only, content-free counterpart of
+// PackageBinding for a reviewed structural material. Like a package
+// binding, exactly one material is active for a given geometry at a time --
+// but unlike a package binding, there is no content-addressed byte blob to
+// embed, so the fields are inline and the edge is self-contained, matching
+// JointBinding's and RequirementBinding's shape instead.
+struct MaterialBinding final {
+  std::uint64_t binding_revision;
+  std::optional<std::uint64_t> supersedes_binding_revision;
+  std::string geometry_sha256;
+  std::string analysis_id;
+  std::string designation;
+  std::string source_sha256;
+  std::string applicability;
+  double youngs_modulus_pa;
+  double poisson_ratio;
+};
+
 struct Event final {
   std::uint64_t sequence;
   std::string event_kind;
@@ -223,6 +242,7 @@ struct ExecutionIndex final {
   std::vector<Event> events;
   std::vector<JointBinding> joint_bindings;
   std::vector<RequirementBinding> requirement_bindings;
+  std::vector<MaterialBinding> material_bindings;
 };
 
 struct ProjectV2 final {

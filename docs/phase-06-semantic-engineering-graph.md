@@ -397,3 +397,90 @@ the reviewed content actually differs.
   (`run_store::open_read_only` → `execution.requirement_bindings`)
   independent of `StructuralController` — a desktop history panel remains
   future work.
+
+## Checkpoint 4: promote the reviewed structural material to a real graph edge
+
+The fourth entity pair is a component's geometry and its reviewed
+structural material — `material`, one of the nine entity families Phase 6
+originally named, and, like the requirement before checkpoint 3, already
+real, reviewed data (`ReviewedMaterial`) sitting in `draft_` display state
+only.
+
+### What already exists, informally
+
+- **Geometry ↔ reviewed material**: `validate_setup` requires a material's
+  designation, source SHA-256, applicability, and elastic properties
+  (Young's modulus, Poisson ratio) to be reviewed and provenanced before
+  `compile_structural_request` will compile a setup at all. Exactly one
+  material governs a given analysis at a time — there is no list, unlike
+  requirements.
+- Until this checkpoint, that reviewed material was `draft_` state only:
+  redefining it silently overwrote the previous review, with no record of
+  when or why a material changed, and nothing outside `StructuralController`
+  could query "what material did this geometry's last review specify."
+
+### What shipped
+
+`MaterialBinding` (`binding_revision`, `supersedes_binding_revision`,
+`geometry_sha256`, `analysis_id`, `designation`, `source_sha256`,
+`applicability`, `youngs_modulus_pa`, `poisson_ratio`) was added to
+`ExecutionIndex.material_bindings`, with `run_store::install_material_binding`
+mirroring `install_package_binding`'s supersession mechanics: exactly one
+active binding per key, superseded on rebind — but, like `JointBinding` and
+`RequirementBinding`, with no object-store step, since a material's fields
+are inline, not a content-addressed blob. Unlike the requirement's
+composite key, a material's key is the single `geometry_sha256` — there is
+only ever one active material per geometry, the same shape as a package
+binding's single `cad_entity_id` key.
+
+`StructuralController::persistMaterialBindingEdge`, called from
+`reviewSetup` alongside `persistRequirementBindingEdges`, reuses exactly the
+same dedup discipline checkpoint 3 established: compare the reviewed
+material against the geometry's currently active binding and only call
+`install_material_binding` when the content actually differs, so re-clicking
+"Validate and preview request" without changing the material does not
+append a redundant revision.
+
+### Proof
+
+- `desktop/run_store/tests/project_v2_tests.cpp`'s
+  `material_binding_revision_graph_is_strict` proves the same
+  supersession-chain integrity rules checkpoints 1–3 proved, plus
+  material-specific validation: a non-positive Young's modulus and an
+  out-of-range Poisson ratio both reject.
+- `desktop/run_store/tests/run_store_transaction_tests.cpp`'s
+  `test_material_binding_supersession` proves `install_material_binding`
+  end-to-end: a first bind appends revision one; a revised material on the
+  same geometry supersedes it; a different geometry opens its own,
+  undisturbed chain.
+- `desktop/app/tests/structural_controller_tests.cpp` extends its real
+  open→review→run→archive→commit→reopen flow: reviewing a setup appends one
+  `MaterialBinding`; re-reviewing with an unchanged material does not append
+  a second revision; re-reviewing with a changed Young's modulus appends a
+  second revision that supersedes the first — all read back via
+  `run_store::open_read_only`, independent of `StructuralController`.
+
+### Explicitly out of scope for checkpoint 4
+
+- Load and restraint — the remaining structural setup fields with real
+  reviewed data, deferred because their `BoundarySelection` geometry payload
+  (face/node identities, area) is materially more complex to serialize as
+  provenance than material's scalar fields; a real future checkpoint, not
+  ruled out.
+- The remaining entity families (BOM row, scenario as its own entity,
+  analysis request/finding, source document/evidence claim beyond what
+  Phase 5 already anchors) — added only when a real workflow needs them.
+- The motor-arm workflow — unchanged for the same reason as checkpoint 3.
+- A desktop UI for material-binding history — the data is persisted and
+  provably queryable, but no panel renders it yet, same as checkpoints 1–3.
+
+### Exit gate for this checkpoint — met
+
+- A reviewed structural material is a persisted graph edge, keyed by
+  geometry, not transient `draft_` display state.
+- Re-reviewing a material with changed content appends a new edge and
+  preserves the prior one's record; re-reviewing with unchanged content
+  does not spam the chain with redundant revisions.
+- The persisted edges are provably queryable
+  (`run_store::open_read_only` → `execution.material_bindings`) independent
+  of `StructuralController` — a desktop history panel remains future work.

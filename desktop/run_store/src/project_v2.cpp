@@ -857,6 +857,112 @@ void validate_requirement_binding_graph(
   }
 }
 
+MaterialBinding parse_material_binding(const Json &value,
+                                       const std::size_t index) {
+  const auto field =
+      "execution.material_bindings[" + std::to_string(index) + "]";
+  require_exact_members(
+      value,
+      {"binding_revision", "supersedes_binding_revision", "geometry_sha256",
+       "analysis_id", "designation", "source_sha256", "applicability",
+       "youngs_modulus_pa", "poisson_ratio"},
+      field);
+  std::optional<std::uint64_t> supersedes;
+  if (!value.at("supersedes_binding_revision").is_null()) {
+    supersedes = require_unsigned(value, "supersedes_binding_revision",
+                                  field + ".supersedes_binding_revision");
+  }
+  const auto &geometry =
+      require_string(value, "geometry_sha256", field + ".geometry_sha256",
+                     maximum_identity_bytes);
+  const auto &analysis_id = require_string(
+      value, "analysis_id", field + ".analysis_id", maximum_identity_bytes);
+  const auto &designation = require_string(value, "designation",
+                                           field + ".designation");
+  const auto &source_sha256 = require_string(
+      value, "source_sha256", field + ".source_sha256", maximum_identity_bytes);
+  const auto &applicability =
+      require_string(value, "applicability", field + ".applicability");
+  const auto modulus = require_finite_number(value, "youngs_modulus_pa",
+                                             field + ".youngs_modulus_pa");
+  if (modulus <= 0.0) {
+    reject("invalid_material_binding_modulus",
+           "a reviewed material needs a positive Young's modulus",
+           field + ".youngs_modulus_pa");
+  }
+  const auto ratio =
+      require_finite_number(value, "poisson_ratio", field + ".poisson_ratio");
+  if (ratio <= -1.0 || ratio >= 0.5) {
+    reject("invalid_material_binding_poisson_ratio",
+           "a reviewed material needs a Poisson ratio between -1 and 0.5",
+           field + ".poisson_ratio");
+  }
+  return {require_unsigned(value, "binding_revision",
+                           field + ".binding_revision"),
+          supersedes,
+          geometry,
+          analysis_id,
+          designation,
+          source_sha256,
+          applicability,
+          modulus,
+          ratio};
+}
+
+void validate_material_binding_graph(
+    const std::vector<MaterialBinding> &bindings) {
+  struct Revision final {
+    std::string geometry;
+    bool superseded{false};
+  };
+  std::unordered_map<std::uint64_t, Revision> revisions;
+  std::unordered_set<std::string> active_geometries;
+  revisions.reserve(bindings.size());
+  active_geometries.reserve(bindings.size());
+  for (std::size_t index = 0U; index < bindings.size(); ++index) {
+    const auto &binding = bindings[index];
+    const auto expected = static_cast<std::uint64_t>(index) + 1U;
+    if (binding.binding_revision != expected) {
+      reject("material_binding_revision_order_invalid",
+             "material binding revisions must be unique, contiguous, and "
+             "ordered",
+             "execution.material_bindings[" + std::to_string(index) +
+                 "].binding_revision");
+    }
+    if (binding.supersedes_binding_revision.has_value()) {
+      const auto prior = revisions.find(*binding.supersedes_binding_revision);
+      if (prior == revisions.end()) {
+        reject("material_binding_supersession_invalid",
+               "material binding supersession must identify an earlier "
+               "revision",
+               "execution.material_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.geometry != binding.geometry_sha256) {
+        reject("material_binding_supersession_cross_geometry",
+               "a material binding cannot supersede a different geometry",
+               "execution.material_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      if (prior->second.superseded) {
+        reject("material_binding_supersession_invalid",
+               "a material binding revision cannot be superseded twice",
+               "execution.material_bindings[" + std::to_string(index) +
+                   "].supersedes_binding_revision");
+      }
+      prior->second.superseded = true;
+      active_geometries.erase(binding.geometry_sha256);
+    } else if (active_geometries.contains(binding.geometry_sha256)) {
+      reject("multiple_active_material_bindings",
+             "a geometry may have only one unsuperseded material binding",
+             "execution.material_bindings[" + std::to_string(index) + "]");
+    }
+    active_geometries.insert(binding.geometry_sha256);
+    revisions.emplace(binding.binding_revision,
+                      Revision{binding.geometry_sha256, false});
+  }
+}
+
 void validate_binding_graph(const std::vector<PackageBinding> &bindings) {
   struct Revision final {
     std::string entity;
@@ -947,7 +1053,7 @@ ExecutionIndex parse_execution(const Json &value) {
   require_exact_members(
       value,
       {"package_bindings", "current_scenario", "committed_runs", "events",
-       "joint_bindings", "requirement_bindings"},
+       "joint_bindings", "requirement_bindings", "material_bindings"},
       "execution");
   ExecutionIndex execution;
   const auto &bindings = require_array(value, "package_bindings",
@@ -980,6 +1086,16 @@ ExecutionIndex parse_execution(const Json &value) {
         parse_requirement_binding(requirement_bindings[index], index));
   }
   validate_requirement_binding_graph(execution.requirement_bindings);
+
+  const auto &material_bindings =
+      require_array(value, "material_bindings", "execution.material_bindings",
+                    maximum_material_bindings);
+  execution.material_bindings.reserve(material_bindings.size());
+  for (std::size_t index = 0U; index < material_bindings.size(); ++index) {
+    execution.material_bindings.push_back(
+        parse_material_binding(material_bindings[index], index));
+  }
+  validate_material_binding_graph(execution.material_bindings);
 
   if (!value.at("current_scenario").is_null()) {
     execution.current_scenario =
@@ -1242,6 +1358,22 @@ Json project_json(const ProjectV2 &project) {
              {"source_or_exploratory_rationale",
               binding.source_or_exploratory_rationale}});
   }
+  Json material_bindings = Json::array();
+  for (const auto &binding : project.execution.material_bindings) {
+    material_bindings.push_back(
+        Json{{"binding_revision", binding.binding_revision},
+             {"supersedes_binding_revision",
+              binding.supersedes_binding_revision.has_value()
+                  ? Json(*binding.supersedes_binding_revision)
+                  : Json(nullptr)},
+             {"geometry_sha256", binding.geometry_sha256},
+             {"analysis_id", binding.analysis_id},
+             {"designation", binding.designation},
+             {"source_sha256", binding.source_sha256},
+             {"applicability", binding.applicability},
+             {"youngs_modulus_pa", binding.youngs_modulus_pa},
+             {"poisson_ratio", binding.poisson_ratio}});
+  }
   Json current_scenario = nullptr;
   if (project.execution.current_scenario.has_value()) {
     current_scenario = reference_json(*project.execution.current_scenario);
@@ -1287,7 +1419,8 @@ Json project_json(const ProjectV2 &project) {
             {"committed_runs", std::move(committed_runs)},
             {"events", std::move(events)},
             {"joint_bindings", std::move(joint_bindings)},
-            {"requirement_bindings", std::move(requirement_bindings)}}}};
+            {"requirement_bindings", std::move(requirement_bindings)},
+            {"material_bindings", std::move(material_bindings)}}}};
 }
 
 } // namespace

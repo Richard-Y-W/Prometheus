@@ -36,6 +36,7 @@
     "committed_runs": [],
     "events": [],
     "joint_bindings": [],
-    "requirement_bindings": []
+    "requirement_bindings": [],
+    "material_bindings": []
   }
 }

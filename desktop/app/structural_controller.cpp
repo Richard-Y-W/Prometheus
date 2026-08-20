@@ -275,6 +275,7 @@ StructuralController::StructuralController(ProjectController *project,
             [this] {
       compiled_request_.reset();
       compiled_requirements_.clear();
+      compiled_material_.reset();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       const auto present = std::any_of(
@@ -621,6 +622,7 @@ void StructuralController::restoreStoredRun(const int index,
     if (!sourceCurrent) {
       compiled_request_.reset();
       compiled_requirements_.clear();
+      compiled_material_.reset();
       compiled_setup_evidence_.clear();
       can_run_ = false;
       blockers_.append(QVariantMap{
@@ -876,6 +878,7 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   result_view_.clear();
   rebuildPreview();
   persistRequirementBindingEdges();
+  persistMaterialBindingEdge();
   emit changed();
 }
 
@@ -954,12 +957,61 @@ void StructuralController::persistRequirementBindingEdges() {
   }
 }
 
+void StructuralController::persistMaterialBindingEdge() {
+  // Phase 6 checkpoint 4: the MaterialBinding analogue of
+  // persistRequirementBindingEdges, for the reviewed material that is
+  // exactly one value per geometry (like a package binding), not a list.
+  // Same best-effort, silent, and dedup-against-the-active-binding contract.
+  if (!can_run_ || !compiled_request_ || !compiled_material_ ||
+      project_ == nullptr || !project_->project().has_value() ||
+      project_->saveAsRequired() || !project_->executionStoreAvailable()) {
+    return;
+  }
+  const auto geometry = compiled_request_->geometry_sha256;
+  const auto analysisId = compiled_request_->analysis_id;
+  const prometheus::run_store::MaterialBinding *active = nullptr;
+  const auto &bindings = project_->project()->execution.material_bindings;
+  std::set<std::uint64_t> superseded;
+  for (const auto &binding : bindings) {
+    if (binding.supersedes_binding_revision.has_value()) {
+      superseded.insert(*binding.supersedes_binding_revision);
+    }
+  }
+  for (auto iterator = bindings.rbegin(); iterator != bindings.rend();
+       ++iterator) {
+    if (iterator->geometry_sha256 == geometry &&
+        !superseded.contains(iterator->binding_revision)) {
+      active = &*iterator;
+      break;
+    }
+  }
+  if (active != nullptr && active->analysis_id == analysisId &&
+      active->designation == compiled_material_->designation &&
+      active->source_sha256 == compiled_material_->source_sha256 &&
+      active->applicability == compiled_material_->applicability &&
+      active->youngs_modulus_pa == compiled_material_->youngs_modulus_pa &&
+      active->poisson_ratio == compiled_material_->poisson_ratio) {
+    return;
+  }
+  const auto installed = prometheus::run_store::install_material_binding(
+      project_->projectPath(),
+      prometheus::run_store::MaterialBindingInput{
+          geometry, analysisId, compiled_material_->designation,
+          compiled_material_->source_sha256, compiled_material_->applicability,
+          compiled_material_->youngs_modulus_pa,
+          compiled_material_->poisson_ratio});
+  if (installed.has_value()) {
+    project_->acceptProject(installed.value());
+  }
+}
+
 void StructuralController::rebuildPreview() {
   blockers_.clear();
   request_preview_.clear();
   can_run_ = false;
   compiled_request_.reset();
   compiled_requirements_.clear();
+  compiled_material_.reset();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (mesh_.nodes.empty() || patches_.empty()) {
@@ -1069,6 +1121,7 @@ void StructuralController::rebuildPreview() {
     const auto request = ps::compile_structural_request(setup);
     compiled_request_ = request;
     compiled_requirements_ = requirements;
+    compiled_material_ = setup.material;
     compiled_setup_evidence_ = ps::serialize_structural_setup_evidence(setup);
     request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
                         {"component_name", QString::fromStdString(request.component_name)},
@@ -1319,6 +1372,7 @@ void StructuralController::reset() {
   findings_.clear();
   compiled_request_.reset();
   compiled_requirements_.clear();
+  compiled_material_.reset();
   compiled_setup_evidence_.clear();
   uncovered_requirements_.clear();
   if (result_geometry_) result_geometry_->deleteLater();
