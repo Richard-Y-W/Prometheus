@@ -8,6 +8,7 @@ add_library(prometheus_structural STATIC
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
+  src/structural_observables.cpp
   src/structural_findings.cpp
   src/structural_refinement.cpp
   src/structural_archive.cpp
@@ -91,7 +92,13 @@ if(BUILD_TESTING)
   add_executable(prometheus_structural_tests
     tests/structural_tests.cpp
   )
+  add_executable(prometheus_structural_observable_tests
+    tests/structural_observable_tests.cpp
+  )
   target_link_libraries(prometheus_structural_tests PRIVATE
+    prometheus_structural
+  )
+  target_link_libraries(prometheus_structural_observable_tests PRIVATE
     prometheus_structural
   )
   target_compile_definitions(prometheus_structural_tests PRIVATE
@@ -108,6 +115,10 @@ if(BUILD_TESTING)
     prometheus_structural_solver_fixture
   )
   add_test(NAME prometheus_structural_tests COMMAND prometheus_structural_tests)
+  add_test(
+    NAME prometheus_structural_observable_tests
+    COMMAND prometheus_structural_observable_tests
+  )
   add_test(
     NAME prometheus_structural_tool_fixture
     COMMAND ${CMAKE_COMMAND}
