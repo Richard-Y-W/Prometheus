@@ -10,7 +10,8 @@ namespace prometheus::structural {
 
 enum class StructuralFindingDisposition {
   no_violation_detected_within_scope,
-  violated
+  violated,
+  cannot_answer
 };
 
 struct StructuralFinding final {

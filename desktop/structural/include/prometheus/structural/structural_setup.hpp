@@ -31,9 +31,24 @@ struct ReviewedFixedRestraint final {
   bool reviewed{};
 };
 
-struct ReviewedStructuralRequirement final {
-  std::optional<double> displacement_limit_m;
-  std::optional<double> von_mises_limit_pa;
+enum class RequirementQuantity { displacement, von_mises_stress, other };
+
+enum class RequirementComparator { less_or_equal };
+
+enum class RequirementCriticality { informational, advisory, critical };
+
+// A requirement targets `displacement`/`von_mises_stress` (the only
+// quantities the CalculiX linear-static capability can evaluate) or
+// `other`, which records a real reviewed requirement this capability
+// cannot answer instead of making it unrepresentable.
+struct ReviewedRequirement final {
+  RequirementQuantity quantity{RequirementQuantity::other};
+  std::string other_quantity_description;
+  RequirementComparator comparator{RequirementComparator::less_or_equal};
+  double limit_value{};
+  std::string unit;
+  std::string applicability;
+  RequirementCriticality criticality{RequirementCriticality::advisory};
   std::string source_or_exploratory_rationale;
   bool reviewed{};
 };
@@ -54,7 +69,7 @@ struct StructuralSetup final {
   ReviewedMaterial material;
   ReviewedSurfaceLoad load;
   ReviewedFixedRestraint restraint;
-  ReviewedStructuralRequirement requirement;
+  std::vector<ReviewedRequirement> requirements;
   ReviewedMeshControls mesh_controls;
   std::string scenario_description;
   bool scenario_confirmed{};

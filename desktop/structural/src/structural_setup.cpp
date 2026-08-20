@@ -111,17 +111,45 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
     issue(issues, "load_restraint_overlap",
           "The bounded model does not permit the same face to be loaded and fully fixed.");
 
-  if (!setup.requirement.reviewed)
-    issue(issues, "requirement_unreviewed", "Structural limits require review.");
-  const auto positive = [](const auto &value) {
-    return value && std::isfinite(*value) && *value > 0.0;
-  };
-  if (!positive(setup.requirement.displacement_limit_m) &&
-      !positive(setup.requirement.von_mises_limit_pa))
-    issue(issues, "requirement_missing", "A positive displacement or stress limit is required.");
-  if (setup.requirement.source_or_exploratory_rationale.empty())
-    issue(issues, "requirement_provenance_missing",
-          "A requirement source or explicit exploratory rationale is required.");
+  if (setup.requirements.empty())
+    issue(issues, "requirement_missing", "At least one reviewed requirement is required.");
+  bool sawDisplacement = false;
+  bool sawVonMises = false;
+  bool anySupportedAndPositive = false;
+  for (const auto &requirement : setup.requirements) {
+    if (!requirement.reviewed)
+      issue(issues, "requirement_unreviewed", "All structural requirements require review.");
+    if (requirement.source_or_exploratory_rationale.empty())
+      issue(issues, "requirement_provenance_missing",
+            "A requirement source or explicit exploratory rationale is required.");
+    if (requirement.unit.empty())
+      issue(issues, "requirement_unit_missing", "A requirement unit is required.");
+    if (requirement.quantity == RequirementQuantity::other) {
+      if (requirement.other_quantity_description.empty())
+        issue(issues, "requirement_description_missing",
+              "An 'other' requirement needs an explicit description of what it asks.");
+      continue;
+    }
+    if (requirement.quantity == RequirementQuantity::displacement) {
+      if (sawDisplacement)
+        issue(issues, "requirement_duplicate_quantity",
+              "Only one displacement requirement is supported.");
+      sawDisplacement = true;
+    } else {
+      if (sawVonMises)
+        issue(issues, "requirement_duplicate_quantity",
+              "Only one von Mises stress requirement is supported.");
+      sawVonMises = true;
+    }
+    if (std::isfinite(requirement.limit_value) && requirement.limit_value > 0.0)
+      anySupportedAndPositive = true;
+    else
+      issue(issues, "requirement_limit_invalid",
+            "A positive reviewed limit is required for a supported requirement quantity.");
+  }
+  if (!setup.requirements.empty() && !anySupportedAndPositive)
+    issue(issues, "requirement_unsupported_only",
+          "At least one positive reviewed displacement or von Mises stress limit is required.");
 
   if (!setup.mesh_controls.reviewed)
     issue(issues, "mesh_controls_unreviewed", "Mesh controls require review.");
@@ -141,6 +169,14 @@ StructuralRequest compile_structural_request(const StructuralSetup &setup) {
   const auto issues = validate_setup(setup);
   if (!issues.empty())
     throw std::invalid_argument(issues.front().code + ": " + issues.front().message);
+  std::optional<double> displacementLimit;
+  std::optional<double> vonMisesLimit;
+  for (const auto &requirement : setup.requirements) {
+    if (requirement.quantity == RequirementQuantity::displacement)
+      displacementLimit = requirement.limit_value;
+    else if (requirement.quantity == RequirementQuantity::von_mises_stress)
+      vonMisesLimit = requirement.limit_value;
+  }
   StructuralRequest request{
       .analysis_id = setup.analysis_id,
       .component_name = setup.component_name,
@@ -152,12 +188,13 @@ StructuralRequest compile_structural_request(const StructuralSetup &setup) {
       .fully_fixed_node_ids = setup.restraint.selection.node_ids,
       .nodal_forces = distribute_surface_total_force(
           setup.load.selection, setup.load.total_force_n, setup.boundary_faces),
-      .displacement_limit_m = setup.requirement.displacement_limit_m,
-      .von_mises_limit_pa = setup.requirement.von_mises_limit_pa,
+      .displacement_limit_m = displacementLimit,
+      .von_mises_limit_pa = vonMisesLimit,
       .material_reviewed = setup.material.reviewed,
       .loads_reviewed = setup.load.reviewed,
       .restraints_reviewed = setup.restraint.reviewed,
-      .requirements_reviewed = setup.requirement.reviewed,
+      .requirements_reviewed = std::ranges::all_of(
+          setup.requirements, &ReviewedRequirement::reviewed),
       .scenario_confirmed = setup.scenario_confirmed};
   const auto requestIssues = validate_request(request);
   if (!requestIssues.empty())

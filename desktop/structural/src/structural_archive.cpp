@@ -17,7 +17,32 @@ namespace {
 using Json = nlohmann::json;
 constexpr auto archiveName = "prometheus-structural-run.json";
 constexpr auto schema = "urn:prometheus:schema:structural-run-archive:1.0.0";
-constexpr auto setupSchema = "urn:prometheus:schema:reviewed-structural-setup:1.0.0";
+constexpr auto setupSchema = "urn:prometheus:schema:reviewed-structural-setup:1.1.0";
+
+std::string_view quantityLabel(const RequirementQuantity value) {
+  switch (value) {
+  case RequirementQuantity::displacement: return "displacement";
+  case RequirementQuantity::von_mises_stress: return "von_mises_stress";
+  case RequirementQuantity::other: return "other";
+  }
+  return "other";
+}
+
+std::string_view comparatorLabel(const RequirementComparator value) {
+  switch (value) {
+  case RequirementComparator::less_or_equal: return "less_or_equal";
+  }
+  return "less_or_equal";
+}
+
+std::string_view criticalityLabel(const RequirementCriticality value) {
+  switch (value) {
+  case RequirementCriticality::informational: return "informational";
+  case RequirementCriticality::advisory: return "advisory";
+  case RequirementCriticality::critical: return "critical";
+  }
+  return "advisory";
+}
 
 std::string read(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
@@ -70,15 +95,12 @@ std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
     return Json{{"label", value.label}, {"face_node_ids", std::move(faces)},
                 {"node_ids", value.node_ids}, {"area_m2", value.area_m2}};
   };
-  const auto optionalNumber = [](const std::optional<double> value) {
-    return value ? Json(*value) : Json(nullptr);
-  };
   Json nodeIds = Json::array();
   for (const auto &node : setup.mesh.nodes) nodeIds.push_back(node.id);
   Json elementIds = Json::array();
   for (const auto &element : setup.mesh.elements) elementIds.push_back(element.id);
   const Json document{
-      {"$schema", setupSchema}, {"schema_version", "1.0.0"},
+      {"$schema", setupSchema}, {"schema_version", "1.1.0"},
       {"analysis_id", setup.analysis_id}, {"component_name", setup.component_name},
       {"geometry_sha256", setup.geometry_sha256},
       {"mesh", {{"node_count", setup.mesh.nodes.size()},
@@ -97,11 +119,22 @@ std::string serialize_structural_setup_evidence(const StructuralSetup &setup) {
                  {"reviewed", setup.load.reviewed}}},
       {"restraint", {{"selection", selection(setup.restraint.selection)},
                       {"reviewed", setup.restraint.reviewed}}},
-      {"requirement", {{"displacement_limit_m", optionalNumber(setup.requirement.displacement_limit_m)},
-                        {"von_mises_limit_pa", optionalNumber(setup.requirement.von_mises_limit_pa)},
-                        {"source_or_exploratory_rationale",
-                         setup.requirement.source_or_exploratory_rationale},
-                        {"reviewed", setup.requirement.reviewed}}},
+      {"requirements", [&] {
+        Json requirements = Json::array();
+        for (const auto &requirement : setup.requirements)
+          requirements.push_back(
+              {{"quantity", quantityLabel(requirement.quantity)},
+               {"other_quantity_description", requirement.other_quantity_description},
+               {"comparator", comparatorLabel(requirement.comparator)},
+               {"limit_value", requirement.limit_value},
+               {"unit", requirement.unit},
+               {"applicability", requirement.applicability},
+               {"criticality", criticalityLabel(requirement.criticality)},
+               {"source_or_exploratory_rationale",
+                requirement.source_or_exploratory_rationale},
+               {"reviewed", requirement.reviewed}});
+        return requirements;
+      }()},
       {"mesh_controls", {{"minimum_size_m", setup.mesh_controls.minimum_size_m},
                           {"maximum_size_m", setup.mesh_controls.maximum_size_m},
                           {"mesher_identity", setup.mesh_controls.mesher_identity},

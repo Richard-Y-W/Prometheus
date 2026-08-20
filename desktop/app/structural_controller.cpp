@@ -6,6 +6,7 @@
 #include "prometheus/structural/calculix_runner.hpp"
 #include "prometheus/structural/structural_findings.hpp"
 #include "prometheus/structural/structural_archive.hpp"
+#include "prometheus/decision/project_summary.hpp"
 #include "prometheus/run_store/run_store.hpp"
 #include "prometheus/run_store/object_store.hpp"
 #include "prometheus/run_store/structural_archive_store.hpp"
@@ -31,8 +32,67 @@
 #include <QUuid>
 
 namespace ps = prometheus::structural;
+namespace decision = prometheus::decision;
 
 namespace {
+
+ps::RequirementCriticality parseCriticality(const QString &value) {
+  if (value == "critical") return ps::RequirementCriticality::critical;
+  if (value == "informational") return ps::RequirementCriticality::informational;
+  return ps::RequirementCriticality::advisory;
+}
+
+QString criticalityLabel(const ps::RequirementCriticality value) {
+  switch (value) {
+  case ps::RequirementCriticality::critical: return "critical";
+  case ps::RequirementCriticality::informational: return "informational";
+  case ps::RequirementCriticality::advisory: return "advisory";
+  }
+  return "advisory";
+}
+
+QString dispositionLabel(const ps::StructuralFindingDisposition value) {
+  switch (value) {
+  case ps::StructuralFindingDisposition::violated: return "violated";
+  case ps::StructuralFindingDisposition::cannot_answer: return "cannot_answer";
+  case ps::StructuralFindingDisposition::no_violation_detected_within_scope:
+    return "no_violation_detected_within_scope";
+  }
+  return "no_violation_detected_within_scope";
+}
+
+QString verdictLabel(const decision::Verdict value) {
+  switch (value) {
+  case decision::Verdict::satisfied_within_scope: return "satisfied_within_scope";
+  case decision::Verdict::requirements_violated: return "requirements_violated";
+  case decision::Verdict::indeterminate: return "indeterminate";
+  }
+  return "indeterminate";
+}
+
+QString coverageLabel(const decision::Coverage value) {
+  switch (value) {
+  case decision::Coverage::sufficient: return "sufficient";
+  case decision::Coverage::insufficient: return "insufficient";
+  case decision::Coverage::not_assessed: return "not_assessed";
+  }
+  return "not_assessed";
+}
+
+QString executionStateLabel(const decision::ExecutionState value) {
+  switch (value) {
+  case decision::ExecutionState::not_started: return "not_started";
+  case decision::ExecutionState::ready: return "ready";
+  case decision::ExecutionState::running: return "running";
+  case decision::ExecutionState::blocked: return "blocked";
+  case decision::ExecutionState::completed: return "completed";
+  case decision::ExecutionState::completed_with_blocked_work:
+    return "completed_with_blocked_work";
+  case decision::ExecutionState::failed: return "failed";
+  case decision::ExecutionState::cancelled: return "cancelled";
+  }
+  return "failed";
+}
 
 struct DesktopRunResult final {
   ps::SolverRunResult run;
@@ -499,10 +559,37 @@ void StructuralController::restoreStoredRun(const int index,
     const auto material = setup.value("material").toObject();
     const auto load = setup.value("load").toObject();
     const auto restraint = setup.value("restraint").toObject();
-    const auto requirement = setup.value("requirement").toObject();
     const auto meshControls = setup.value("mesh_controls").toObject();
     const auto scenario = setup.value("scenario").toObject();
     const auto force = load.value("total_force_n").toArray();
+    double displacementLimit = 0.0;
+    double vonMisesLimit = 0.0;
+    QString requirementRationale;
+    bool requirementReviewed = false;
+    QString requirementApplicability;
+    QString requirementCriticality = "advisory";
+    QString otherRequirementDescription;
+    QString otherRequirementUnit;
+    double otherRequirementLimit = 0.0;
+    // uncovered_requirements_ is rebuilt by rebuildPreview() below from these
+    // draft_ fields, mirroring how live review derives it.
+    for (const auto &value : setup.value("requirements").toArray()) {
+      const auto entry = value.toObject();
+      const auto quantity = entry.value("quantity").toString();
+      requirementRationale = entry.value("source_or_exploratory_rationale").toString();
+      requirementReviewed = entry.value("reviewed").toBool();
+      requirementApplicability = entry.value("applicability").toString();
+      requirementCriticality = entry.value("criticality").toString();
+      if (quantity == "displacement") {
+        displacementLimit = entry.value("limit_value").toDouble();
+      } else if (quantity == "von_mises_stress") {
+        vonMisesLimit = entry.value("limit_value").toDouble();
+      } else {
+        otherRequirementDescription = entry.value("other_quantity_description").toString();
+        otherRequirementUnit = entry.value("unit").toString();
+        otherRequirementLimit = entry.value("limit_value").toDouble();
+      }
+    }
     draft_ = {
         {"restored", true}, {"analysis_id", setup.value("analysis_id").toString()},
         {"component_name", setup.value("component_name").toString()},
@@ -518,12 +605,15 @@ void StructuralController::restoreStoredRun(const int index,
         {"force_z_n", force.at(2).toDouble()},
         {"load_reviewed", load.value("reviewed").toBool()},
         {"restraint_reviewed", restraint.value("reviewed").toBool()},
-        {"displacement_limit_m",
-         requirement.value("displacement_limit_m").toDouble()},
-        {"von_mises_limit_pa", requirement.value("von_mises_limit_pa").toDouble()},
-        {"requirement_rationale",
-         requirement.value("source_or_exploratory_rationale").toString()},
-        {"requirement_reviewed", requirement.value("reviewed").toBool()},
+        {"displacement_limit_m", displacementLimit},
+        {"von_mises_limit_pa", vonMisesLimit},
+        {"requirement_rationale", requirementRationale},
+        {"requirement_reviewed", requirementReviewed},
+        {"requirement_applicability", requirementApplicability},
+        {"requirement_criticality", requirementCriticality},
+        {"other_requirement_description", otherRequirementDescription},
+        {"other_requirement_unit", otherRequirementUnit},
+        {"other_requirement_limit_value", otherRequirementLimit},
         {"mesh_minimum_size_m", meshControls.value("minimum_size_m").toDouble()},
         {"mesh_maximum_size_m", meshControls.value("maximum_size_m").toDouble()},
         {"mesher_identity", meshControls.value("mesher_identity").toString()},
@@ -796,11 +886,50 @@ void StructuralController::rebuildPreview() {
   can_run_ = false;
   compiled_request_.reset();
   compiled_setup_evidence_.clear();
+  uncovered_requirements_.clear();
   if (mesh_.nodes.empty() || patches_.empty()) {
     blockers_.append(QVariantMap{{"code", "mesh_required"},
                                  {"message", "Load a structural volume mesh first."}});
     status_ = "mesh_required";
     return;
+  }
+  std::vector<ps::ReviewedRequirement> requirements;
+  {
+    const auto applicability =
+        draft_.value("requirement_applicability").toString().toStdString();
+    const auto criticality =
+        parseCriticality(draft_.value("requirement_criticality").toString());
+    const auto rationale =
+        draft_.value("requirement_rationale").toString().toStdString();
+    const auto reviewed = draft_.value("requirement_reviewed").toBool();
+    if (const auto limit = positiveOptional(draft_, "displacement_limit_m"))
+      requirements.push_back({ps::RequirementQuantity::displacement, "",
+                              ps::RequirementComparator::less_or_equal, *limit,
+                              "m", applicability, criticality, rationale, reviewed});
+    if (const auto limit = positiveOptional(draft_, "von_mises_limit_pa"))
+      requirements.push_back({ps::RequirementQuantity::von_mises_stress, "",
+                              ps::RequirementComparator::less_or_equal, *limit,
+                              "Pa", applicability, criticality, rationale, reviewed});
+    const auto otherDescription =
+        draft_.value("other_requirement_description").toString().toStdString();
+    if (!otherDescription.empty())
+      requirements.push_back(
+          {ps::RequirementQuantity::other, otherDescription,
+           ps::RequirementComparator::less_or_equal,
+           draft_.value("other_requirement_limit_value").toDouble(),
+           draft_.value("other_requirement_unit").toString().toStdString(),
+           applicability, criticality, rationale, reviewed});
+  }
+  for (const auto &requirement : requirements) {
+    if (requirement.quantity != ps::RequirementQuantity::other) continue;
+    uncovered_requirements_.append(QVariantMap{
+        {"description", QString::fromStdString(requirement.other_quantity_description)},
+        {"unit", QString::fromStdString(requirement.unit)},
+        {"limit_value", requirement.limit_value},
+        {"applicability", QString::fromStdString(requirement.applicability)},
+        {"criticality", criticalityLabel(requirement.criticality)},
+        {"rationale", QString::fromStdString(requirement.source_or_exploratory_rationale)},
+        {"reviewed", requirement.reviewed}});
   }
   ps::BoundarySelection load;
   ps::BoundarySelection restraint;
@@ -837,10 +966,7 @@ void StructuralController::rebuildPreview() {
                draft_.value("load_reviewed").toBool()},
       .restraint = {std::move(restraint),
                     draft_.value("restraint_reviewed").toBool()},
-      .requirement = {positiveOptional(draft_, "displacement_limit_m"),
-                      positiveOptional(draft_, "von_mises_limit_pa"),
-                      draft_.value("requirement_rationale").toString().toStdString(),
-                      draft_.value("requirement_reviewed").toBool()},
+      .requirements = std::move(requirements),
       .mesh_controls = {draft_.value("mesh_minimum_size_m").toDouble(),
                         draft_.value("mesh_maximum_size_m").toDouble(),
                         draft_.value("mesher_identity").toString().toStdString(),
@@ -1023,14 +1149,42 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     for (const auto &finding : completed.evaluation.findings) {
       findings_.append(QVariantMap{
           {"obligation", QString::fromStdString(finding.obligation)},
-          {"disposition", finding.disposition ==
-                  ps::StructuralFindingDisposition::violated
-              ? "violated" : "no_violation_detected_within_scope"},
+          {"disposition", dispositionLabel(finding.disposition)},
           {"measured", finding.measured_value},
           {"limit", finding.limit_value},
           {"margin", finding.margin_to_limit},
           {"unit", QString::fromStdString(finding.unit)},
           {"scope", QString::fromStdString(finding.scope)}});
+    }
+    if (compiled_request_) {
+      decision::Counts counts;
+      for (const auto &finding : completed.evaluation.findings) {
+        switch (finding.disposition) {
+        case ps::StructuralFindingDisposition::no_violation_detected_within_scope:
+          ++counts.satisfied_within_scope; break;
+        case ps::StructuralFindingDisposition::violated:
+          ++counts.violated; break;
+        case ps::StructuralFindingDisposition::cannot_answer:
+          ++counts.not_evaluated; break;
+        }
+      }
+      counts.not_applicable =
+          static_cast<std::uint64_t>(uncovered_requirements_.size());
+      const auto executionState = completed.run.status != ps::SolverRunStatus::completed
+          ? decision::ExecutionState::failed
+          : uncovered_requirements_.isEmpty()
+                ? decision::ExecutionState::completed
+                : decision::ExecutionState::completed_with_blocked_work;
+      const auto total = counts.satisfied_within_scope + counts.violated +
+          counts.indeterminate + counts.not_applicable + counts.not_evaluated;
+      if (total > 0) {
+        const auto summary = decision::summarize(
+            counts, executionState, total, compiled_request_->geometry_sha256);
+        last_run_["assessment"] = QVariantMap{
+            {"verdict", verdictLabel(summary.verdict)},
+            {"coverage", coverageLabel(summary.coverage)},
+            {"execution_state", executionStateLabel(summary.execution_state)}};
+      }
     }
     status_ = completed.run.status == ps::SolverRunStatus::completed
         ? "execution_completed" : "execution_failed";
@@ -1089,6 +1243,7 @@ void StructuralController::reset() {
   findings_.clear();
   compiled_request_.reset();
   compiled_setup_evidence_.clear();
+  uncovered_requirements_.clear();
   if (result_geometry_) result_geometry_->deleteLater();
   result_geometry_ = nullptr;
   result_view_.clear();

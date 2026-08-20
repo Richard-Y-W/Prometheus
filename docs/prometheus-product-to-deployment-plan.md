@@ -3,8 +3,8 @@
 ## Document status
 
 - **Purpose:** Define the product Prometheus is intended to become, record the capabilities already established, and provide an evidence-driven path from the current prototype to a usable deployed product.
-- **Current implementation reference:** `main` as of 2026-08-17 (uncommitted at time of writing; see [docs/phase-05-component-intake.md](phase-05-component-intake.md) for the latest checkpoint evidence).
-- **Current maturity:** Phase 1 (real-folder screening) and Phase 5 (reviewed component and evidence intake) are complete against their exit gates. Phase 2 (multi-project evidence), Phase 3 (CalculiX structural workflow), and Phase 4 (persistence/portability) have substantial checkpoint evidence recorded in their own `docs/phase-0N-*.md` files but remain open pending outside-user/physical-hardware trial evidence. The prototype has a strong trust boundary, real STEP/XDE import, a package-driven C++ motor-arm analysis backend that now also consumes manually entered (non-fixture) components, hash-verified CAD-to-component binding with supersede detection, and multiple materially different open-source project inputs under trial.
+- **Current implementation reference:** `main` as of 2026-08-20 (uncommitted at time of writing; see [docs/phase-07-requirements-and-planning.md](phase-07-requirements-and-planning.md) for the latest checkpoint evidence).
+- **Current maturity:** Phase 1 (real-folder screening) and Phase 5 (reviewed component and evidence intake) are complete against their exit gates. Phase 2 (multi-project evidence), Phase 3 (CalculiX structural workflow), and Phase 4 (persistence/portability) have substantial checkpoint evidence recorded in their own `docs/phase-0N-*.md` files but remain open pending outside-user/physical-hardware trial evidence. Phase 6 (semantic engineering graph) and Phase 7 (requirements and thin planning) are underway in small, evidence-scoped checkpoints rather than closed. The prototype has a strong trust boundary, real STEP/XDE import, a package-driven C++ motor-arm analysis backend that now also consumes manually entered (non-fixture) components, hash-verified CAD-to-component binding with supersede detection, a persisted CAD-to-CAD joint graph edge, a real reviewed-requirement/uncovered-work model for the structural workflow, and multiple materially different open-source project inputs under trial.
 - **First deployable target:** A bounded Windows mechanical-design screening application. It is not initially a universal engineering authority.
 - **Long-term target:** A local CAD-centered engineering project compiler and solver-orchestration environment that can assemble reviewed real-world component data, model operating scenarios, run appropriate bounded analyses, and reveal failures, unknowns, and incomplete coverage before an expensive physical prototype is built.
 
@@ -560,7 +560,19 @@ Connect the artifacts needed by the real mechanical workflows.
 - every consequential edge is reviewable and traceable;
 - component, CAD, requirement, and analysis identities connect end to end.
 
-## Phase 7: Add requirements, scenarios, and thin planning
+## Phase 7: Add requirements, scenarios, and thin planning — checkpoint 1 landed
+
+See [docs/phase-07-requirements-and-planning.md](phase-07-requirements-and-planning.md)
+for evidence. Checkpoint 1 replaces the structural workflow's two hardcoded
+requirement fields with a real reviewed requirement list (quantity,
+comparator, limit, unit, applicability, criticality, source), preserves
+requirements outside CalculiX's coverage as visible uncovered work instead of
+making them unrepresentable, and wires the previously-unused
+`decision::summarize` coverage/verdict rollup into the structural findings
+so a run can never be reported as satisfied while real uncovered work
+remains. Capability matching and analysis recommendation remain unproven
+beyond a fixed single-capability check — that needs a second capability
+before it can be called real. The motor-arm subsystem is untouched.
 
 ### Objective
 

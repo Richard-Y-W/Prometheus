@@ -40,6 +40,12 @@ Item {
         stressLimit.text = String(draft.von_mises_limit_pa || 0)
         requirementRationale.text = draft.requirement_rationale
         requirementReviewed.checked = draft.requirement_reviewed
+        requirementApplicability.text = draft.requirement_applicability || ""
+        requirementCriticality.currentIndex = Math.max(0,
+            requirementCriticality.model.indexOf(draft.requirement_criticality || "advisory"))
+        otherRequirementDescription.text = draft.other_requirement_description || ""
+        otherRequirementUnit.text = draft.other_requirement_unit || ""
+        otherRequirementLimit.text = String(draft.other_requirement_limit_value || 0)
         meshMinimum.text = String(draft.mesh_minimum_size_m)
         meshMaximum.text = String(draft.mesh_maximum_size_m)
         mesherIdentity.text = draft.mesher_identity
@@ -73,6 +79,11 @@ Item {
             von_mises_limit_pa: Number(stressLimit.text),
             requirement_rationale: requirementRationale.text,
             requirement_reviewed: requirementReviewed.checked,
+            requirement_applicability: requirementApplicability.text,
+            requirement_criticality: requirementCriticality.currentText,
+            other_requirement_description: otherRequirementDescription.text,
+            other_requirement_unit: otherRequirementUnit.text,
+            other_requirement_limit_value: Number(otherRequirementLimit.text),
             mesh_minimum_size_m: Number(meshMinimum.text),
             mesh_maximum_size_m: Number(meshMaximum.text),
             mesher_identity: mesherIdentity.text,
@@ -241,10 +252,24 @@ Item {
                             TextField { id: displacementLimit; Layout.fillWidth: true; text: "0"; validator: DoubleValidator { bottom: 0 } }
                             Label { text: "Von Mises limit (Pa)"; color: mutedColor }
                             TextField { id: stressLimit; Layout.fillWidth: true; text: "0"; validator: DoubleValidator { bottom: 0 } }
+                            Label { text: "Applicability"; color: mutedColor }
+                            TextField { id: requirementApplicability; Layout.fillWidth: true; placeholderText: "condition under which these limits apply" }
+                            Label { text: "Criticality"; color: mutedColor }
+                            ComboBox { id: requirementCriticality; Layout.fillWidth: true; model: ["informational", "advisory", "critical"]; currentIndex: 1 }
                             Label { text: "Source or exploratory rationale"; color: mutedColor }
                             TextField { id: requirementRationale; Layout.fillWidth: true }
                         }
                         CheckBox { id: requirementReviewed; text: "Requirement limits and rationale reviewed"; palette.text: textColor; palette.windowText: textColor }
+                        Label { text: "Other requirement (not evaluated by this capability)"; color: mutedColor }
+                        GridLayout {
+                            Layout.fillWidth: true; columns: 2
+                            Label { text: "Description"; color: mutedColor }
+                            TextField { id: otherRequirementDescription; Layout.fillWidth: true; placeholderText: "e.g. fatigue life under duty cycle" }
+                            Label { text: "Unit"; color: mutedColor }
+                            TextField { id: otherRequirementUnit; Layout.fillWidth: true; placeholderText: "e.g. cycles" }
+                            Label { text: "Limit value"; color: mutedColor }
+                            TextField { id: otherRequirementLimit; Layout.fillWidth: true; text: "0"; validator: DoubleValidator {} }
+                        }
                         Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
                         GridLayout {
                             Layout.fillWidth: true; columns: 2
@@ -442,16 +467,66 @@ Item {
                             required property var modelData
                             width: findingList.width
                             height: findingText.implicitHeight + 20
-                            color: modelData.disposition === "violated" ? "#301d1d" : "#1b2a22"
-                            border.color: modelData.disposition === "violated" ? "#b85450" : "#365f4b"
+                            color: modelData.disposition === "violated" ? "#301d1d" :
+                                   modelData.disposition === "cannot_answer" ? "#2a2620" : "#1b2a22"
+                            border.color: modelData.disposition === "violated" ? "#b85450" :
+                                          modelData.disposition === "cannot_answer" ? "#8f6933" : "#365f4b"
                             Label {
                                 id: findingText
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 text: modelData.disposition + "\n" + modelData.obligation +
-                                      "\nmeasured " + Number(modelData.measured).toExponential(5) + " " + modelData.unit +
-                                      "  •  limit " + Number(modelData.limit).toExponential(5) + " " + modelData.unit
-                                color: modelData.disposition === "violated" ? "#e87972" : "#70c99a"
+                                      (modelData.disposition === "cannot_answer" ?
+                                          "\nno measured value  •  limit " + Number(modelData.limit).toExponential(5) + " " + modelData.unit :
+                                          "\nmeasured " + Number(modelData.measured).toExponential(5) + " " + modelData.unit +
+                                          "  •  limit " + Number(modelData.limit).toExponential(5) + " " + modelData.unit)
+                                color: modelData.disposition === "violated" ? "#e87972" :
+                                       modelData.disposition === "cannot_answer" ? "#e0b861" : "#70c99a"
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 10
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: structuralController.lastRun.assessment !== undefined
+                        text: structuralController.lastRun.assessment !== undefined ?
+                            "ASSESSMENT  " + structuralController.lastRun.assessment.verdict +
+                            "  •  coverage " + structuralController.lastRun.assessment.coverage +
+                            "  •  " + structuralController.lastRun.assessment.execution_state : ""
+                        color: mutedColor
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 10
+                    }
+                    Label {
+                        visible: structuralController.uncoveredRequirements.length > 0
+                        text: "UNCOVERED REQUIREMENTS (no available capability answers these)"
+                        color: mutedColor
+                        font.bold: true
+                        font.pixelSize: 10
+                    }
+                    ListView {
+                        id: uncoveredList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 90)
+                        visible: structuralController.uncoveredRequirements.length > 0
+                        clip: true
+                        spacing: 4
+                        model: structuralController.uncoveredRequirements
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: uncoveredList.width
+                            height: uncoveredText.implicitHeight + 18
+                            color: "#241f2a"
+                            border.color: "#5a4c78"
+                            Label {
+                                id: uncoveredText
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                text: modelData.description + " (" + modelData.criticality + ")" +
+                                      "\nlimit " + modelData.limit_value + " " + modelData.unit +
+                                      "  •  " + modelData.rationale
+                                color: "#c3b3e6"
                                 wrapMode: Text.WordWrap
                                 font.pixelSize: 10
                             }

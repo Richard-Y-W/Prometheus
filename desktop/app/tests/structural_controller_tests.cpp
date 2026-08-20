@@ -43,6 +43,11 @@ QVariantMap reviewedDraft() {
           {"displacement_limit_m", 0.001}, {"von_mises_limit_pa", 1.0e8},
           {"requirement_rationale", "explicit exploratory desktop test"},
           {"requirement_reviewed", true},
+          {"requirement_applicability", "bounded linear-static desktop preview"},
+          {"requirement_criticality", "critical"},
+          {"other_requirement_description", "fatigue life under duty cycle"},
+          {"other_requirement_unit", "cycles"},
+          {"other_requirement_limit_value", 1.0e6},
           {"mesh_minimum_size_m", 0.001}, {"mesh_maximum_size_m", 0.003},
           {"mesher_identity", "fixture mesher 1.0"},
           {"mesh_controls_reviewed", true},
@@ -106,6 +111,13 @@ int main(int argc, char **argv) {
               controller.requestPreview().value("fixed_nodes").toInt() == 3 &&
               controller.requestPreview().value("loaded_nodes").toInt() == 3,
           "reviewed desktop setup compiles through authoritative structural validation");
+  require(controller.uncoveredRequirements().size() == 1 &&
+              controller.uncoveredRequirements().front().toMap()
+                      .value("description").toString() ==
+                  "fatigue life under duty cycle" &&
+              controller.uncoveredRequirements().front().toMap()
+                      .value("criticality").toString() == "critical",
+          "a requirement outside the CalculiX capability stays visible as uncovered work");
   QEventLoop runLoop;
   QObject::connect(&controller, &StructuralController::runFinished,
                    &runLoop, &QEventLoop::quit);
@@ -127,6 +139,15 @@ int main(int argc, char **argv) {
               controller.lastRun().value("archived").toBool() &&
               !controller.lastRun().value("archive_manifest").toString().isEmpty(),
           "desktop executes, archives, and builds a traceable deformed stress view");
+  require(controller.lastRun().value("assessment").toMap()
+                  .value("verdict").toString() == "indeterminate" &&
+              controller.lastRun().value("assessment").toMap()
+                  .value("coverage").toString() == "sufficient" &&
+              controller.lastRun().value("assessment").toMap()
+                  .value("execution_state").toString() ==
+                  "completed_with_blocked_work",
+          "an uncovered requirement keeps the verdict from claiming satisfaction "
+          "even though every capability-supported obligation passed");
   const auto archivePath = controller.lastRun().value("archive_manifest").toString();
   const auto verified = prometheus::structural::verify_structural_archive(
       std::filesystem::path(archivePath.toStdWString()));
@@ -195,6 +216,13 @@ int main(int argc, char **argv) {
               restoredController.lastRun().value("status") ==
                   "restored_verified",
           "reopened desktop restores editable reviewed setup and result visualization");
+  require(restoredController.uncoveredRequirements().size() == 1 &&
+              restoredController.uncoveredRequirements().front().toMap()
+                      .value("description").toString() ==
+                  "fatigue life under duty cycle" &&
+              restoredController.uncoveredRequirements().front().toMap()
+                      .value("criticality").toString() == "critical",
+          "the uncovered requirement survives project close and reopen exactly");
   auto changedSnapshot = *reopened.project();
   changedSnapshot.assembly_artifact_hash =
       "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";

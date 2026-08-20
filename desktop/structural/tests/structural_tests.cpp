@@ -257,7 +257,14 @@ int main() {
       .load = {ps::resolve_boundary_selection("load", tetraPatches, {1}),
                {0.0, 0.0, -100.0}, true},
       .restraint = {ps::resolve_boundary_selection("fixed", tetraPatches, {2}), true},
-      .requirement = {0.001, 1.0e8, "explicit exploratory benchmark limits", true},
+      .requirements = {{ps::RequirementQuantity::displacement, "",
+                        ps::RequirementComparator::less_or_equal, 0.001, "m",
+                        "benchmark applicability", ps::RequirementCriticality::advisory,
+                        "explicit exploratory benchmark limits", true},
+                       {ps::RequirementQuantity::von_mises_stress, "",
+                        ps::RequirementComparator::less_or_equal, 1.0e8, "Pa",
+                        "benchmark applicability", ps::RequirementCriticality::advisory,
+                        "explicit exploratory benchmark limits", true}},
       .mesh_controls = {0.001, 0.003, "test mesher 1.0", true},
       .scenario_description = "one bounded linear-static benchmark scenario",
       .scenario_confirmed = true};
@@ -269,7 +276,7 @@ int main() {
           "reviewed surface setup compiles into the narrow solver request");
   auto unreviewedSetup = setup;
   unreviewedSetup.material.reviewed = false;
-  unreviewedSetup.requirement.source_or_exploratory_rationale.clear();
+  unreviewedSetup.requirements.front().source_or_exploratory_rationale.clear();
   unreviewedSetup.scenario_confirmed = false;
   const auto setupIssues = ps::validate_setup(unreviewedSetup);
   require(hasIssue(setupIssues, "material_unreviewed") &&
@@ -290,6 +297,33 @@ int main() {
     fail("unreviewed structural setup compiled into a solver request");
   } catch (const std::invalid_argument &) {
   }
+
+  auto withUncovered = setup;
+  withUncovered.requirements.push_back(
+      {ps::RequirementQuantity::other, "fatigue life under duty cycle",
+       ps::RequirementComparator::less_or_equal, 1.0e6, "cycles",
+       "benchmark applicability", ps::RequirementCriticality::critical,
+       "customer fatigue spec", true});
+  require(ps::validate_setup(withUncovered).empty(),
+          "an uncovered 'other' requirement does not block a supported setup");
+  const auto compiledWithUncovered = ps::compile_structural_request(withUncovered);
+  require(compiledWithUncovered.displacement_limit_m.has_value() &&
+              compiledWithUncovered.von_mises_limit_pa.has_value(),
+          "an uncovered requirement is preserved without altering the solver-relevant request");
+  auto missingUncoveredDescription = withUncovered;
+  missingUncoveredDescription.requirements.back().other_quantity_description.clear();
+  require(hasIssue(ps::validate_setup(missingUncoveredDescription),
+                   "requirement_description_missing"),
+          "an 'other' requirement without a description stays explicit and blocked");
+  auto duplicateQuantity = setup;
+  duplicateQuantity.requirements.push_back(duplicateQuantity.requirements.front());
+  require(hasIssue(ps::validate_setup(duplicateQuantity),
+                   "requirement_duplicate_quantity"),
+          "two requirements on the same supported quantity are rejected as ambiguous");
+  auto onlyUncovered = setup;
+  onlyUncovered.requirements = {withUncovered.requirements.back()};
+  require(hasIssue(ps::validate_setup(onlyUncovered), "requirement_unsupported_only"),
+          "a setup with only unsupported requirements cannot compile a solver request");
 
   auto paired = mesh;
   paired.nodes.push_back({5, {0.0, 0.0, -0.01}});
@@ -360,9 +394,14 @@ int main() {
           "solver timeout is terminated and classified without metrics");
   const auto indeterminate = ps::compile_structural_findings(request, timedOut);
   require(indeterminate.declared_obligations == 2 &&
-              indeterminate.evaluated_obligations == 0 &&
-              indeterminate.findings.empty(),
-          "failed execution cannot satisfy or violate engineering obligations");
+              indeterminate.evaluated_obligations == 2 &&
+              indeterminate.findings.size() == 2 &&
+              std::ranges::all_of(indeterminate.findings, [](const auto &finding) {
+                return finding.disposition ==
+                    ps::StructuralFindingDisposition::cannot_answer;
+              }),
+          "failed execution resolves each declared obligation to an explicit "
+          "cannot-answer finding instead of silently dropping it");
   fs::remove_all(processRoot);
   return 0;
 }
