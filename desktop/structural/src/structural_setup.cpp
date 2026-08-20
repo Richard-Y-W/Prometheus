@@ -218,8 +218,10 @@ std::string serialize_validated_setup(const StructuralSetup &setup) {
        setup.selection_patch_angle_degrees}};
   return integrity::canonicalize_json_bytes(
       document.dump(),
-      integrity::Limits{8U * 1024U * 1024U, 64U, 500000U, 10000U,
-                        100000U, 4U * 1024U * 1024U});
+      // Keep canonicalization bounded while accommodating the structural
+      // mesher's independently enforced ceiling of 480,000 tetrahedra.
+      integrity::Limits{8U * 1024U * 1024U, 64U, 1000000U, 10000U,
+                        500000U, 4U * 1024U * 1024U});
 }
 
 void throw_first(const std::vector<ValidationIssue> &issues) {

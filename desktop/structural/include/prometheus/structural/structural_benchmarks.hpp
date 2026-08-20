@@ -25,6 +25,17 @@ struct BenchmarkComparison final {
   }
 };
 
+struct BenchmarkMeshDivisions final {
+  int length_divisions{};
+  int width_divisions{};
+  int height_divisions{};
+};
+
+struct CantileverValidationMeshPair final {
+  BenchmarkMeshDivisions coarse;
+  BenchmarkMeshDivisions fine;
+};
+
 // A 1 m x 0.1 m x 0.1 m, nu=0 bar under 1000 N uniform axial
 // traction. Closed-form references are u=F L/(A E) and sigma=F/A.
 [[nodiscard]] BenchmarkReference axial_tension_bar_benchmark(
@@ -35,6 +46,10 @@ struct BenchmarkComparison final {
 // Euler-Bernoulli tip displacement F L^3/(3 E I) and root stress 6 F L/(b h^2).
 [[nodiscard]] BenchmarkReference cantilever_benchmark(
     int length_divisions, int width_divisions, int height_divisions);
+
+// Approved validation pair for the real CalculiX cantilever refinement gate.
+[[nodiscard]] CantileverValidationMeshPair
+cantilever_validation_mesh_pair() noexcept;
 
 [[nodiscard]] BenchmarkComparison compare_benchmark(
     const BenchmarkReference &reference, const CalculixMetrics &actual);

@@ -221,6 +221,13 @@ BenchmarkReference cantilever_benchmark(const int nx, const int ny,
   return {std::move(setup), expectedDisplacement, expectedStress, 0.15, 0.25};
 }
 
+CantileverValidationMeshPair cantilever_validation_mesh_pair() noexcept {
+  return {
+      .coarse = {80, 12, 12},
+      .fine = {120, 18, 18},
+  };
+}
+
 BenchmarkComparison compare_benchmark(const BenchmarkReference &reference,
                                       const CalculixMetrics &actual) {
   if (!std::isfinite(reference.expected_maximum_displacement_m) ||

@@ -506,6 +506,24 @@ int main() {
               std::abs(cantilever.expected_maximum_displacement_m - 0.0002) < 1e-15 &&
               std::abs(cantilever.expected_maximum_von_mises_pa - 6.0e6) < 1e-8,
           "cantilever benchmark derives beam references and bounded solid mesh");
+  const auto validationMeshes = ps::cantilever_validation_mesh_pair();
+  require(validationMeshes.coarse.length_divisions == 80 &&
+              validationMeshes.coarse.width_divisions == 12 &&
+              validationMeshes.coarse.height_divisions == 12 &&
+              validationMeshes.fine.length_divisions == 120 &&
+              validationMeshes.fine.width_divisions == 18 &&
+              validationMeshes.fine.height_divisions == 18,
+          "cantilever validation pair pins the approved denser meshes");
+  const auto validationFineElements =
+      6ULL * static_cast<unsigned long long>(
+                 validationMeshes.fine.length_divisions) *
+      static_cast<unsigned long long>(
+          validationMeshes.fine.width_divisions) *
+      static_cast<unsigned long long>(
+          validationMeshes.fine.height_divisions);
+  require(validationFineElements == 233280ULL &&
+              validationFineElements <= 480000ULL,
+          "approved fine cantilever remains inside the mesher element bound");
   const auto request = validRequest();
   require(ps::validate_request(request).empty(), "reviewed tetra request validates");
   const auto deck = ps::generate_calculix_deck(request);

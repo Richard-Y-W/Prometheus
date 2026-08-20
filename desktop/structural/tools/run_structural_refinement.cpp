@@ -43,7 +43,7 @@ Run execute(const fs::path &ccx, const fs::path &root,
     fs::remove(root / "prometheus-structural-run.json", ignored);
   }
   const ps::SolverRunOptions options{
-      ccx, root, job, std::chrono::seconds(120)};
+      ccx, root, job, std::chrono::minutes(5)};
   auto solver = ps::run_calculix(options, reference.setup);
   std::cout << solver.standard_output;
   std::cerr << solver.standard_error;
@@ -66,8 +66,13 @@ int main(int argc, char **argv) {
   try {
     const fs::path ccx = fs::absolute(argv[1]);
     const fs::path root = fs::absolute(argv[2]);
-    const auto coarseReference = ps::cantilever_benchmark(20, 3, 3);
-    const auto fineReference = ps::cantilever_benchmark(40, 6, 6);
+    const auto meshes = ps::cantilever_validation_mesh_pair();
+    const auto coarseReference = ps::cantilever_benchmark(
+        meshes.coarse.length_divisions, meshes.coarse.width_divisions,
+        meshes.coarse.height_divisions);
+    const auto fineReference = ps::cantilever_benchmark(
+        meshes.fine.length_divisions, meshes.fine.width_divisions,
+        meshes.fine.height_divisions);
     const auto coarse = execute(ccx, root, "cantilever_coarse",
                                 coarseReference);
     const auto fine = execute(ccx, root, "cantilever_fine",

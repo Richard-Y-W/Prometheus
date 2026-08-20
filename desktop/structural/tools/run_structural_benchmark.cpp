@@ -79,8 +79,13 @@ int main(int argc, char **argv) {
       coarseReference = ps::axial_tension_bar_benchmark(1, 1, 1);
       fineReference = ps::axial_tension_bar_benchmark(4, 2, 2);
     } else if (benchmark == "cantilever") {
-      coarseReference = ps::cantilever_benchmark(20, 3, 3);
-      fineReference = ps::cantilever_benchmark(40, 6, 6);
+      const auto meshes = ps::cantilever_validation_mesh_pair();
+      coarseReference = ps::cantilever_benchmark(
+          meshes.coarse.length_divisions, meshes.coarse.width_divisions,
+          meshes.coarse.height_divisions);
+      fineReference = ps::cantilever_benchmark(
+          meshes.fine.length_divisions, meshes.fine.width_divisions,
+          meshes.fine.height_divisions);
     } else {
       throw std::invalid_argument("unknown benchmark");
     }
