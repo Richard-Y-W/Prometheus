@@ -165,15 +165,19 @@ requireSolverRun(
 Each check consumes the same `completed` object. A failing earlier check exits,
 so later optional dereferences remain guarded by the preceding assertions.
 
-- [ ] **Step 2: Prove the fixture still executes once**
+- [ ] **Step 2: Prove diagnostics add no fixture execution**
 
 Run:
 
 ```bash
-rg -n 'runFixture\("success"' desktop/structural/tests/structural_tests.cpp
+rg -n -C 2 'const auto (completed|staleOutputs) = runFixture\("success"' \
+  desktop/structural/tests/structural_tests.cpp
 ```
 
-Expected: exactly one line for the success fixture call.
+Expected: the unchanged `completed` call performs the one successful process
+execution. The unchanged later `staleOutputs` call verifies
+`SolverRunStatus::output_conflict`; `run_calculix` returns before process launch
+because the first call's output files already exist. Diagnostics add no call.
 
 - [ ] **Step 3: Run focused and full local native checks**
 
