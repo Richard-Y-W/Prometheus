@@ -87,6 +87,53 @@ void add_unknown(StructuralEvaluation &evaluation, std::string obligation,
 
 } // namespace
 
+StructuralEvaluation compile_modal_structural_findings(
+    const CompiledStructuralSetup &setup, const SolverRunResult &run) {
+  StructuralEvaluation result;
+  const auto &request = setup.request;
+  result.execution_status = run.status;
+  result.declared_obligations =
+      static_cast<int>(request.minimum_natural_frequency_hz.has_value());
+  result.limitation =
+      "These findings do not establish safety, fatigue life, buckling, "
+      "contact, fastener adequacy, nonlinear behavior, resonance under a "
+      "real forcing function, or project-wide correctness.";
+  if (!request.minimum_natural_frequency_hz.has_value())
+    return result;
+
+  const bool resultValid = run.validated_result &&
+      run.validated_result->complete() && run.validated_result->metrics &&
+      run.validated_result->metrics->first_natural_frequency_hz.has_value() &&
+      strict_sha256(run.validated_result->identity);
+  if (!resultValid) {
+    result.unknowns.push_back(
+        {"minimum_natural_frequency", "validated_result_invalid",
+         "The modal solver result does not contain a complete validated "
+         "eigenvalue result."});
+    return result;
+  }
+
+  const double measured =
+      *run.validated_result->metrics->first_natural_frequency_hz;
+  const double limit = *request.minimum_natural_frequency_hz;
+  const double margin = measured - limit;
+  result.findings.push_back(
+      {"minimum_natural_frequency",
+       margin >= 0.0
+           ? StructuralFindingDisposition::no_violation_detected_within_scope
+           : StructuralFindingDisposition::violated,
+       measured, limit, margin, "Hz",
+       "first extracted natural frequency of the unloaded reviewed geometry "
+       "under the confirmed scenario",
+       {run.validated_result->identity, setup.identity},
+       {"isotropic linear-elastic material behavior",
+        "reviewed density and fully fixed restraints represent the scenario",
+        "reported eigenvalue is bounded by the submitted mesh and solver "
+        "output"}});
+  result.evaluated_obligations = 1;
+  return result;
+}
+
 StructuralEvaluation compile_structural_findings(
     const VerifiedStructuralRefinement &refinement) {
   StructuralEvaluation result;

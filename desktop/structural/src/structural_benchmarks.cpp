@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <locale>
 #include <map>
+#include <numbers>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -193,6 +194,63 @@ CompiledStructuralSetup compile_benchmark_setup(
   return compile_structural_setup(setup);
 }
 
+CompiledStructuralSetup compile_modal_benchmark_setup(
+    std::string analysisId, std::string componentName,
+    std::string geometrySha256, Block block, const double poissonRatio,
+    const double densityKgM3, const double minimumFrequencyHz,
+    const double minimumMeanRatioThreshold) {
+  const auto measured = validate_and_measure_mesh(block.mesh, {});
+  const auto fixed = plane_selection(block.mesh, measured.boundary_faces, 0.0,
+                                     "reviewed fixed end face");
+  const auto meshSha256 = mesh_identity(block.mesh);
+  StructuralSetup setup{
+      .analysis_id = std::move(analysisId),
+      .component_name = std::move(componentName),
+      .geometry_sha256 = std::move(geometrySha256),
+      .mesh = std::move(block.mesh),
+      .boundary_faces = measured.boundary_faces,
+      .material =
+          {.designation = "analytic isotropic benchmark material",
+           .source_sha256 =
+               "sha256:3111111111111111111111111111111111111111111111111111111111111111",
+           .applicability = "known",
+           .youngs_modulus_pa = 2.0e11,
+           .poisson_ratio = poissonRatio,
+           .reviewed = true,
+           .temper = "not_applicable",
+           .product_form = "synthetic benchmark",
+           .density_kg_m3 = densityKgM3},
+      .restraint = {.selection = fixed, .reviewed = true},
+      .requirements =
+          {{.quantity = RequirementQuantity::natural_frequency,
+            .comparator = RequirementComparator::greater_or_equal,
+            .limit_value = minimumFrequencyHz,
+            .unit = "Hz",
+            .applicability = "bounded analytic benchmark",
+            .criticality = RequirementCriticality::advisory,
+            .source_or_exploratory_rationale =
+                "predeclared analytic benchmark acceptance envelope",
+            .reviewed = true,
+            .limit_basis =
+                "closed-form benchmark first natural frequency envelope"}},
+      .mesh_controls =
+          {.minimum_size_m = block.cell_minimum_m,
+           .maximum_size_m = block.cell_diagonal_m,
+           .mesher_identity =
+               "Prometheus deterministic structured-block benchmark mesher v1",
+           .reviewed = true,
+           .mesh_sha256 = meshSha256,
+           .coordinate_scale_to_m = 1.0,
+           .target_size_m = block.cell_minimum_m,
+           .minimum_mean_ratio_threshold = minimumMeanRatioThreshold,
+           .observed_minimum_mean_ratio =
+               measured.diagnostics.minimum_mean_ratio},
+      .scenario_description =
+          "bounded synthetic modal_frequency solver validation scenario",
+      .scenario_confirmed = true};
+  return compile_structural_setup(setup);
+}
+
 } // namespace
 
 BenchmarkReference axial_tension_bar_benchmark(
@@ -303,6 +361,47 @@ BenchmarkComparison compare_cantilever_validation(
   return {displacementError, stressError,
           displacementError <= displacementTolerance,
           stressError <= stressTolerance};
+}
+
+ModalBenchmarkReference cantilever_modal_benchmark(const int nx, const int ny,
+                                                    const int nz) {
+  constexpr double length = 1.0;
+  constexpr double width = 0.1;
+  constexpr double height = 0.1;
+  constexpr double youngsModulus = 2.0e11;
+  constexpr double densityKgM3 = 7850.0;
+  constexpr double betaOneLength = 1.875104;
+  constexpr double inertia = width * height * height * height / 12.0;
+  constexpr double area = width * height;
+  const double expectedFrequencyHz =
+      (betaOneLength * betaOneLength) /
+      (2.0 * std::numbers::pi * length * length) *
+      std::sqrt(youngsModulus * inertia / (densityKgM3 * area));
+  auto setup = compile_modal_benchmark_setup(
+      "analytic-cantilever-modal-v1",
+      "1m x 0.1m x 0.1m analytic modal cantilever",
+      "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      block_mesh(nx, ny, nz, length, width, -height / 2.0, height / 2.0),
+      0.3, densityKgM3, 0.5 * expectedFrequencyHz, 0.001);
+  return {std::move(setup), expectedFrequencyHz, 0.15};
+}
+
+ModalBenchmarkComparison compare_modal_benchmark(
+    const ModalBenchmarkReference &reference, const CalculixMetrics &actual) {
+  if (!std::isfinite(reference.expected_first_natural_frequency_hz) ||
+      reference.expected_first_natural_frequency_hz <= 0.0 ||
+      !std::isfinite(reference.frequency_relative_tolerance) ||
+      reference.frequency_relative_tolerance < 0.0 ||
+      !actual.first_natural_frequency_hz.has_value() ||
+      !std::isfinite(*actual.first_natural_frequency_hz))
+    throw std::invalid_argument(
+        "Modal benchmark reference, metrics, and tolerance must be finite and positive");
+  const double frequencyError =
+      std::abs(*actual.first_natural_frequency_hz -
+               reference.expected_first_natural_frequency_hz) /
+      reference.expected_first_natural_frequency_hz;
+  return {frequencyError,
+          frequencyError <= reference.frequency_relative_tolerance};
 }
 
 BenchmarkComparison compare_benchmark(const BenchmarkReference &reference,

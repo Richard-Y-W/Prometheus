@@ -7,6 +7,13 @@
 
 namespace prometheus::structural {
 
+// The two validated CalculiX capabilities a reviewed setup's requirements
+// can resolve to (structural_setup.cpp's recommend_capability). A setup
+// that reviews requirements for both at once is rejected
+// (requirement_capability_ambiguous) rather than silently answering only
+// one side -- this architecture compiles one request per review.
+enum class StructuralCapability { linear_static, modal_frequency };
+
 struct Node final {
   int id{};
   std::array<double, 3> position_m{};
@@ -23,7 +30,7 @@ struct NodalForce final {
 };
 
 struct StructuralRequest final {
-  std::string schema{"urn:prometheus:calculix-linear-static-request:0.1.0"};
+  std::string schema{"urn:prometheus:calculix-structural-request:0.2.0"};
   std::string analysis_id;
   std::string component_name;
   std::string geometry_sha256;
@@ -56,6 +63,11 @@ struct StructuralRequest final {
   std::string displacement_limit_basis;
   std::string von_mises_limit_basis;
   bool mesh_reviewed{};
+  StructuralCapability capability{StructuralCapability::linear_static};
+  // Required (and positive) only when capability == modal_frequency.
+  std::optional<double> density_kg_m3;
+  std::optional<double> minimum_natural_frequency_hz;
+  std::string minimum_natural_frequency_basis;
 };
 
 struct ValidationIssue final {

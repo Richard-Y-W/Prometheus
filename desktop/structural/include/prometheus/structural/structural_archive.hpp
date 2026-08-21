@@ -39,6 +39,14 @@ struct StructuralArchiveVerification final {
     const VerifiedStructuralRefinement &refinement,
     const StructuralEvaluation &evaluation);
 
+// The modal_frequency analogue of write_structural_refinement_archive -- a
+// single completed run, no coarse/fine mesh-refinement pairing (a modal
+// run has no load and no per-node/per-element field to compare between
+// mesh densities the way displacement/stress do).
+[[nodiscard]] StructuralArchive write_modal_structural_archive(
+    const SolverRunOptions &options, const CompiledStructuralSetup &setup,
+    const SolverRunResult &run, const StructuralEvaluation &evaluation);
+
 [[nodiscard]] StructuralArchiveVerification verify_structural_archive(
     const std::filesystem::path &manifest_path) noexcept;
 

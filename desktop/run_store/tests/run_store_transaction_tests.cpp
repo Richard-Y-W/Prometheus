@@ -735,6 +735,20 @@ void test_requirement_binding_supersession() {
   require(corrosion.execution.requirement_bindings[3]
                   .supersedes_binding_revision == std::nullopt,
           "adding the second uncovered requirement did not disturb the first");
+
+  const auto &frequency = require_success(
+      run_store::install_requirement_binding(
+          project_path,
+          run_store::RequirementBindingInput{
+              geometry, "bracket-analysis-1", "natural_frequency", "",
+              "greater_or_equal", 120.0, "Hz", "static load case", "advisory",
+              "explicit exploratory limit"}),
+      "requirement binding on the modal_frequency capability's quantity");
+  require(frequency.execution.requirement_bindings.size() == 6U &&
+              !frequency.execution.requirement_bindings.back()
+                   .supersedes_binding_revision.has_value(),
+          "a natural_frequency requirement opens its own chain independent of "
+          "the displacement/von_mises/other chains");
 }
 
 // Phase 6 checkpoint 4: install_material_binding is the MaterialBinding
@@ -791,6 +805,22 @@ void test_material_binding_supersession() {
   require(different_geometry.execution.material_bindings[1]
                   .supersedes_binding_revision == 1U,
           "binding a different geometry did not disturb the first chain");
+
+  const auto &with_density = require_success(
+      run_store::install_material_binding(
+          project_path,
+          run_store::MaterialBindingInput{
+              geometry, "bracket-analysis-1", "7075-T6 aluminum",
+              "sha256:" + std::string(64U, '9'), "static load case", 7.2e10,
+              0.33, 2810.0}),
+      "material binding reviewed with a density for a modal_frequency setup");
+  require(with_density.execution.material_bindings.size() == 4U &&
+              with_density.execution.material_bindings.back()
+                      .density_kg_m3.value_or(0.0) == 2810.0 &&
+              with_density.execution.material_bindings.back()
+                      .supersedes_binding_revision == 2U,
+          "a reviewed density is carried on the material binding and "
+          "supersedes the prior revision on the same geometry");
 }
 
 // Phase 6 checkpoint 5: install_load_binding and install_restraint_binding

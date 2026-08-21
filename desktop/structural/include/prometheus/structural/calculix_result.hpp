@@ -38,6 +38,9 @@ struct ElementStress final {
 struct CalculixDat final {
   std::vector<NodalDisplacement> displacements;
   std::vector<ElementStress> stresses;
+  // Populated only for a modal_frequency run's *FREQUENCY step, in
+  // ascending mode-number order; empty for a linear-static run.
+  std::vector<double> natural_frequencies_hz;
 };
 
 struct CalculixMetrics final {
@@ -45,6 +48,7 @@ struct CalculixMetrics final {
   double maximum_von_mises_pa{};
   std::size_t displacement_rows{};
   std::size_t stress_rows{};
+  std::optional<double> first_natural_frequency_hz;
 };
 
 struct CalculixRunEvidence final {
@@ -107,8 +111,14 @@ struct CompiledCalculixResult final {
   std::string identity;
 
   [[nodiscard]] bool complete() const {
-    return metrics.has_value() && issues.empty() && convergence.has_value() &&
-           !identity.empty();
+    if (!metrics.has_value() || !issues.empty() || identity.empty())
+      return false;
+    // A modal_frequency run's *FREQUENCY step has no time-stepping
+    // increments, so its .sta file carries no convergence rows at all
+    // (verified against real ccx output) -- convergence evidence is only
+    // meaningful, and only required, for a linear-static result.
+    return metrics->first_natural_frequency_hz.has_value() ||
+           convergence.has_value();
   }
 };
 

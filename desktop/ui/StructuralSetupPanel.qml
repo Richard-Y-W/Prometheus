@@ -15,10 +15,22 @@ Item {
     property url calculixExecutable
     property url outputRoot
     property string appliedRestoredManifest
-    readonly property bool workflowAccepted: structuralController.status === "comparison_accepted"
+    readonly property bool workflowAccepted: structuralController.status === "comparison_accepted" ||
+                                              structuralController.status === "modal_run_archived"
     readonly property bool workflowFailed: structuralController.status.indexOf("failed") >= 0
     readonly property color workflowStatusColor: workflowAccepted ? "#70c99a" :
                                                    (workflowFailed ? "#e87972" : "#e0ac62")
+    // Mirrors StructuralController::draft_resolves_modal_capability: a live,
+    // non-authoritative routing signal so the UI can hide coarse/fine-only
+    // controls before a review round-trip confirms the compiled capability.
+    // The compiled request_preview_.capability (once reviewed) and
+    // lastRun.capability (once run) remain the authoritative signals.
+    readonly property bool modalDraft: Number(naturalFrequencyLimit.text) > 0 &&
+                                        !(Number(displacementLimit.text) > 0) &&
+                                        !(Number(stressLimit.text) > 0)
+    readonly property bool modalActive: root.modalDraft ||
+                                         structuralController.requestPreview.capability === "modal_frequency" ||
+                                         structuralController.lastRun.capability === "modal_frequency"
 
     function invalidateLoadReview() {
         loadReviewed.checked = false
@@ -65,6 +77,7 @@ Item {
         setApplicability(draft.material_applicability)
         youngsModulus.text = String(draft.youngs_modulus_pa || 0)
         poissonRatio.text = String(draft.poisson_ratio || 0)
+        densityKgM3.text = String(draft.density_kg_m3 || 0)
         materialReviewed.checked = false
         scenarioConfirmed.checked = false
     }
@@ -85,6 +98,7 @@ Item {
         setApplicability(draft.material_applicability)
         youngsModulus.text = String(draft.youngs_modulus_pa)
         poissonRatio.text = String(draft.poisson_ratio)
+        densityKgM3.text = String(draft.density_kg_m3 || 0)
         materialReviewed.checked = draft.material_reviewed
         forceX.text = String(draft.force_x_n)
         forceY.text = String(draft.force_y_n)
@@ -95,6 +109,8 @@ Item {
         stressLimit.text = String(draft.von_mises_limit_pa || 0)
         displacementLimitBasis.text = draft.displacement_limit_basis
         stressLimitBasis.text = draft.von_mises_limit_basis
+        naturalFrequencyLimit.text = String(draft.natural_frequency_limit_hz || 0)
+        naturalFrequencyLimitBasis.text = draft.natural_frequency_limit_basis || ""
         requirementRationale.text = draft.requirement_rationale
         requirementReviewed.checked = draft.requirement_reviewed
         requirementApplicability.text = draft.requirement_applicability || ""
@@ -135,6 +151,7 @@ Item {
             material_applicability: materialApplicability.currentText,
             youngs_modulus_pa: Number(youngsModulus.text),
             poisson_ratio: Number(poissonRatio.text),
+            density_kg_m3: Number(densityKgM3.text),
             material_reviewed: materialReviewed.checked,
             force_x_n: Number(forceX.text), force_y_n: Number(forceY.text), force_z_n: Number(forceZ.text),
             load_reviewed: loadReviewed.checked,
@@ -143,6 +160,8 @@ Item {
             von_mises_limit_pa: Number(stressLimit.text),
             displacement_limit_basis: displacementLimitBasis.text,
             von_mises_limit_basis: stressLimitBasis.text,
+            natural_frequency_limit_hz: Number(naturalFrequencyLimit.text),
+            natural_frequency_limit_basis: naturalFrequencyLimitBasis.text,
             requirement_rationale: requirementRationale.text,
             requirement_reviewed: requirementReviewed.checked,
             requirement_applicability: requirementApplicability.text,
@@ -200,7 +219,7 @@ Item {
             Layout.fillWidth: true
             ColumnLayout {
                 spacing: 2
-                Label { text: "BOUNDED LINEAR-STATIC WORKFLOW"; color: mutedColor; font.bold: true; font.pixelSize: 11 }
+                Label { text: root.modalActive ? "BOUNDED MODAL/FREQUENCY WORKFLOW" : "BOUNDED LINEAR-STATIC WORKFLOW"; color: mutedColor; font.bold: true; font.pixelSize: 11 }
                 Label { text: "Structural setup review"; color: textColor; font.pixelSize: 23 }
                 Label { text: "Status: " + structuralController.status; color: root.workflowStatusColor }
             }
@@ -250,8 +269,9 @@ Item {
                         }
                     }
                     Button {
-                        text: structuralController.hasRefinementBaseline ?
-                              "Load fine mesh…" : "Load coarse mesh…"
+                        text: root.modalActive ? "Load mesh…" :
+                              (structuralController.hasRefinementBaseline ?
+                              "Load fine mesh…" : "Load coarse mesh…")
                         Layout.fillWidth: true
                         onClicked: meshDialog.open()
                     }
@@ -410,14 +430,22 @@ Item {
                         width: parent.width
                         spacing: 7
                         Label { text: "2  REVIEW INPUTS"; color: textColor; font.bold: true }
-                        Label { text: "Maximum coarse-to-fine change"; color: mutedColor }
+                        Label { text: "Maximum coarse-to-fine change"; color: mutedColor; visible: !root.modalActive }
                         TextField {
                             id: refinementMaximumChange
                             objectName: "refinementMaximumChange"
                             Layout.fillWidth: true
+                            visible: !root.modalActive
                             text: "0.10"
                             enabled: !structuralController.sharedInputsLocked
                             validator: DoubleValidator { bottom: 0; top: 1 }
+                        }
+                        Label {
+                            text: "MODAL_FREQUENCY  •  single-run analysis, no coarse/fine mesh-convergence pass"
+                            visible: root.modalActive
+                            color: mutedColor
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 10
                         }
                         Button {
                             objectName: "discardRefinementBaseline"
@@ -505,11 +533,27 @@ Item {
                                 validator: DoubleValidator { bottom: -0.999; top: 0.499 }
                                 onTextEdited: root.invalidateMaterialReview()
                             }
+                            Label { text: "Density (kg/m³)"; color: mutedColor; visible: root.modalActive }
+                            TextField {
+                                id: densityKgM3
+                                Layout.fillWidth: true
+                                visible: root.modalActive
+                                validator: DoubleValidator { bottom: 0 }
+                                onTextEdited: root.invalidateMaterialReview()
+                            }
                         }
-                        CheckBox { id: materialReviewed; enabled: !structuralController.sharedInputsLocked; text: "I reviewed material identity, source, applicability, and elastic properties"; palette.text: textColor; palette.windowText: textColor }
+                        CheckBox { id: materialReviewed; enabled: !structuralController.sharedInputsLocked; text: "I reviewed material identity, source, applicability, and elastic properties" + (root.modalActive ? " and density" : ""); palette.text: textColor; palette.windowText: textColor }
                         Rectangle { Layout.fillWidth: true; height: 1; color: lineColor }
-                        Label { text: "Total surface force (N)"; color: textColor; font.bold: true }
+                        Label {
+                            text: "A modal_frequency review has no applied load -- only the fixed restraint and material density feed the frequency solve."
+                            visible: root.modalActive
+                            color: mutedColor
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 10
+                        }
+                        Label { text: "Total surface force (N)"; color: textColor; font.bold: true; visible: !root.modalActive }
                         RowLayout {
+                            visible: !root.modalActive
                             enabled: !structuralController.sharedInputsLocked
                             Label { text: "X"; color: mutedColor }
                             TextField {
@@ -537,7 +581,7 @@ Item {
                             }
                         }
                         RowLayout {
-                            CheckBox { id: loadReviewed; text: "Load selection and vector reviewed"; palette.text: textColor; palette.windowText: textColor }
+                            CheckBox { id: loadReviewed; visible: !root.modalActive; text: "Load selection and vector reviewed"; palette.text: textColor; palette.windowText: textColor }
                             CheckBox { id: restraintReviewed; text: "Fixed surface reviewed"; palette.text: textColor; palette.windowText: textColor }
                         }
                         CheckBox {
@@ -560,26 +604,38 @@ Item {
                         GridLayout {
                             Layout.fillWidth: true; columns: 2
                             enabled: !structuralController.sharedInputsLocked
-                            Label { text: "Displacement limit (m)"; color: mutedColor }
+                            Label { text: "Displacement limit (m)"; color: mutedColor; visible: !root.modalActive }
                             TextField {
                                 id: displacementLimit
                                 Layout.fillWidth: true
+                                visible: !root.modalActive
                                 text: "0"
                                 validator: DoubleValidator { bottom: 0 }
                                 onTextEdited: root.invalidateRequirementReview()
                             }
-                            Label { text: "Displacement limit basis"; color: mutedColor }
-                            TextField { id: displacementLimitBasis; Layout.fillWidth: true; placeholderText: "requirement, test, or exploratory basis"; onTextEdited: root.invalidateRequirementReview() }
-                            Label { text: "Von Mises limit (Pa)"; color: mutedColor }
+                            Label { text: "Displacement limit basis"; color: mutedColor; visible: !root.modalActive }
+                            TextField { id: displacementLimitBasis; Layout.fillWidth: true; visible: !root.modalActive; placeholderText: "requirement, test, or exploratory basis"; onTextEdited: root.invalidateRequirementReview() }
+                            Label { text: "Von Mises limit (Pa)"; color: mutedColor; visible: !root.modalActive }
                             TextField {
                                 id: stressLimit
+                                Layout.fillWidth: true
+                                visible: !root.modalActive
+                                text: "0"
+                                validator: DoubleValidator { bottom: 0 }
+                                onTextEdited: root.invalidateRequirementReview()
+                            }
+                            Label { text: "Stress limit basis"; color: mutedColor; visible: !root.modalActive }
+                            TextField { id: stressLimitBasis; Layout.fillWidth: true; visible: !root.modalActive; placeholderText: "allowable source or exploratory basis"; onTextEdited: root.invalidateRequirementReview() }
+                            Label { text: "Minimum natural frequency (Hz)"; color: mutedColor }
+                            TextField {
+                                id: naturalFrequencyLimit
                                 Layout.fillWidth: true
                                 text: "0"
                                 validator: DoubleValidator { bottom: 0 }
                                 onTextEdited: root.invalidateRequirementReview()
                             }
-                            Label { text: "Stress limit basis"; color: mutedColor }
-                            TextField { id: stressLimitBasis; Layout.fillWidth: true; placeholderText: "allowable source or exploratory basis"; onTextEdited: root.invalidateRequirementReview() }
+                            Label { text: "Frequency limit basis"; color: mutedColor; visible: root.modalActive }
+                            TextField { id: naturalFrequencyLimitBasis; Layout.fillWidth: true; visible: root.modalActive; placeholderText: "requirement, test, or exploratory basis"; onTextEdited: root.invalidateRequirementReview() }
                             Label { text: "Applicability"; color: mutedColor }
                             TextField { id: requirementApplicability; Layout.fillWidth: true; placeholderText: "condition under which these limits apply"; onTextEdited: root.invalidateRequirementReview() }
                             Label { text: "Criticality"; color: mutedColor }
@@ -770,11 +826,13 @@ Item {
                     }
                     Button {
                         Layout.fillWidth: true
-                        text: structuralController.busy ?
-                              (structuralController.hasRefinementBaseline ?
-                               "Running fine comparison…" : "Running coarse baseline…") :
-                              (structuralController.hasRefinementBaseline ?
-                               "Run fine comparison" : "Run coarse baseline")
+                        text: root.modalActive ?
+                              (structuralController.busy ? "Running modal analysis…" : "Run modal analysis") :
+                              (structuralController.busy ?
+                               (structuralController.hasRefinementBaseline ?
+                                "Running fine comparison…" : "Running coarse baseline…") :
+                               (structuralController.hasRefinementBaseline ?
+                                "Run fine comparison" : "Run coarse baseline"))
                         highlighted: true
                         enabled: structuralController.canRun && !structuralController.busy && root.calculixExecutable.toString() !== "" && root.outputRoot.toString() !== ""
                         onClicked: structuralController.runAnalysis(root.calculixExecutable, root.outputRoot)
@@ -817,7 +875,9 @@ Item {
                         Layout.fillWidth: true
                         visible: structuralController.lastRun.status !== undefined
                         text: "Last local run: " + structuralController.lastRun.status +
-                              "\n" + (structuralController.lastRun.maximum_displacement_m !== undefined ?
+                              "\n" + (structuralController.lastRun.first_natural_frequency_hz !== undefined ?
+                              "first natural frequency  " + Number(structuralController.lastRun.first_natural_frequency_hz).toExponential(5) + " Hz\n" :
+                              structuralController.lastRun.maximum_displacement_m !== undefined ?
                               "max displacement  " + Number(structuralController.lastRun.maximum_displacement_m).toExponential(5) + " m at node " + structuralController.lastRun.maximum_displacement_node_id +
                               "\n  vector [" + Number(structuralController.lastRun.maximum_displacement_x_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_y_m).toExponential(3) + ", " + Number(structuralController.lastRun.maximum_displacement_z_m).toExponential(3) + "] m" +
                               "\nmax von Mises  " + Number(structuralController.lastRun.maximum_von_mises_pa).toExponential(5) + " Pa at element " + structuralController.lastRun.maximum_stress_element_id + ", integration point " + structuralController.lastRun.maximum_stress_integration_point +

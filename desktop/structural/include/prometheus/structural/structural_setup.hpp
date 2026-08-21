@@ -21,6 +21,12 @@ struct ReviewedMaterial final {
   bool reviewed{};
   std::string temper;
   std::string product_form;
+  // Required and positive only when the reviewed requirement set resolves
+  // to the modal_frequency capability -- density is as essential to a
+  // modal solve as youngs_modulus_pa/poisson_ratio are to linear-static.
+  // Appended at the end so existing positional initializers of this struct
+  // are unaffected.
+  std::optional<double> density_kg_m3;
 };
 
 struct ReviewedSurfaceLoad final {
@@ -34,16 +40,22 @@ struct ReviewedFixedRestraint final {
   bool reviewed{};
 };
 
-enum class RequirementQuantity { displacement, von_mises_stress, other };
+enum class RequirementQuantity {
+  displacement,
+  von_mises_stress,
+  natural_frequency,
+  other
+};
 
-enum class RequirementComparator { less_or_equal };
+enum class RequirementComparator { less_or_equal, greater_or_equal };
 
 enum class RequirementCriticality { informational, advisory, critical };
 
-// A requirement targets `displacement`/`von_mises_stress` (the only
-// quantities the CalculiX linear-static capability can evaluate) or
-// `other`, which records a real reviewed requirement this capability
-// cannot answer instead of making it unrepresentable.
+// A requirement targets `displacement`/`von_mises_stress` (the CalculiX
+// linear-static capability), `natural_frequency` (the CalculiX
+// modal_frequency capability), or `other`, which records a real reviewed
+// requirement neither capability can answer instead of making it
+// unrepresentable.
 struct ReviewedRequirement final {
   RequirementQuantity quantity{RequirementQuantity::other};
   std::string other_quantity_description;
@@ -60,6 +72,9 @@ struct ReviewedRequirement final {
 [[nodiscard]] std::string_view to_string(RequirementQuantity value);
 [[nodiscard]] std::string_view to_string(RequirementComparator value);
 [[nodiscard]] std::string_view to_string(RequirementCriticality value);
+// StructuralCapability itself lives in types.hpp; its to_string overload
+// lives here alongside the other reviewed-vocabulary label functions.
+[[nodiscard]] std::string_view to_string(StructuralCapability value);
 
 struct ReviewedMeshControls final {
   double minimum_size_m{};
@@ -87,10 +102,11 @@ struct StructuralSetup final {
   std::string scenario_description;
   bool scenario_confirmed{};
   double selection_patch_angle_degrees{15.0};
-  // New setups use the vector-based 2.1 evidence contract. Deserializers set
-  // this to 2.0.0 only when replaying a legacy single-requirement archive so
-  // its exact canonical bytes and compiled identity remain reproducible.
-  std::string evidence_schema_version{"2.1.0"};
+  // New setups use the 2.2 evidence contract (adds material density for
+  // the modal_frequency capability). Deserializers set this to 2.0.0 or
+  // 2.1.0 only when replaying a legacy archive so its exact canonical
+  // bytes and compiled identity remain reproducible.
+  std::string evidence_schema_version{"2.2.0"};
 };
 
 struct CompiledStructuralSetup final {

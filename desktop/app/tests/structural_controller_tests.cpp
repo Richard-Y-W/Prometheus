@@ -89,6 +89,13 @@ public:
         std::move(coarse), std::move(fine), correspondence);
   }
 
+  DesktopModalRunResult executeModalRun(
+      ps::SolverRunOptions options,
+      ps::CompiledStructuralSetup setup) const override {
+    ++execute_modal_run_;
+    return delegate_->executeModalRun(std::move(options), std::move(setup));
+  }
+
   [[nodiscard]] StageCounts counts() const {
     return {prepare_mesh_, group_patches_, compile_setup_, execute_sample_,
             finalize_refinement_};
@@ -98,6 +105,8 @@ public:
     return *last_setup_;
   }
 
+  [[nodiscard]] int modalRunCount() const { return execute_modal_run_; }
+
 private:
   std::shared_ptr<const StructuralBackend> delegate_;
   mutable std::atomic<int> prepare_mesh_{};
@@ -105,6 +114,7 @@ private:
   mutable std::atomic<int> compile_setup_{};
   mutable std::atomic<int> execute_sample_{};
   mutable std::atomic<int> finalize_refinement_{};
+  mutable std::atomic<int> execute_modal_run_{};
   mutable std::atomic<bool> fail_fine_once_{};
   mutable std::optional<ps::CompiledStructuralSetup> last_setup_;
 };
@@ -193,6 +203,23 @@ QVariantMap projectBoundDraft() {
   draft["geometry_sha256"] =
       "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
   draft["refinement_maximum_change_fraction"] = 0.10;
+  return draft;
+}
+
+// A modal_frequency draft never reviews a load: no force fields, no
+// displacement/von_mises limit, a reviewed density instead, and a
+// natural-frequency requirement in its place.
+QVariantMap modalProjectBoundDraft() {
+  auto draft = projectBoundDraft();
+  draft["load_reviewed"] = false;
+  draft["displacement_limit_m"] = 0.0;
+  draft["von_mises_limit_pa"] = 0.0;
+  draft["displacement_limit_basis"] = "";
+  draft["von_mises_limit_basis"] = "";
+  draft["density_kg_m3"] = 7850.0;
+  draft["natural_frequency_limit_hz"] = 1.0;
+  draft["natural_frequency_limit_basis"] =
+      "reviewed benchmark frequency floor";
   return draft;
 }
 
@@ -767,5 +794,100 @@ int main(int argc, char **argv) {
                    .value("refinement_complete")
                    .toBool(),
           "changing a reviewed boundary condition requires review and invalidates refinement");
+
+  prometheus::run_store::ProjectV2 modalProject;
+  modalProject.name = "Structural modal controller fixture";
+  modalProject.cad_source = "missing-fixture.step";
+  modalProject.assembly_artifact_hash =
+      "sha256:9999999999999999999999999999999999999999999999999999999999999999";
+  modalProject.coordinate_system = "right-handed Z-up";
+  modalProject.length_unit = "m";
+  modalProject.engineering.geometry_status = "not_evaluated";
+  const auto modalProjectPath =
+      std::filesystem::path(temporary.path().toStdWString()) /
+      "structural-modal.prometheus";
+  require(prometheus::run_store::create_project_v2(modalProjectPath,
+                                                    modalProject)
+              .has_value(),
+          "modal structural project fixture is created");
+  CadController modalCad;
+  EngineeringController modalEngineering;
+  ProjectController modalProjectController(&modalCad, &modalEngineering);
+  modalProjectController.openProject(QUrl::fromLocalFile(
+      QString::fromStdWString(modalProjectPath.wstring())));
+  require(modalProjectController.currentProjectPath().size() > 0,
+          "modal structural project fixture opens");
+
+  auto modalBackend = std::make_shared<CountingStructuralBackend>();
+  StructuralController modalController(&modalProjectController, nullptr,
+                                       modalBackend);
+  modalController.loadMesh(QUrl::fromLocalFile(coarseMeshPath), 0.001, 1.0);
+  modalController.setPatchSelected(2, "restraint", true);
+  auto modalDraft = modalProjectBoundDraft();
+  modalDraft["geometry_sha256"] = modalProject.assembly_artifact_hash.c_str();
+  modalController.reviewSetup(modalDraft);
+  require(modalController.canRun() &&
+              modalController.status() == "ready_for_execution" &&
+              modalController.requestPreview().value("capability") ==
+                  "modal_frequency" &&
+              modalController.blockers().isEmpty(),
+          "a modal review with no load selection compiles ready to run");
+  modalController.runAnalysis(solverUrl, outputUrl);
+  waitForRun(modalController);
+  require(!modalController.busy() &&
+              modalController.status() == "modal_run_archived" &&
+              modalController.lastRun().value("capability") ==
+                  "modal_frequency" &&
+              modalController.lastRun().value("archived").toBool() &&
+              modalController.lastRun().contains(
+                  "first_natural_frequency_hz") &&
+              modalController.findings().size() == 1 &&
+              !modalController.hasRefinementBaseline(),
+          "a modal analysis runs once and archives without a coarse/fine pair");
+  require(modalBackend->modalRunCount() == 1,
+          "the modal backend path executes exactly once");
+  modalController.commitLastRun();
+  waitForPublication(modalController);
+  require(modalProjectController.committedRunCount() == 1 &&
+              modalController.lastRun().value("project_anchored").toBool(),
+          "a completed modal run commits into the project");
+
+  CadController reopenedModalCad;
+  EngineeringController reopenedModalEngineering;
+  ProjectController reopenedModal(&reopenedModalCad, &reopenedModalEngineering);
+  reopenedModal.openProject(QUrl::fromLocalFile(
+      QString::fromStdWString(modalProjectPath.wstring())));
+  require(reopenedModal.committedRunCount() == 1,
+          "embedded modal run survives project close and reopen");
+  auto restoreModalBackend = std::make_shared<CountingStructuralBackend>();
+  StructuralController restoredModalController(&reopenedModal, nullptr,
+                                                restoreModalBackend);
+  QEventLoop modalRestoreLoop;
+  QObject::connect(&restoredModalController, &StructuralController::changed,
+                   &modalRestoreLoop, [&] {
+    if (!restoredModalController.busy() &&
+        (restoredModalController.status() ==
+             "structural_archive_restored" ||
+         restoredModalController.status() ==
+             "structural_archive_restore_failed"))
+      modalRestoreLoop.quit();
+  });
+  QTimer::singleShot(10000, &modalRestoreLoop, &QEventLoop::quit);
+  restoredModalController.restoreStoredRun(
+      0, QUrl::fromLocalFile(temporary.path()));
+  modalRestoreLoop.exec();
+  if (restoredModalController.status() != "structural_archive_restored")
+    std::cerr << "modal restore error: "
+              << restoredModalController.error().toStdString() << '\n';
+  require(restoredModalController.status() == "structural_archive_restored" &&
+              !restoredModalController.canRun() &&
+              !restoredModalController.hasRefinementBaseline() &&
+              restoredModalController.setupDraft()
+                      .value("natural_frequency_limit_hz")
+                      .toDouble() == 1.0 &&
+              restoredModalController.findings().size() == 1 &&
+              restoredModalController.lastRun().value("status") ==
+                  "restored_verified",
+          "reopened desktop restores a modal run with no load-patch expectation");
   return 0;
 }

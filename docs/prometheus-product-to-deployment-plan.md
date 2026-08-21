@@ -572,7 +572,7 @@ Connect the artifacts needed by the real mechanical workflows.
 - every consequential edge is reviewable and traceable;
 - component, CAD, requirement, and analysis identities connect end to end.
 
-## Phase 7: Add requirements, scenarios, and thin planning — checkpoint 1 landed
+## Phase 7: Add requirements, scenarios, and thin planning — checkpoint 2 landed
 
 See [docs/phase-07-requirements-and-planning.md](phase-07-requirements-and-planning.md)
 for evidence. Checkpoint 1 replaces the structural workflow's two hardcoded
@@ -582,9 +582,17 @@ requirements outside CalculiX's coverage as visible uncovered work instead of
 making them unrepresentable, and wires the previously-unused
 `decision::summarize` coverage/verdict rollup into the structural findings
 so a run can never be reported as satisfied while real uncovered work
-remains. Capability matching and analysis recommendation remain unproven
-beyond a fixed single-capability check — that needs a second capability
-before it can be called real. The motor-arm subsystem is untouched.
+remains. Capability matching and analysis recommendation were left unproven
+beyond a fixed single-capability check pending a second capability.
+Checkpoint 2 adds that second capability — CalculiX modal/frequency
+(eigenvalue) analysis, a parallel single-run capability alongside
+linear-static's now much larger paired coarse/fine mesh-refinement
+workflow — so `recommend_capability` is now a real decision between two
+capabilities, verified against the real `ccx` solver. Recommending an
+analysis only when its applicability is explainable is still not backed by
+a general applicability-matching engine; that remains open pending a third
+capability. The motor-arm subsystem and the linear-static refinement
+pipeline are untouched.
 
 ### Objective
 
@@ -757,7 +765,21 @@ Candidate order:
 7. cross-domain coupled analyses;
 8. broader component catalog connectors;
 9. stable third-party solver and component extensions;
-10. optional team collaboration or cloud execution with explicit privacy controls.
+10. optional team collaboration or cloud execution with explicit privacy controls;
+11. a browser-based client alongside the native desktop application, following the
+    accessibility model used by browser-delivered simulation platforms such as
+    SimScale: a user reaches the same reviewed-input, requirement, and finding
+    workflow from a browser with no install, while an equivalent native
+    application remains available for offline or higher-performance use. Neither
+    surface may be the "lesser" one — both drive the same authoritative C++
+    execution path and the same trust-kernel evidence contracts (no separate,
+    lower-fidelity web-only calculation path), so accessibility is additive, not
+    a quality tradeoff. Because item 10's cloud-execution track already carries
+    the project's privacy controls, a web client is where those controls become
+    directly user-visible: it must not force upload of private engineering
+    projects any more than Phase 11's desktop product does, so the initial web
+    client should assume local or self-hosted execution before any hosted
+    multi-tenant offering is considered.
 
 Each domain begins with one real project question, one authoritative backend, benchmark evidence, known-pass and known-fail cases, and explicit limitations. Domain breadth is not a substitute for validation.
 

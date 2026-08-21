@@ -64,6 +64,26 @@ public:
     }
     return result;
   }
+
+  DesktopModalRunResult executeModalRun(
+      ps::SolverRunOptions options,
+      ps::CompiledStructuralSetup setup) const override {
+    DesktopModalRunResult result;
+    result.run = ps::run_calculix(options, setup);
+    result.evaluation =
+        ps::compile_modal_structural_findings(setup, result.run);
+    if (result.run.status == ps::SolverRunStatus::completed &&
+        result.run.validated_result &&
+        result.run.validated_result->complete()) {
+      try {
+        result.archive = ps::write_modal_structural_archive(
+            options, setup, result.run, result.evaluation);
+      } catch (const std::exception &error) {
+        result.archive_error = error.what();
+      }
+    }
+    return result;
+  }
 };
 
 } // namespace

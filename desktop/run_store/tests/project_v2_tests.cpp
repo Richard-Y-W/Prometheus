@@ -309,7 +309,8 @@ Json requirement_binding(const std::uint64_t revision,
                          const std::optional<std::uint64_t> supersedes,
                          const std::string &geometry,
                          const std::string &quantity,
-                         const std::string &other_description = "") {
+                         const std::string &other_description = "",
+                         const std::string &comparator = "less_or_equal") {
   return Json{{"binding_revision", revision},
               {"supersedes_binding_revision",
                supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
@@ -317,9 +318,10 @@ Json requirement_binding(const std::uint64_t revision,
               {"analysis_id", "bracket-analysis-1"},
               {"quantity", quantity},
               {"other_quantity_description", other_description},
-              {"comparator", "less_or_equal"},
+              {"comparator", comparator},
               {"limit_value", quantity == "other" ? 1.0e6 : 0.001},
-              {"unit", quantity == "displacement" ? "m" : "cycles"},
+              {"unit", quantity == "displacement" ? "m"
+                       : quantity == "natural_frequency" ? "Hz" : "cycles"},
               {"applicability", "static load case"},
               {"criticality", "advisory"},
               {"source_or_exploratory_rationale", "explicit exploratory limit"}};
@@ -407,13 +409,38 @@ void requirement_binding_revision_graph_is_strict() {
   nonpositive_limit["execution"]["requirement_bindings"].push_back(negative);
   expect_rejected(nonpositive_limit.dump(), "invalid_requirement_binding_limit",
                   "a supported requirement binding needs a positive limit");
+
+  auto valid_frequency = valid_project();
+  valid_frequency["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "natural_frequency", "",
+                          "greater_or_equal"));
+  check(run_store::parse_project_v2(valid_frequency.dump()).has_value(),
+        "a natural_frequency requirement binding with greater_or_equal parses");
+
+  auto frequency_cross_key = valid_project();
+  frequency_cross_key["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "displacement"));
+  frequency_cross_key["execution"]["requirement_bindings"].push_back(
+      requirement_binding(2, std::nullopt, geometry, "natural_frequency", "",
+                          "greater_or_equal"));
+  check(run_store::parse_project_v2(frequency_cross_key.dump()).has_value(),
+        "a displacement and a natural_frequency requirement on the same "
+        "geometry open independent chains");
+
+  auto invalid_comparator = valid_project();
+  invalid_comparator["execution"]["requirement_bindings"].push_back(
+      requirement_binding(1, std::nullopt, geometry, "natural_frequency", "",
+                          "not_a_real_comparator"));
+  expect_rejected(invalid_comparator.dump(), "invalid_requirement_binding_comparator",
+                  "an unsupported requirement binding comparator rejects");
 }
 
 Json material_binding(const std::uint64_t revision,
                       const std::optional<std::uint64_t> supersedes,
                       const std::string &geometry,
                       const double modulus = 7.0e10,
-                      const double ratio = 0.33) {
+                      const double ratio = 0.33,
+                      const std::optional<double> density = std::nullopt) {
   return Json{{"binding_revision", revision},
               {"supersedes_binding_revision",
                supersedes.has_value() ? Json(*supersedes) : Json(nullptr)},
@@ -423,7 +450,8 @@ Json material_binding(const std::uint64_t revision,
               {"source_sha256", "sha256:" + std::string(64U, '4')},
               {"applicability", "static load case"},
               {"youngs_modulus_pa", modulus},
-              {"poisson_ratio", ratio}};
+              {"poisson_ratio", ratio},
+              {"density_kg_m3", density.has_value() ? Json(*density) : Json(nullptr)}};
 }
 
 void material_binding_revision_graph_is_strict() {
@@ -490,6 +518,20 @@ void material_binding_revision_graph_is_strict() {
   invalid_ratio["execution"]["material_bindings"].push_back(out_of_range);
   expect_rejected(invalid_ratio.dump(), "invalid_material_binding_poisson_ratio",
                   "an out-of-range Poisson ratio rejects");
+
+  auto valid_with_density = valid_project();
+  valid_with_density["execution"]["material_bindings"].push_back(
+      material_binding(1, std::nullopt, geometry, 7.0e10, 0.33, 7800.0));
+  check(run_store::parse_project_v2(valid_with_density.dump()).has_value(),
+        "a material binding reviewed with a density for the modal_frequency "
+        "capability parses");
+
+  auto invalid_density = valid_project();
+  auto nonpositive_density = material_binding(1, std::nullopt, geometry, 7.0e10,
+                                              0.33, -1.0);
+  invalid_density["execution"]["material_bindings"].push_back(nonpositive_density);
+  expect_rejected(invalid_density.dump(), "invalid_material_binding_density",
+                  "a reviewed material density must be positive");
 }
 
 Json surface_selection_binding(const char *kind, const std::uint64_t revision,

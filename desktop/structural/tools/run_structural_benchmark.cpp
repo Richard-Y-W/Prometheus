@@ -86,18 +86,57 @@ const ps::StructuralGlobalExtremumDiagnostic &globalStressDiagnostic(
   return *found;
 }
 
+int runModal(const fs::path &ccx, const fs::path &output) {
+  const auto reference = ps::cantilever_modal_benchmark(24, 4, 4);
+  fs::create_directories(output);
+  clear_job_artifacts(output, "prometheus_cantilever_modal");
+  const ps::SolverRunOptions options{
+      ccx, output, "prometheus_cantilever_modal", std::chrono::seconds(120)};
+  auto run = ps::run_calculix(options, reference.setup);
+  std::cout << run.standard_output;
+  std::cerr << run.standard_error;
+  if (run.status != ps::SolverRunStatus::completed || !run.validated_result ||
+      !run.validated_result->metrics)
+    throw std::runtime_error("prometheus_cantilever_modal failed: " +
+                             run.detail);
+  const auto comparison =
+      ps::compare_modal_benchmark(reference, *run.validated_result->metrics);
+  std::cout << std::scientific << std::setprecision(10)
+            << "expected_first_natural_frequency_hz="
+            << reference.expected_first_natural_frequency_hz << '\n'
+            << "measured_first_natural_frequency_hz="
+            << *run.validated_result->metrics->first_natural_frequency_hz
+            << '\n'
+            << "frequency_relative_error="
+            << comparison.frequency_relative_error << '\n';
+  if (!comparison.passed()) {
+    std::cerr << "benchmark validation gate failed\n";
+    return 5;
+  }
+  const auto evaluation =
+      ps::compile_modal_structural_findings(reference.setup, run);
+  const auto archive = ps::write_modal_structural_archive(
+      options, reference.setup, run, evaluation);
+  std::cout << "benchmark=passed\n"
+            << "archive_schema_version=" << archive.schema_version << '\n'
+            << "archive_manifest=" << archive.manifest_path.string() << '\n'
+            << "archive_sha256=" << archive.manifest_sha256 << '\n';
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
   if (argc < 3 || argc > 4) {
     std::cerr << "usage: prometheus_run_structural_benchmark CCX "
-                 "OUTPUT_DIRECTORY [axial|cantilever]\n";
+                 "OUTPUT_DIRECTORY [axial|cantilever|cantilever-modal]\n";
     return 2;
   }
   try {
     const fs::path ccx = fs::absolute(argv[1]);
     const fs::path output = fs::absolute(argv[2]);
     const std::string benchmark = argc == 4 ? argv[3] : "axial";
+    if (benchmark == "cantilever-modal") return runModal(ccx, output);
     ps::BenchmarkReference coarseReference;
     ps::BenchmarkReference fineReference;
     if (benchmark == "axial") {

@@ -1475,7 +1475,7 @@ Synthetic two-group tetrahedron; coordinates are millimetres
           "compiled setup has canonical evidence and a content identity");
   const auto setupEvidence =
       nlohmann::json::parse(compiled.canonical_setup_evidence);
-  require(setupEvidence.at("schema_version") == "2.1.0" &&
+  require(setupEvidence.at("schema_version") == "2.2.0" &&
               setupEvidence.at("requirements").is_array() &&
               setupEvidence.at("requirements").size() == 2U &&
               !setupEvidence.contains("requirement"),
@@ -1714,6 +1714,118 @@ Synthetic two-group tetrahedron; coordinates are millimetres
                   ps::StructuralFindingDisposition::violated &&
               equalityEvaluation.findings.front().margin_to_limit == 0.0,
           "a fine result equal to its reviewed limit is a violation");
+
+  const auto modalReviewed =
+      ps::cantilever_modal_benchmark(4, 1, 1).setup.reviewed_setup;
+  require(modalReviewed.requirements.size() == 1U &&
+              modalReviewed.requirements.front().quantity ==
+                  ps::RequirementQuantity::natural_frequency &&
+              modalReviewed.requirements.front().comparator ==
+                  ps::RequirementComparator::greater_or_equal &&
+              !modalReviewed.load.reviewed &&
+              modalReviewed.material.density_kg_m3.has_value(),
+          "the modal benchmark reviews a frequency requirement, a reviewed "
+          "density, and no load");
+  const auto modalCompiled = ps::compile_structural_setup(modalReviewed);
+  require(modalCompiled.request.capability ==
+                  ps::StructuralCapability::modal_frequency &&
+              modalCompiled.request.density_kg_m3.has_value() &&
+              modalCompiled.request.minimum_natural_frequency_hz.has_value(),
+          "a modal request compiles with capability=modal_frequency and a "
+          "density and frequency limit");
+  require(ps::validate_setup(modalReviewed).empty() &&
+              ps::validate_request(modalCompiled.request).empty(),
+          "a fully reviewed modal setup and request validate cleanly");
+  require(modalCompiled.calculix_deck.find("*DENSITY") != std::string::npos &&
+              modalCompiled.calculix_deck.find(
+                  "*FREQUENCY, SOLVER=SPOOLES") != std::string::npos &&
+              modalCompiled.calculix_deck.find("*CLOAD") ==
+                  std::string::npos,
+          "a modal deck declares density and a frequency step with no "
+          "concentrated load");
+
+  auto ambiguousReviewed = modalReviewed;
+  ambiguousReviewed.load.reviewed = true;
+  ambiguousReviewed.load.selection = modalReviewed.restraint.selection;
+  ambiguousReviewed.requirements.push_back(
+      {.quantity = ps::RequirementQuantity::displacement,
+       .comparator = ps::RequirementComparator::less_or_equal,
+       .limit_value = 1.0,
+       .unit = "m",
+       .applicability = "ambiguity probe",
+       .criticality = ps::RequirementCriticality::advisory,
+       .source_or_exploratory_rationale = "ambiguity probe",
+       .reviewed = true,
+       .limit_basis = "ambiguity probe"});
+  require(hasIssue(ps::validate_setup(ambiguousReviewed),
+                   "requirement_capability_ambiguous"),
+          "reviewing both a displacement and a frequency requirement is "
+          "ambiguous");
+
+  auto missingDensityReviewed = modalReviewed;
+  missingDensityReviewed.material.density_kg_m3.reset();
+  require(hasIssue(ps::validate_setup(missingDensityReviewed),
+                   "material_density_missing"),
+          "a modal setup without a reviewed density is incomplete");
+
+  const auto modalCompletedRun = [&] {
+    const ps::SolverRunOptions options{
+        fixture, processRoot, "typed_cantilever_modal",
+        std::chrono::seconds(5)};
+    return ps::run_calculix(options, modalCompiled);
+  }();
+  requireSolverRun(modalCompletedRun.status == ps::SolverRunStatus::completed,
+                   modalCompletedRun, "a modal solver run completes");
+  requireSolverRun(modalCompletedRun.validated_result.has_value() &&
+                       modalCompletedRun.validated_result->complete(),
+                   modalCompletedRun,
+                   "a modal result completes on its eigenvalue row alone, "
+                   "with no convergence evidence required");
+  requireSolverRun(
+      modalCompletedRun.validated_result->metrics.has_value() &&
+          modalCompletedRun.validated_result->metrics
+              ->first_natural_frequency_hz.has_value(),
+      modalCompletedRun,
+      "a modal result reports its first natural frequency");
+
+  const auto modalPassingEvaluation =
+      ps::compile_modal_structural_findings(modalCompiled, modalCompletedRun);
+  require(modalPassingEvaluation.declared_obligations == 1 &&
+              modalPassingEvaluation.evaluated_obligations == 1 &&
+              modalPassingEvaluation.findings.size() == 1U &&
+              modalPassingEvaluation.findings.front().obligation ==
+                  "minimum_natural_frequency" &&
+              modalPassingEvaluation.findings.front().disposition ==
+                  ps::StructuralFindingDisposition::no_violation_detected_within_scope &&
+              modalPassingEvaluation.unknowns.empty(),
+          "a measured frequency at or above its reviewed limit is not a "
+          "violation");
+
+  auto modalViolatingCompiled = modalCompiled;
+  modalViolatingCompiled.request.minimum_natural_frequency_hz =
+      *modalCompletedRun.validated_result->metrics
+           ->first_natural_frequency_hz +
+      1.0;
+  const auto modalViolatingEvaluation = ps::compile_modal_structural_findings(
+      modalViolatingCompiled, modalCompletedRun);
+  require(modalViolatingEvaluation.findings.size() == 1U &&
+              modalViolatingEvaluation.findings.front().disposition ==
+                  ps::StructuralFindingDisposition::violated,
+          "a measured frequency below its reviewed limit is a violation");
+
+  auto modalIncompleteRun = modalCompletedRun;
+  modalIncompleteRun.validated_result->metrics
+      ->first_natural_frequency_hz.reset();
+  const auto modalIncompleteEvaluation = ps::compile_modal_structural_findings(
+      modalCompiled, modalIncompleteRun);
+  require(modalIncompleteEvaluation.declared_obligations == 1 &&
+              modalIncompleteEvaluation.evaluated_obligations == 0 &&
+              modalIncompleteEvaluation.findings.empty() &&
+              modalIncompleteEvaluation.unknowns.size() == 1U &&
+              modalIncompleteEvaluation.unknowns.front().obligation ==
+                  "minimum_natural_frequency",
+          "a modal run without a measured frequency cannot answer its "
+          "obligation");
 
   for (const double invalidCriterion :
        {0.0, -0.1, 1.01, std::numeric_limits<double>::infinity(),

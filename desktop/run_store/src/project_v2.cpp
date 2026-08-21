@@ -255,7 +255,9 @@ bool reference_matches(const StoredObjectReference &reference,
              (reference.schema_id == structural_manifest_schema_id_v3 &&
               reference.schema_version == "3.0.0") ||
              (reference.schema_id == structural_manifest_schema_id_v4 &&
-              reference.schema_version == "4.0.0"))) ||
+              reference.schema_version == "4.0.0") ||
+             (reference.schema_id == structural_manifest_schema_id_modal &&
+              reference.schema_version == "1.0.0"))) ||
            (reference.media_type == structural_project_run_media_type &&
             ((reference.schema_id == structural_project_run_schema_id_v1 &&
               reference.schema_version == "1.0.0") ||
@@ -740,7 +742,8 @@ RequirementBinding parse_requirement_binding(const Json &value,
       value, "analysis_id", field + ".analysis_id", maximum_identity_bytes);
   const auto &quantity =
       require_string(value, "quantity", field + ".quantity", 32U);
-  if (!contains({"displacement", "von_mises_stress", "other"}, quantity)) {
+  if (!contains({"displacement", "von_mises_stress", "natural_frequency",
+                "other"}, quantity)) {
     reject("invalid_requirement_binding_quantity",
            "requirement binding quantity is unsupported", field + ".quantity");
   }
@@ -756,7 +759,7 @@ RequirementBinding parse_requirement_binding(const Json &value,
   }
   const auto &comparator =
       require_string(value, "comparator", field + ".comparator", 32U);
-  if (!contains({"less_or_equal"}, comparator)) {
+  if (!contains({"less_or_equal", "greater_or_equal"}, comparator)) {
     reject("invalid_requirement_binding_comparator",
            "requirement binding comparator is unsupported",
            field + ".comparator");
@@ -873,7 +876,7 @@ MaterialBinding parse_material_binding(const Json &value,
       value,
       {"binding_revision", "supersedes_binding_revision", "geometry_sha256",
        "analysis_id", "designation", "source_sha256", "applicability",
-       "youngs_modulus_pa", "poisson_ratio"},
+       "youngs_modulus_pa", "poisson_ratio", "density_kg_m3"},
       field);
   std::optional<std::uint64_t> supersedes;
   if (!value.at("supersedes_binding_revision").is_null()) {
@@ -905,6 +908,16 @@ MaterialBinding parse_material_binding(const Json &value,
            "a reviewed material needs a Poisson ratio between -1 and 0.5",
            field + ".poisson_ratio");
   }
+  std::optional<double> density;
+  if (!value.at("density_kg_m3").is_null()) {
+    density = require_finite_number(value, "density_kg_m3",
+                                    field + ".density_kg_m3");
+    if (*density <= 0.0) {
+      reject("invalid_material_binding_density",
+             "a reviewed material density must be positive",
+             field + ".density_kg_m3");
+    }
+  }
   return {require_unsigned(value, "binding_revision",
                            field + ".binding_revision"),
           supersedes,
@@ -914,7 +927,8 @@ MaterialBinding parse_material_binding(const Json &value,
           source_sha256,
           applicability,
           modulus,
-          ratio};
+          ratio,
+          density};
 }
 
 void validate_material_binding_graph(
@@ -1644,7 +1658,8 @@ Json project_json(const ProjectV2 &project) {
              {"source_sha256", binding.source_sha256},
              {"applicability", binding.applicability},
              {"youngs_modulus_pa", binding.youngs_modulus_pa},
-             {"poisson_ratio", binding.poisson_ratio}});
+             {"poisson_ratio", binding.poisson_ratio},
+             {"density_kg_m3", binding.density_kg_m3}});
   }
   const auto faces_json = [](const std::vector<std::array<int, 3>> &faces) {
     Json result = Json::array();

@@ -40,11 +40,21 @@ std::string detail::generate_validated_calculix_deck(
         << element.node_ids[1] << ", " << element.node_ids[2] << ", "
         << element.node_ids[3] << "\n";
   out << "*MATERIAL, NAME=REVIEWED_MATERIAL\n*ELASTIC\n"
-      << request.youngs_modulus_pa << ", " << request.poisson_ratio << "\n"
-      << "*SOLID SECTION, ELSET=COMPONENT, MATERIAL=REVIEWED_MATERIAL\n"
+      << request.youngs_modulus_pa << ", " << request.poisson_ratio << "\n";
+  if (request.capability == StructuralCapability::modal_frequency)
+    out << "*DENSITY\n" << *request.density_kg_m3 << "\n";
+  out << "*SOLID SECTION, ELSET=COMPONENT, MATERIAL=REVIEWED_MATERIAL\n"
       << "*BOUNDARY\n";
   for (const int nodeId : restraints)
     out << nodeId << ", 1, 3, " << 0.0 << "\n";
+  if (request.capability == StructuralCapability::modal_frequency) {
+    // No *CLOAD: a modal deck extracts eigenvalues of the unloaded
+    // structure. SOLVER=SPOOLES matches the linear-static step below --
+    // the default PaStiX solver segfaults on small/degenerate systems
+    // (empirically verified).
+    out << "*STEP\n*FREQUENCY, SOLVER=SPOOLES\n1,\n*END STEP\n";
+    return out.str();
+  }
   out << "*STEP\n*STATIC, SOLVER=SPOOLES\n*CLOAD\n";
   for (const auto &load : loads)
     for (int direction = 0; direction < 3; ++direction)

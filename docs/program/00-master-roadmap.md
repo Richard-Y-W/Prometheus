@@ -118,3 +118,5 @@ Add parser isolation, recovery, signed packaging, installer/update controls, acc
 ## Program 10 — Ecosystem
 
 Stabilize adapter and component-package extension points, licensing boundaries, signed third-party artifacts, commercial solver connectors, and optional cloud execution. Extensions inherit the same applicability, validation, and failure-state rules as built-in capabilities.
+
+A browser-delivered client (see [Phase 12 of the deployment plan](../prometheus-product-to-deployment-plan.md#phase-12-expand-toward-the-full-vision)) belongs here rather than earlier: it is additive accessibility, not a lower-fidelity substitute, so it follows the same authoritative execution path and trust-kernel evidence contracts as the desktop application, and it inherits Phase 11's no-forced-upload privacy commitment before any hosted offering is considered.

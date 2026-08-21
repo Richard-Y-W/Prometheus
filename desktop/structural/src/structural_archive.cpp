@@ -35,12 +35,16 @@ constexpr auto archiveSchemaV3 =
     "urn:prometheus:schema:structural-run-archive:3.0.0";
 constexpr auto archiveSchemaV4 =
     "urn:prometheus:schema:structural-run-archive:4.0.0";
+constexpr auto archiveSchemaModal =
+    "urn:prometheus:schema:structural-run-archive-modal:1.0.0";
 constexpr auto setupSchemaV1 =
     "urn:prometheus:schema:reviewed-structural-setup:1.0.0";
 constexpr auto setupSchemaV2 =
     "urn:prometheus:schema:reviewed-structural-setup:2.0.0";
 constexpr auto setupSchemaV21 =
     "urn:prometheus:schema:reviewed-structural-setup:2.1.0";
+constexpr auto setupSchemaV22 =
+    "urn:prometheus:schema:reviewed-structural-setup:2.2.0";
 constexpr auto compiledSetupSchemaV1 =
     "urn:prometheus:schema:compiled-structural-setup:1.0.0";
 constexpr integrity::Limits structuralSetupEvidenceLimits{
@@ -972,7 +976,9 @@ PreparedV3Sample prepare_v3_sample(
       (setupVersion == "2.0.0" &&
        setupJson.value("$schema", "") == setupSchemaV2) ||
       (setupVersion == "2.1.0" &&
-       setupJson.value("$schema", "") == setupSchemaV21);
+       setupJson.value("$schema", "") == setupSchemaV21) ||
+      (setupVersion == "2.2.0" &&
+       setupJson.value("$schema", "") == setupSchemaV22);
   if (!recognizedSetup ||
       setupJson.value("analysis_id", "") != setup.request.analysis_id ||
       setupJson.value("component_name", "") !=
@@ -1080,19 +1086,21 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
   const auto version = json_string(root, "schema_version");
   const bool legacyV2 = version == "2.0.0";
   const bool vectorV21 = version == "2.1.0";
+  const bool vectorV22 = version == "2.2.0";
   const bool rootKeysValid = legacyV2
       ? exact_keys(root, {"$schema", "schema_version", "analysis_id",
                           "component_name", "geometry_sha256", "mesh",
                           "material", "load", "restraint", "requirement",
                           "scenario", "selection_patch_angle_degrees"})
-      : vectorV21 &&
+      : (vectorV21 || vectorV22) &&
             exact_keys(root, {"$schema", "schema_version", "analysis_id",
                               "component_name", "geometry_sha256", "mesh",
                               "material", "load", "restraint", "requirements",
                               "scenario", "selection_patch_angle_degrees"});
   if (!rootKeysValid ||
       (legacyV2 && root.at("$schema") != setupSchemaV2) ||
-      (vectorV21 && root.at("$schema") != setupSchemaV21))
+      (vectorV21 && root.at("$schema") != setupSchemaV21) ||
+      (vectorV22 && root.at("$schema") != setupSchemaV22))
     reject("setup_contract_invalid", "reviewed setup root is invalid");
 
   const auto &mesh = root.at("mesh");
@@ -1105,10 +1113,16 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
                          "reviewed"}))
     reject("setup_contract_invalid", "reviewed mesh evidence is invalid");
   const auto &material = root.at("material");
-  if (!exact_keys(material, {"designation", "temper", "product_form",
-                             "source_sha256", "applicability",
-                             "youngs_modulus_pa", "poisson_ratio",
-                             "reviewed"}))
+  const bool materialKeysValid = vectorV22
+      ? exact_keys(material, {"designation", "temper", "product_form",
+                              "source_sha256", "applicability",
+                              "youngs_modulus_pa", "poisson_ratio",
+                              "reviewed", "density_kg_m3"})
+      : exact_keys(material, {"designation", "temper", "product_form",
+                              "source_sha256", "applicability",
+                              "youngs_modulus_pa", "poisson_ratio",
+                              "reviewed"});
+  if (!materialKeysValid)
     reject("setup_contract_invalid", "reviewed material evidence is invalid");
   const auto &load = root.at("load");
   if (!exact_keys(load, {"selection", "total_force_n", "reviewed"}) ||
@@ -1126,7 +1140,7 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
                    "reviewed"}))
     reject("setup_contract_invalid",
            "legacy reviewed requirement evidence is invalid");
-  if (vectorV21 && !root.at("requirements").is_array())
+  if ((vectorV21 || vectorV22) && !root.at("requirements").is_array())
     reject("setup_contract_invalid",
            "reviewed requirements evidence is invalid");
   const auto &scenario = root.at("scenario");
@@ -1147,7 +1161,10 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
       .poisson_ratio = json_number(material, "poisson_ratio"),
       .reviewed = json_bool(material, "reviewed"),
       .temper = json_string(material, "temper"),
-      .product_form = json_string(material, "product_form")};
+      .product_form = json_string(material, "product_form"),
+      .density_kg_m3 = vectorV22
+          ? json_optional_number(material, "density_kg_m3")
+          : std::nullopt};
   std::array<double, 3> force{};
   for (std::size_t index = 0; index < force.size(); ++index) {
     if (!load.at("total_force_n")[index].is_number())
@@ -1205,8 +1222,15 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
       const auto quantity = json_string(requirement, "quantity");
       const auto comparator = json_string(requirement, "comparator");
       const auto criticality = json_string(requirement, "criticality");
-      if ((quantity != "displacement" && quantity != "von_mises_stress" &&
-           quantity != "other") || comparator != "less_or_equal" ||
+      const bool quantityRecognized = quantity == "displacement" ||
+          quantity == "von_mises_stress" ||
+          (vectorV22 && quantity == "natural_frequency") ||
+          quantity == "other";
+      const bool comparatorPaired =
+          quantity == "natural_frequency"
+              ? comparator == "greater_or_equal"
+              : comparator == "less_or_equal";
+      if (!quantityRecognized || !comparatorPaired ||
           (criticality != "informational" && criticality != "advisory" &&
            criticality != "critical"))
         reject("setup_contract_invalid",
@@ -1214,12 +1238,16 @@ StructuralSetup deserialize_setup(const std::string &setupBytes,
       setup.requirements.push_back(
           {.quantity = quantity == "displacement"
                            ? RequirementQuantity::displacement
-                           : quantity == "von_mises_stress"
-                                 ? RequirementQuantity::von_mises_stress
-                                 : RequirementQuantity::other,
+                       : quantity == "von_mises_stress"
+                           ? RequirementQuantity::von_mises_stress
+                       : quantity == "natural_frequency"
+                           ? RequirementQuantity::natural_frequency
+                           : RequirementQuantity::other,
            .other_quantity_description =
                json_string(requirement, "other_quantity_description"),
-           .comparator = RequirementComparator::less_or_equal,
+           .comparator = comparator == "greater_or_equal"
+                             ? RequirementComparator::greater_or_equal
+                             : RequirementComparator::less_or_equal,
            .limit_value = json_number(requirement, "limit_value"),
            .unit = json_string(requirement, "unit"),
            .applicability = json_string(requirement, "applicability"),
@@ -1624,6 +1652,145 @@ StructuralArchive write_structural_refinement_archive(
           typed ? "4.0.0" : "3.0.0",
           fine.run().validated_result->identity,
           coarse.run().validated_result->identity};
+}
+
+namespace {
+
+Json modal_metrics_json(const CalculixMetrics &metrics) {
+  return {{"first_natural_frequency_hz", metrics.first_natural_frequency_hz}};
+}
+
+Json modal_requirements_json(const StructuralRequest &request) {
+  return {{"minimum_natural_frequency_hz",
+           request.minimum_natural_frequency_hz},
+          {"minimum_natural_frequency_basis",
+           request.minimum_natural_frequency_basis}};
+}
+
+} // namespace
+
+// A modal_frequency run has no coarse/fine mesh-refinement pairing (see
+// StructuralCapability's doc comment in types.hpp) -- this writes a single-
+// run archive shape, structurally closer to the original v1 archive than
+// to the v3/v4 refinement-study shape, under its own coexisting
+// archive_kind, following the same multi-version-coexistence pattern this
+// file already uses for archiveSchemaV1 through V4.
+StructuralArchive write_modal_structural_archive(
+    const SolverRunOptions &options, const CompiledStructuralSetup &setup,
+    const SolverRunResult &run, const StructuralEvaluation &evaluation) {
+  if (setup.request.capability != StructuralCapability::modal_frequency)
+    throw std::invalid_argument(
+        "modal structural archive requires a modal_frequency request");
+  if (run.status != SolverRunStatus::completed || !run.validated_result ||
+      !run.validated_result->complete() || !run.validated_result->metrics)
+    throw std::invalid_argument(
+        "modal structural archive requires one completed, validated run");
+  if (!safe_job_name(options.job_name))
+    throw std::invalid_argument("modal archive job name is unsafe");
+  if (options.working_directory.empty() ||
+      !std::filesystem::is_directory(options.working_directory))
+    throw std::invalid_argument(
+        "modal structural archive requires an existing study directory");
+  const auto directory = std::filesystem::canonical(options.working_directory);
+  const auto manifestPath = directory / archiveName;
+  if (std::filesystem::exists(manifestPath))
+    throw std::runtime_error("modal structural archive manifest already exists");
+
+  const auto &validated = *run.validated_result;
+  const auto &job = options.job_name;
+  const auto deckName = job + ".inp";
+  const auto datName = job + ".dat";
+  const auto frdName = job + ".frd";
+  const auto staName = job + ".sta";
+  const auto setupName = job + ".reviewed-structural-setup.json";
+  const auto stdoutName = job + ".stdout.txt";
+  const auto stderrName = job + ".stderr.txt";
+  for (const auto *name : {&deckName, &datName, &frdName, &staName,
+                           &setupName, &stdoutName, &stderrName})
+    if (!safe_file(*name))
+      throw std::invalid_argument("modal archive artifact filename is unsafe");
+  if (!file_matches(directory / deckName, validated.artifacts.deck) ||
+      !file_matches(directory / datName, validated.artifacts.dat) ||
+      !file_matches(directory / frdName, validated.artifacts.frd) ||
+      !file_matches(directory / staName, validated.artifacts.sta))
+    throw std::runtime_error(
+        "modal solver artifacts changed before archiving");
+  if (std::filesystem::exists(directory / setupName) ||
+      std::filesystem::exists(directory / stdoutName) ||
+      std::filesystem::exists(directory / stderrName))
+    throw std::runtime_error("modal structural archive output already exists");
+
+  if (evaluation.execution_status != SolverRunStatus::completed ||
+      evaluation.declared_obligations !=
+          static_cast<int>(
+              setup.request.minimum_natural_frequency_hz.has_value()) ||
+      evaluation.evaluated_obligations !=
+          static_cast<int>(evaluation.findings.size()) ||
+      evaluation.limitation.empty())
+    throw std::invalid_argument(
+        "modal evaluation does not match the validated result");
+
+  const CalculixArtifactIdentity setupIdentity{
+      integrity::sha256_bytes(setup.canonical_setup_evidence),
+      setup.canonical_setup_evidence.size()};
+  const CalculixArtifactIdentity stdoutIdentity{
+      integrity::sha256_bytes(run.standard_output), run.standard_output.size()};
+  const CalculixArtifactIdentity stderrIdentity{
+      integrity::sha256_bytes(run.standard_error), run.standard_error.size()};
+
+  Json document{
+      {"$schema", archiveSchemaModal},
+      {"schema_version", "1.0.0"},
+      {"archive_kind", "completed_modal_frequency_run"},
+      {"analysis_id", setup.request.analysis_id},
+      {"component_name", setup.request.component_name},
+      {"geometry_sha256", setup.request.geometry_sha256},
+      {"compiled_setup_identity", setup.identity},
+      {"validated_result_identity", validated.identity},
+      {"job_name", job},
+      {"execution", {{"exit_code", run.exit_code},
+                      {"elapsed_ms", run.elapsed.count()},
+                      {"status", "completed"}}},
+      {"backend", {{"executable_sha256", validated.backend.executable_sha256},
+                   {"version", validated.backend.version}}},
+      {"artifacts",
+       {{"setup", artifact_json(setupName, setupIdentity)},
+        {"deck", artifact_json(deckName, validated.artifacts.deck)},
+        {"dat", artifact_json(datName, validated.artifacts.dat)},
+        {"frd", artifact_json(frdName, validated.artifacts.frd)},
+        {"sta", artifact_json(staName, validated.artifacts.sta)},
+        {"stdout", artifact_json(stdoutName, stdoutIdentity)},
+        {"stderr", artifact_json(stderrName, stderrIdentity)}}},
+      {"metrics", modal_metrics_json(*validated.metrics)},
+      {"requirements", modal_requirements_json(setup.request)},
+      {"coverage", {{"declared_obligations", evaluation.declared_obligations},
+                    {"evaluated_obligations", evaluation.evaluated_obligations}}},
+      {"findings", findings_json(evaluation)},
+      {"unknowns", unknowns_json(evaluation)},
+      {"limitation", evaluation.limitation}};
+  const auto canonical = integrity::canonicalize_json_bytes(document.dump());
+
+  std::vector<std::filesystem::path> created;
+  try {
+    const auto setupPath = directory / setupName;
+    created.push_back(setupPath);
+    write(setupPath, setup.canonical_setup_evidence);
+    const auto stdoutPath = directory / stdoutName;
+    created.push_back(stdoutPath);
+    write(stdoutPath, run.standard_output);
+    const auto stderrPath = directory / stderrName;
+    created.push_back(stderrPath);
+    write(stderrPath, run.standard_error);
+    write(manifestPath, canonical);
+  } catch (...) {
+    std::error_code ignored;
+    std::filesystem::remove(manifestPath, ignored);
+    for (const auto &path : created)
+      std::filesystem::remove(path, ignored);
+    throw;
+  }
+  return {manifestPath, integrity::sha256_bytes(canonical), "1.0.0",
+          validated.identity, {}};
 }
 
 namespace {
@@ -2087,6 +2254,158 @@ StructuralArchiveVerification verify_v3_archive(
           compiled.value()};
 }
 
+StructuralArchiveVerification verify_modal_archive(
+    const std::filesystem::path &manifestPath, const Json &root) {
+  if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                         "analysis_id", "component_name", "geometry_sha256",
+                         "compiled_setup_identity", "validated_result_identity",
+                         "job_name", "execution", "backend", "artifacts",
+                         "metrics", "requirements", "coverage", "findings",
+                         "unknowns", "limitation"}) ||
+      root.at("$schema") != archiveSchemaModal ||
+      root.at("schema_version") != "1.0.0" ||
+      root.at("archive_kind") != "completed_modal_frequency_run")
+    return failure("archive_contract_invalid",
+                   "modal archive root contract is invalid");
+
+  const auto analysisId = json_string(root, "analysis_id");
+  const auto componentName = json_string(root, "component_name");
+  const auto geometryIdentity = json_string(root, "geometry_sha256");
+  const auto jobName = json_string(root, "job_name");
+  const auto setupIdentity = json_string(root, "compiled_setup_identity");
+  const auto resultIdentity = json_string(root, "validated_result_identity");
+  if (analysisId.empty() || componentName.empty() ||
+      !strict_sha256(geometryIdentity) || !safe_job_name(jobName) ||
+      !strict_sha256(setupIdentity) || !strict_sha256(resultIdentity))
+    return failure("archive_contract_invalid",
+                   "modal archive identities are invalid");
+
+  const auto &execution = root.at("execution");
+  if (!exact_keys(execution, {"exit_code", "elapsed_ms", "status"}) ||
+      !execution.at("exit_code").is_number_integer() ||
+      !execution.at("elapsed_ms").is_number_integer() ||
+      execution.at("exit_code").get<int>() != 0 ||
+      execution.at("elapsed_ms").get<std::int64_t>() < 0 ||
+      execution.at("status") != "completed")
+    return failure("archive_contract_invalid",
+                   "modal archive execution evidence is invalid");
+  const auto &backend = root.at("backend");
+  if (!exact_keys(backend, {"executable_sha256", "version"}))
+    return failure("archive_contract_invalid",
+                   "modal archive backend identity is invalid");
+  const auto backendHash = json_string(backend, "executable_sha256");
+  const auto backendVersion = json_string(backend, "version");
+  if (!strict_sha256(backendHash) || backendVersion.empty())
+    return failure("archive_contract_invalid",
+                   "modal archive backend identity is invalid");
+
+  const auto &metricsJson = root.at("metrics");
+  if (!exact_keys(metricsJson, {"first_natural_frequency_hz"}))
+    return failure("archive_contract_invalid", "modal archive metrics are invalid");
+  const auto &requirementsJson = root.at("requirements");
+  if (!exact_keys(requirementsJson, {"minimum_natural_frequency_hz",
+                                     "minimum_natural_frequency_basis"}))
+    return failure("archive_contract_invalid",
+                   "modal archive requirements are invalid");
+
+  PersistedArtifacts artifacts;
+  try {
+    artifacts = verify_and_load_artifacts(manifestPath.parent_path(),
+                                          root.at("artifacts"));
+  } catch (const ArchiveVerificationError &error) {
+    return failure(error.code(), error.what());
+  }
+
+  auto deserializedSetup = deserialize_setup(artifacts.setup, artifacts.deck);
+  auto compiledSetup = compile_structural_setup(deserializedSetup);
+  if (compiledSetup.request.capability != StructuralCapability::modal_frequency)
+    return failure("setup_binding_mismatch",
+                   "persisted setup does not resolve to the modal_frequency "
+                   "capability");
+  if (compiledSetup.canonical_setup_evidence != artifacts.setup ||
+      compiledSetup.calculix_deck != artifacts.deck ||
+      compiledSetup.identity != setupIdentity ||
+      compiledSetup.request.analysis_id != analysisId ||
+      compiledSetup.request.component_name != componentName ||
+      compiledSetup.request.geometry_sha256 != geometryIdentity)
+    return failure("setup_binding_mismatch",
+                   "persisted setup does not reproduce the archived setup identity");
+  if (requirementsJson.at("minimum_natural_frequency_hz") !=
+          Json(compiledSetup.request.minimum_natural_frequency_hz) ||
+      requirementsJson.at("minimum_natural_frequency_basis") !=
+          compiledSetup.request.minimum_natural_frequency_basis)
+    return failure("setup_binding_mismatch",
+                   "archive requirements differ from the reviewed setup");
+
+  const CalculixRunEvidence evidence{
+      .process_exit_code = execution.at("exit_code").get<int>(),
+      .solver_executable_sha256 = backendHash,
+      .solver_version = backendVersion,
+      .deck_bytes = artifacts.deck,
+      .standard_output = artifacts.standard_output,
+      .standard_error = artifacts.standard_error,
+      .status_bytes = artifacts.sta,
+      .data_bytes = artifacts.dat,
+      .frd_sha256 = artifacts.frd.sha256,
+      .frd_byte_length = artifacts.frd.byte_length};
+  auto replayedResult = compile_calculix_result(compiledSetup, evidence);
+  if (!replayedResult.complete()) {
+    const auto detail = replayedResult.issues.empty()
+                            ? "persisted modal solver evidence is incomplete"
+                            : replayedResult.issues.front().code + ": " +
+                                  replayedResult.issues.front().message;
+    return failure("replay_result_invalid", detail);
+  }
+  if (replayedResult.compiled_setup_identity != setupIdentity ||
+      replayedResult.identity != resultIdentity)
+    return failure("replay_result_identity_mismatch",
+                   "persisted modal solver evidence produces a different "
+                   "result identity");
+  if (root.at("backend") !=
+      Json{{"executable_sha256", replayedResult.backend.executable_sha256},
+           {"version", replayedResult.backend.version}})
+    return failure("replay_result_mismatch",
+                   "persisted modal solver evidence differs from archived "
+                   "backend fields");
+  if (metricsJson.at("first_natural_frequency_hz") !=
+      Json(replayedResult.metrics->first_natural_frequency_hz))
+    return failure("replay_result_mismatch",
+                   "persisted modal solver evidence differs from archived "
+                   "metrics");
+
+  const SolverRunResult replayedRun{.status = SolverRunStatus::completed,
+                                    .validated_result = replayedResult};
+  auto evaluation =
+      compile_modal_structural_findings(compiledSetup, replayedRun);
+  const Json expectedCoverage{
+      {"declared_obligations", evaluation.declared_obligations},
+      {"evaluated_obligations", evaluation.evaluated_obligations}};
+  if (evaluation.execution_status != SolverRunStatus::completed ||
+      root.at("coverage") != expectedCoverage ||
+      json_string(root, "limitation") != evaluation.limitation)
+    return failure("replay_finding_mismatch",
+                   "modal solver evidence produces different scoped findings");
+  require_findings_replay(root.at("findings"), findings_json(evaluation),
+                          "findings");
+  if (root.at("unknowns") != unknowns_json(evaluation))
+    return failure("replay_finding_mismatch",
+                   "modal solver evidence produces different unknowns");
+
+  return {true,
+          "verified",
+          "modal artifact identities, setup, solver evidence, and findings "
+          "replay verified",
+          replayedResult.metrics,
+          evaluation.declared_obligations,
+          evaluation.evaluated_obligations,
+          "1.0.0",
+          replayedResult.identity,
+          std::move(replayedResult.normalized),
+          std::move(deserializedSetup),
+          std::move(compiledSetup),
+          std::move(evaluation)};
+}
+
 StructuralArchiveVerification verify_v2_archive(
     const std::filesystem::path &manifestPath, const Json &root) {
   if (!exact_keys(root, {"$schema", "schema_version", "archive_kind",
@@ -2223,6 +2542,9 @@ StructuralArchiveVerification verify_structural_archive(
     const auto bytes = bounded_read(manifestPath, 8U * 1024U * 1024U);
     const auto canonical = integrity::verify_canonical_bytes(bytes);
     const auto root = Json::parse(canonical);
+    if (root.is_object() && root.value("$schema", "") == archiveSchemaModal &&
+        root.value("schema_version", "") == "1.0.0")
+      return verify_modal_archive(manifestPath, root);
     if (root.is_object() && root.value("$schema", "") == archiveSchemaV4 &&
         root.value("schema_version", "") == "4.0.0")
       return verify_v4_archive(manifestPath, root);

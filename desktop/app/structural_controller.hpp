@@ -135,6 +135,7 @@ private:
   void persistLoadBindingEdge();
   void persistRestraintBindingEdge();
   void rebuildReviewedInputHistory();
+  void runModalAnalysis(const QUrl &calculixExecutable, const QUrl &outputRoot);
 
   std::shared_ptr<const StructuralBackend> backend_;
   QString status_{"mesh_required"};
@@ -165,6 +166,7 @@ private:
   std::optional<prometheus::structural::ReviewedBoundaryCorrespondence>
       boundary_correspondence_;
   std::optional<DesktopStructuralRefinementResult> completed_refinement_;
+  std::optional<DesktopModalRunResult> completed_modal_run_;
   std::optional<prometheus::structural::StructuralArchiveVerification>
       restored_verification_;
   std::vector<int> load_patch_ids_;

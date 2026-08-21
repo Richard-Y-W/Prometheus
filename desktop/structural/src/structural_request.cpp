@@ -43,10 +43,10 @@ void issue(std::vector<ValidationIssue> &issues, std::string code,
 std::vector<ValidationIssue>
 validate_request(const StructuralRequest &request) {
   std::vector<ValidationIssue> issues;
-  if (request.schema !=
-      "urn:prometheus:calculix-linear-static-request:0.1.0")
+  if (request.schema != "urn:prometheus:calculix-structural-request:0.2.0")
     issue(issues, "unsupported_schema",
           "Structural request schema is unsupported.");
+  const bool modal = request.capability == StructuralCapability::modal_frequency;
   if (request.analysis_id.empty())
     issue(issues, "missing_analysis_id", "Analysis identity is required.");
   else if (!safe_text(request.analysis_id, 512U))
@@ -70,7 +70,7 @@ validate_request(const StructuralRequest &request) {
   if (!request.material_reviewed)
     issue(issues, "material_unreviewed",
           "Material inputs require explicit review.");
-  if (!request.loads_reviewed)
+  if (!modal && !request.loads_reviewed)
     issue(issues, "loads_unreviewed", "Loads require explicit review.");
   if (!request.restraints_reviewed)
     issue(issues, "restraints_unreviewed",
@@ -103,8 +103,12 @@ validate_request(const StructuralRequest &request) {
       request.poisson_ratio >= 0.5)
     issue(issues, "invalid_poisson_ratio",
           "Poisson ratio must be finite and between -1 and 0.5.");
-  if (!finite(request.selected_load_area_m2) ||
-      request.selected_load_area_m2 <= 0.0)
+  if (modal && (!request.density_kg_m3.has_value() ||
+                !finite(*request.density_kg_m3) || *request.density_kg_m3 <= 0.0))
+    issue(issues, "invalid_density",
+          "Material density must be finite and positive for a natural-frequency request.");
+  if (!modal && (!finite(request.selected_load_area_m2) ||
+                request.selected_load_area_m2 <= 0.0))
     issue(issues, "invalid_selected_load_area",
           "Selected load area must be finite and positive.");
   if (!finite(request.mesh_target_size_m) ||
@@ -253,6 +257,7 @@ validate_request(const StructuralRequest &request) {
     issue(issues, "inadequate_restraints",
           "At least three non-collinear fully fixed nodes are required by this bounded model.");
 
+  if (!modal) {
   if (request.nodal_forces.empty())
     issue(issues, "missing_load", "At least one nodal force is required.");
   std::set<int> loadedNodeIds;
@@ -311,6 +316,7 @@ validate_request(const StructuralRequest &request) {
       issue(issues, "compiled_load_mismatch",
             "Compiled nodal forces do not reproduce the reviewed force.");
   }
+  }
 
   const bool displacementValid = request.displacement_limit_m.has_value() &&
       finite(*request.displacement_limit_m) &&
@@ -318,17 +324,30 @@ validate_request(const StructuralRequest &request) {
   const bool stressValid = request.von_mises_limit_pa.has_value() &&
       finite(*request.von_mises_limit_pa) &&
       *request.von_mises_limit_pa > 0.0;
-  if (!displacementValid && !stressValid)
-    issue(issues, "missing_requirement",
-          "A positive reviewed displacement or von Mises stress limit is required.");
-  if (request.displacement_limit_m.has_value() &&
-      !safe_text(request.displacement_limit_basis))
-    issue(issues, "missing_displacement_limit_basis",
-          "A displacement limit requires a reviewed basis.");
-  if (request.von_mises_limit_pa.has_value() &&
-      !safe_text(request.von_mises_limit_basis))
-    issue(issues, "missing_von_mises_limit_basis",
-          "A von Mises limit requires a reviewed basis.");
+  const bool frequencyValid = request.minimum_natural_frequency_hz.has_value() &&
+      finite(*request.minimum_natural_frequency_hz) &&
+      *request.minimum_natural_frequency_hz > 0.0;
+  if (modal) {
+    if (!frequencyValid)
+      issue(issues, "missing_requirement",
+            "A positive reviewed minimum natural-frequency limit is required.");
+    if (request.minimum_natural_frequency_hz.has_value() &&
+        !safe_text(request.minimum_natural_frequency_basis))
+      issue(issues, "missing_natural_frequency_limit_basis",
+            "A minimum natural-frequency limit requires a reviewed basis.");
+  } else {
+    if (!displacementValid && !stressValid)
+      issue(issues, "missing_requirement",
+            "A positive reviewed displacement or von Mises stress limit is required.");
+    if (request.displacement_limit_m.has_value() &&
+        !safe_text(request.displacement_limit_basis))
+      issue(issues, "missing_displacement_limit_basis",
+            "A displacement limit requires a reviewed basis.");
+    if (request.von_mises_limit_pa.has_value() &&
+        !safe_text(request.von_mises_limit_basis))
+      issue(issues, "missing_von_mises_limit_basis",
+            "A von Mises limit requires a reviewed basis.");
+  }
   return issues;
 }
 

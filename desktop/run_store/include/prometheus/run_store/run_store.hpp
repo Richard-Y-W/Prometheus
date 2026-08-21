@@ -144,6 +144,11 @@ struct MaterialBindingInput final {
   std::string applicability;
   double youngs_modulus_pa{};
   double poisson_ratio{};
+  // Required (and positive) only for a material reviewed for the
+  // modal_frequency capability; std::nullopt for a linear-static-only
+  // reviewed material. Appended at the end so existing positional
+  // initializers of this struct are unaffected.
+  std::optional<double> density_kg_m3;
 };
 
 // Appends a new, append-only MaterialBinding graph edge for a reviewed

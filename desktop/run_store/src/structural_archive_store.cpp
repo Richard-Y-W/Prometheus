@@ -251,14 +251,19 @@ Result<StructuralArchiveObjects> build_structural_archive_objects(
                           schemaVersion == "3.0.0";
     const bool version4 = schemaId == structural_manifest_schema_id_v4 &&
                           schemaVersion == "4.0.0";
+    const bool versionModal = schemaId == structural_manifest_schema_id_modal &&
+                              schemaVersion == "1.0.0";
     const bool twoSampleArchive = version3 || version4;
-    if ((!version1 && !version2 && !twoSampleArchive) ||
+    if ((!version1 && !version2 && !twoSampleArchive && !versionModal) ||
         (twoSampleArchive
              ? archive.value("archive_kind", "") !=
                        "linear_static_refinement_study" ||
                    !exactRefinementRoot(archive, version4)
-             : archive.value("archive_kind", "") !=
-                   "completed_linear_static_run"))
+             : versionModal
+                   ? archive.value("archive_kind", "") !=
+                         "completed_modal_frequency_run"
+                   : archive.value("archive_kind", "") !=
+                         "completed_linear_static_run"))
       return failure<StructuralArchiveObjects>(
           "structural_manifest_contract_invalid",
           "source is not a completed structural archive manifest", manifestPath);
@@ -438,9 +443,14 @@ Result<std::filesystem::path> reconstruct_structural_archive(
         archiveReference.media_type == structural_manifest_media_type &&
         archiveReference.schema_id == structural_manifest_schema_id_v4 &&
         archiveReference.schema_version == "4.0.0";
+    const bool archiveVersionModal =
+        archiveReference.media_type == structural_manifest_media_type &&
+        archiveReference.schema_id == structural_manifest_schema_id_modal &&
+        archiveReference.schema_version == "1.0.0";
     const bool twoSampleArchive = archiveVersion3 || archiveVersion4;
     if ((projectVersion2 && !twoSampleArchive) ||
-        (projectVersion1 && !archiveVersion1 && !archiveVersion2))
+        (projectVersion1 && !archiveVersion1 && !archiveVersion2 &&
+         !archiveVersionModal))
       return failure<std::filesystem::path>(
           "structural_project_manifest_invalid",
           "embedded structural graph crosses incompatible schema versions");
@@ -456,8 +466,11 @@ Result<std::filesystem::path> reconstruct_structural_archive(
         (projectVersion2
              ? archive.value("archive_kind", "") !=
                    "linear_static_refinement_study"
-             : archive.value("archive_kind", "") !=
-                   "completed_linear_static_run"))
+             : archiveVersionModal
+                   ? archive.value("archive_kind", "") !=
+                         "completed_modal_frequency_run"
+                   : archive.value("archive_kind", "") !=
+                         "completed_linear_static_run"))
       return failure<std::filesystem::path>(
           "structural_project_manifest_invalid",
           "embedded archive bytes do not match their registered schema");

@@ -40,6 +40,17 @@ std::string read_file(const std::filesystem::path &path) {
           std::istreambuf_iterator<char>()};
 }
 
+void write_modal_data(const std::string &job, const double frequencyHz) {
+  std::ofstream output(job + ".dat");
+  output << " E I G E N V A L U E   O U T P U T\n\n";
+  output << " MODE NO  EIGENVALUE  REAL PART OF EIGENVALUE  IMAGINARY PART "
+            "OF EIGENVALUE       FREQUENCY (CYCLES/TIME)\n\n";
+  const double angular = 2.0 * 3.14159265358979323846 * frequencyHz;
+  output << " 1   " << angular * angular << "   " << angular << "   "
+         << frequencyHz << "   0.0000000E+00\n\n";
+  output << " P A R T I C I P A T I O N   F A C T O R S\n";
+}
+
 void write_valid_data(const std::string &job, const std::vector<int> &nodes,
                       const std::vector<int> &elements,
                       const double maximumDisplacementX = 0.0,
@@ -91,6 +102,8 @@ int main(int argc, char **argv) {
         << " displacements (vx,vy,vz) for set NALL and time  "
            "0.1000000E+01\n\n"
         << nodes.front() << "  malformed\n";
+  } else if (job.find("modal") != std::string::npos) {
+    write_modal_data(job, 93.109460);
   } else {
     const bool axialBenchmark = job.starts_with("prometheus_axial_");
     const bool cantileverCoarse = job.ends_with("cantilever_coarse");

@@ -461,8 +461,12 @@ validate_structural_manifest(const ObjectToStore &manifest) {
   const bool referenceV4 =
       manifest.reference.schema_id == structural_manifest_schema_id_v4 &&
       manifest.reference.schema_version == "4.0.0";
+  const bool referenceModal =
+      manifest.reference.schema_id == structural_manifest_schema_id_modal &&
+      manifest.reference.schema_version == "1.0.0";
   if (manifest.reference.media_type != structural_manifest_media_type ||
-      (!referenceV1 && !referenceV2 && !referenceV3 && !referenceV4)) {
+      (!referenceV1 && !referenceV2 && !referenceV3 && !referenceV4 &&
+       !referenceModal)) {
     return Result<detail::Unit>::failure(detail::store_diagnostic(
         "structural_manifest_reference_invalid",
         "structural manifest reference has the wrong registered contract"));
@@ -505,13 +509,26 @@ validate_structural_manifest(const ObjectToStore &manifest) {
                           "limitation"}) &&
         string_equals(root, "$schema", structural_manifest_schema_id_v4) &&
         string_equals(root, "schema_version", "4.0.0");
+    const bool documentModal =
+        referenceModal &&
+        exact_keys(root, {"$schema", "schema_version", "archive_kind",
+                          "analysis_id", "component_name", "geometry_sha256",
+                          "compiled_setup_identity", "validated_result_identity",
+                          "job_name", "execution", "backend", "artifacts",
+                          "metrics", "requirements", "coverage", "findings",
+                          "unknowns", "limitation"}) &&
+        string_equals(root, "$schema", structural_manifest_schema_id_modal) &&
+        string_equals(root, "schema_version", "1.0.0");
     const bool twoSampleDocument = documentV3 || documentV4;
-    if ((!documentV1 && !documentV2 && !twoSampleDocument) ||
+    if ((!documentV1 && !documentV2 && !twoSampleDocument && !documentModal) ||
         (twoSampleDocument
              ? !string_equals(root, "archive_kind",
                               "linear_static_refinement_study")
-             : !string_equals(root, "archive_kind",
-                              "completed_linear_static_run"))) {
+             : documentModal
+                   ? !string_equals(root, "archive_kind",
+                                    "completed_modal_frequency_run")
+                   : !string_equals(root, "archive_kind",
+                                    "completed_linear_static_run"))) {
       return Result<detail::Unit>::failure(detail::store_diagnostic(
           "structural_manifest_contract_invalid",
           "structural manifest is not the closed completed-run archive contract"));
@@ -1191,7 +1208,8 @@ Result<ProjectV2> install_material_binding(
         revision, supersedes, std::move(input.geometry_sha256),
         std::move(input.analysis_id), std::move(input.designation),
         std::move(input.source_sha256), std::move(input.applicability),
-        input.youngs_modulus_pa, input.poisson_ratio});
+        input.youngs_modulus_pa, input.poisson_ratio,
+        input.density_kg_m3});
     const auto candidate = serialize_project_v2(project);
     if (!candidate.has_value()) {
       return Result<ProjectV2>::failure(

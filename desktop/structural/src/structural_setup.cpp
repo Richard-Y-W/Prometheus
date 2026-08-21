@@ -23,6 +23,8 @@ constexpr std::string_view setupSchemaV2 =
     "urn:prometheus:schema:reviewed-structural-setup:2.0.0";
 constexpr std::string_view setupSchemaV21 =
     "urn:prometheus:schema:reviewed-structural-setup:2.1.0";
+constexpr std::string_view setupSchemaV22 =
+    "urn:prometheus:schema:reviewed-structural-setup:2.2.0";
 constexpr std::string_view compiledSetupSchema =
     "urn:prometheus:schema:compiled-structural-setup:1.0.0";
 
@@ -85,14 +87,42 @@ std::array<double, 3> normalized(const std::array<double, 3> &value) {
           value[2] / magnitude};
 }
 
+enum class CapabilityMatch { none, linear_static, modal_frequency, ambiguous };
+
+// The real matcher Phase 7 needed a second capability to prove itself
+// against: a reviewed setup's requirement quantities resolve to exactly
+// one validated capability, both at once (ambiguous -- this architecture
+// compiles one request per review, see StructuralSetup), or none (the
+// requirement_unsupported_only case).
+CapabilityMatch recommend_capability(
+    const std::vector<ReviewedRequirement> &requirements) {
+  bool sawStatic = false;
+  bool sawFrequency = false;
+  for (const auto &requirement : requirements) {
+    if (requirement.quantity == RequirementQuantity::displacement ||
+        requirement.quantity == RequirementQuantity::von_mises_stress)
+      sawStatic = true;
+    else if (requirement.quantity == RequirementQuantity::natural_frequency)
+      sawFrequency = true;
+  }
+  if (sawStatic && sawFrequency) return CapabilityMatch::ambiguous;
+  if (sawFrequency) return CapabilityMatch::modal_frequency;
+  if (sawStatic) return CapabilityMatch::linear_static;
+  return CapabilityMatch::none;
+}
+
 StructuralRequest compile_validated_request(const StructuralSetup &setup) {
+  const bool modal =
+      recommend_capability(setup.requirements) == CapabilityMatch::modal_frequency;
   const double forceMagnitude =
       std::hypot(setup.load.total_force_n[0], setup.load.total_force_n[1],
                  setup.load.total_force_n[2]);
   std::optional<double> displacementLimit;
   std::optional<double> vonMisesLimit;
+  std::optional<double> frequencyLimit;
   std::string displacementBasis;
   std::string vonMisesBasis;
+  std::string frequencyBasis;
   for (const auto &requirement : setup.requirements) {
     if (requirement.quantity == RequirementQuantity::displacement) {
       displacementLimit = requirement.limit_value;
@@ -100,6 +130,9 @@ StructuralRequest compile_validated_request(const StructuralSetup &setup) {
     } else if (requirement.quantity == RequirementQuantity::von_mises_stress) {
       vonMisesLimit = requirement.limit_value;
       vonMisesBasis = requirement.limit_basis;
+    } else if (requirement.quantity == RequirementQuantity::natural_frequency) {
+      frequencyLimit = requirement.limit_value;
+      frequencyBasis = requirement.limit_basis;
     }
   }
   return {
@@ -111,11 +144,13 @@ StructuralRequest compile_validated_request(const StructuralSetup &setup) {
       .youngs_modulus_pa = setup.material.youngs_modulus_pa,
       .poisson_ratio = setup.material.poisson_ratio,
       .fully_fixed_node_ids = setup.restraint.selection.node_ids,
-      .nodal_forces = distribute_surface_total_force(
-          setup.load.selection, setup.load.total_force_n,
-          setup.boundary_faces),
-      .displacement_limit_m = displacementLimit,
-      .von_mises_limit_pa = vonMisesLimit,
+      .nodal_forces = modal ? std::vector<NodalForce>{}
+                             : distribute_surface_total_force(
+                                   setup.load.selection,
+                                   setup.load.total_force_n,
+                                   setup.boundary_faces),
+      .displacement_limit_m = modal ? std::nullopt : displacementLimit,
+      .von_mises_limit_pa = modal ? std::nullopt : vonMisesLimit,
       .material_reviewed = setup.material.reviewed,
       .loads_reviewed = setup.load.reviewed,
       .restraints_reviewed = setup.restraint.reviewed,
@@ -130,9 +165,10 @@ StructuralRequest compile_validated_request(const StructuralSetup &setup) {
       .mesh_sha256 = setup.mesh_controls.mesh_sha256,
       .mesh_coordinate_scale_to_m =
           setup.mesh_controls.coordinate_scale_to_m,
-      .reviewed_force_magnitude_n = forceMagnitude,
-      .reviewed_force_direction = normalized(setup.load.total_force_n),
-      .selected_load_area_m2 = setup.load.selection.area_m2,
+      .reviewed_force_magnitude_n = modal ? 0.0 : forceMagnitude,
+      .reviewed_force_direction =
+          modal ? std::array<double, 3>{} : normalized(setup.load.total_force_n),
+      .selected_load_area_m2 = modal ? 0.0 : setup.load.selection.area_m2,
       .mesh_target_size_m = setup.mesh_controls.target_size_m,
       .minimum_mean_ratio_threshold =
           setup.mesh_controls.minimum_mean_ratio_threshold,
@@ -140,7 +176,13 @@ StructuralRequest compile_validated_request(const StructuralSetup &setup) {
           setup.mesh_controls.observed_minimum_mean_ratio,
       .displacement_limit_basis = std::move(displacementBasis),
       .von_mises_limit_basis = std::move(vonMisesBasis),
-      .mesh_reviewed = setup.mesh_controls.reviewed};
+      .mesh_reviewed = setup.mesh_controls.reviewed,
+      .capability = modal ? StructuralCapability::modal_frequency
+                           : StructuralCapability::linear_static,
+      .density_kg_m3 = modal ? setup.material.density_kg_m3 : std::nullopt,
+      .minimum_natural_frequency_hz = modal ? frequencyLimit : std::nullopt,
+      .minimum_natural_frequency_basis =
+          modal ? std::move(frequencyBasis) : std::string{}};
 }
 
 Json selection_json(const BoundarySelection &selection) {
@@ -174,9 +216,28 @@ std::string serialize_validated_setup(const StructuralSetup &setup) {
     elementIds.push_back(element.id);
   std::ranges::sort(elementIds);
   const bool legacyV2 = setup.evidence_schema_version == "2.0.0";
+  const bool legacyV21 = setup.evidence_schema_version == "2.1.0";
+  const std::string_view schemaId =
+      legacyV2 ? setupSchemaV2 : legacyV21 ? setupSchemaV21 : setupSchemaV22;
+  const std::string_view schemaVersion =
+      legacyV2 ? "2.0.0" : legacyV21 ? "2.1.0" : "2.2.0";
+  Json materialJson{
+      {"designation", setup.material.designation},
+      {"temper", setup.material.temper},
+      {"product_form", setup.material.product_form},
+      {"source_sha256", setup.material.source_sha256},
+      {"applicability", setup.material.applicability},
+      {"youngs_modulus_pa", setup.material.youngs_modulus_pa},
+      {"poisson_ratio", setup.material.poisson_ratio},
+      {"reviewed", setup.material.reviewed}};
+  // Density is a 2.2-and-later field only: 2.0.0/2.1.0 must keep
+  // reproducing their exact original canonical bytes for legacy archive
+  // replay, so a new key cannot be added to their material object.
+  if (!legacyV2 && !legacyV21)
+    materialJson["density_kg_m3"] = optionalNumber(setup.material.density_kg_m3);
   Json document{
-      {"$schema", legacyV2 ? setupSchemaV2 : setupSchemaV21},
-      {"schema_version", legacyV2 ? "2.0.0" : "2.1.0"},
+      {"$schema", schemaId},
+      {"schema_version", schemaVersion},
       {"analysis_id", setup.analysis_id},
       {"component_name", setup.component_name},
       {"geometry_sha256", setup.geometry_sha256},
@@ -198,15 +259,7 @@ std::string serialize_validated_setup(const StructuralSetup &setup) {
          setup.mesh_controls.observed_minimum_mean_ratio},
         {"mesher_identity", setup.mesh_controls.mesher_identity},
         {"reviewed", setup.mesh_controls.reviewed}}},
-      {"material",
-       {{"designation", setup.material.designation},
-        {"temper", setup.material.temper},
-        {"product_form", setup.material.product_form},
-        {"source_sha256", setup.material.source_sha256},
-        {"applicability", setup.material.applicability},
-        {"youngs_modulus_pa", setup.material.youngs_modulus_pa},
-        {"poisson_ratio", setup.material.poisson_ratio},
-        {"reviewed", setup.material.reviewed}}},
+      {"material", std::move(materialJson)},
       {"load",
        {{"selection", selection_json(setup.load.selection)},
         {"total_force_n", setup.load.total_force_n},
@@ -286,6 +339,7 @@ std::string_view to_string(const RequirementQuantity value) {
   switch (value) {
   case RequirementQuantity::displacement: return "displacement";
   case RequirementQuantity::von_mises_stress: return "von_mises_stress";
+  case RequirementQuantity::natural_frequency: return "natural_frequency";
   case RequirementQuantity::other: return "other";
   }
   return "other";
@@ -294,8 +348,17 @@ std::string_view to_string(const RequirementQuantity value) {
 std::string_view to_string(const RequirementComparator value) {
   switch (value) {
   case RequirementComparator::less_or_equal: return "less_or_equal";
+  case RequirementComparator::greater_or_equal: return "greater_or_equal";
   }
   return "less_or_equal";
+}
+
+std::string_view to_string(const StructuralCapability value) {
+  switch (value) {
+  case StructuralCapability::linear_static: return "linear_static";
+  case StructuralCapability::modal_frequency: return "modal_frequency";
+  }
+  return "linear_static";
 }
 
 std::string_view to_string(const RequirementCriticality value) {
@@ -353,22 +416,48 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
     issue(issues, "material_properties_invalid",
           "Reviewed elastic properties are invalid.");
 
-  if (!setup.load.reviewed)
-    issue(issues, "load_unreviewed",
-          "Surface load selection and vector require review.");
-  if (!valid_selection(setup.load.selection, setup.boundary_faces))
-    issue(issues, "load_selection_invalid",
-          "Load faces must resolve to the exact mesh boundary.");
-  double loadMagnitudeSquared = 0.0;
-  for (const double component : setup.load.total_force_n) {
-    if (!std::isfinite(component))
-      loadMagnitudeSquared = -1.0;
-    else if (loadMagnitudeSquared >= 0.0)
-      loadMagnitudeSquared += component * component;
+  // Which validated capability this setup's reviewed requirements resolve
+  // to determines whether a load review is required at all (a modal deck
+  // has no *CLOAD -- forcing a fake load past validation to satisfy a
+  // capability that does not use it would be a false schema) and whether a
+  // reviewed density is required (essential to a modal solve, irrelevant to
+  // linear-static).
+  const auto capability = recommend_capability(setup.requirements);
+
+  if (capability == CapabilityMatch::modal_frequency) {
+    if (!setup.material.density_kg_m3.has_value())
+      issue(issues, "material_density_missing",
+            "A reviewed material density is required for a natural-frequency analysis.");
+    else if (!std::isfinite(*setup.material.density_kg_m3) ||
+             *setup.material.density_kg_m3 <= 0.0)
+      issue(issues, "material_density_invalid", "Reviewed material density is invalid.");
+    // Density is only representable in the 2.2 evidence contract (see
+    // serialize_validated_setup) -- a modal setup pinned to an older
+    // version would silently lose its reviewed density from the persisted
+    // evidence document.
+    if (setup.evidence_schema_version != "2.2.0")
+      issue(issues, "setup_schema_version_invalid",
+            "A natural-frequency setup requires the 2.2.0 evidence contract.");
   }
-  if (!std::isfinite(loadMagnitudeSquared) || loadMagnitudeSquared <= 0.0)
-    issue(issues, "load_vector_invalid",
-          "Reviewed total surface force must be finite and nonzero.");
+
+  if (capability != CapabilityMatch::modal_frequency) {
+    if (!setup.load.reviewed)
+      issue(issues, "load_unreviewed",
+            "Surface load selection and vector require review.");
+    if (!valid_selection(setup.load.selection, setup.boundary_faces))
+      issue(issues, "load_selection_invalid",
+            "Load faces must resolve to the exact mesh boundary.");
+    double loadMagnitudeSquared = 0.0;
+    for (const double component : setup.load.total_force_n) {
+      if (!std::isfinite(component))
+        loadMagnitudeSquared = -1.0;
+      else if (loadMagnitudeSquared >= 0.0)
+        loadMagnitudeSquared += component * component;
+    }
+    if (!std::isfinite(loadMagnitudeSquared) || loadMagnitudeSquared <= 0.0)
+      issue(issues, "load_vector_invalid",
+            "Reviewed total surface force must be finite and nonzero.");
+  }
 
   if (!setup.restraint.reviewed)
     issue(issues, "restraint_unreviewed",
@@ -387,14 +476,22 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
           "The bounded model does not permit the same face to be loaded and fully fixed.");
 
   if (setup.evidence_schema_version != "2.0.0" &&
-      setup.evidence_schema_version != "2.1.0")
+      setup.evidence_schema_version != "2.1.0" &&
+      setup.evidence_schema_version != "2.2.0")
     issue(issues, "setup_schema_version_invalid",
-          "Reviewed setup evidence version must be 2.0.0 or 2.1.0.");
+          "Reviewed setup evidence version must be 2.0.0, 2.1.0, or 2.2.0.");
   if (setup.requirements.empty())
     issue(issues, "requirement_missing",
           "At least one reviewed requirement is required.");
+  if (capability == CapabilityMatch::ambiguous)
+    issue(issues, "requirement_capability_ambiguous",
+          "This setup reviews requirements for both the linear-static and "
+          "natural-frequency capabilities; only one solver call runs per "
+          "review, so review and run each capability's requirements "
+          "separately.");
   bool sawDisplacement = false;
   bool sawVonMises = false;
+  bool sawFrequency = false;
   bool anySupported = false;
   std::set<std::string> otherDescriptions;
   for (const auto &requirement : setup.requirements) {
@@ -426,6 +523,9 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
       if (requirement.unit != "m")
         issue(issues, "requirement_unit_invalid",
               "The displacement requirement must use metres (m).");
+      if (requirement.comparator != RequirementComparator::less_or_equal)
+        issue(issues, "requirement_comparator_mismatch",
+              "A displacement requirement must use 'less_or_equal'.");
       break;
     case RequirementQuantity::von_mises_stress:
       anySupported = true;
@@ -435,6 +535,21 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
       if (requirement.unit != "Pa")
         issue(issues, "requirement_unit_invalid",
               "The von Mises stress requirement must use pascals (Pa).");
+      if (requirement.comparator != RequirementComparator::less_or_equal)
+        issue(issues, "requirement_comparator_mismatch",
+              "A von Mises stress requirement must use 'less_or_equal'.");
+      break;
+    case RequirementQuantity::natural_frequency:
+      anySupported = true;
+      if (std::exchange(sawFrequency, true))
+        issue(issues, "requirement_duplicate_quantity",
+              "Only one natural-frequency requirement is supported.");
+      if (requirement.unit != "Hz")
+        issue(issues, "requirement_unit_invalid",
+              "The natural-frequency requirement must use hertz (Hz).");
+      if (requirement.comparator != RequirementComparator::greater_or_equal)
+        issue(issues, "requirement_comparator_mismatch",
+              "A natural-frequency requirement must use 'greater_or_equal'.");
       break;
     case RequirementQuantity::other:
       if (!safe_text(requirement.other_quantity_description))
@@ -449,7 +564,8 @@ std::vector<ValidationIssue> validate_setup(const StructuralSetup &setup) {
   }
   if (!setup.requirements.empty() && !anySupported)
     issue(issues, "requirement_unsupported_only",
-          "At least one reviewed displacement or von Mises limit is required for this capability.");
+          "At least one reviewed displacement, von Mises, or natural-frequency "
+          "limit is required for this capability.");
 
   if (!setup.mesh_controls.reviewed)
     issue(issues, "mesh_controls_unreviewed",

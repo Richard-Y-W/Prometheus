@@ -60,4 +60,12 @@ struct StructuralEvaluation final {
 [[nodiscard]] StructuralEvaluation compile_structural_findings(
     const VerifiedStructuralRefinement &refinement);
 
+// The modal_frequency analogue of compile_structural_findings. A modal run
+// has no coarse/fine mesh-refinement pairing (see StructuralCapability's
+// doc comment in types.hpp) -- this compiles a single completed run's
+// eigenvalue result directly against the reviewed minimum-frequency
+// obligation, using the same StructuralEvaluation/StructuralFinding shapes.
+[[nodiscard]] StructuralEvaluation compile_modal_structural_findings(
+    const CompiledStructuralSetup &setup, const SolverRunResult &run);
+
 } // namespace prometheus::structural

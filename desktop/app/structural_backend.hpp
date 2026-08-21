@@ -32,6 +32,17 @@ struct DesktopStructuralRefinementResult final {
   std::vector<prometheus::structural::StructuralRefinementIssue> issues;
 };
 
+// The modal_frequency analogue of DesktopStructuralSampleResult +
+// DesktopStructuralRefinementResult combined: a modal run has no coarse/
+// fine pairing to finalize separately, so one call produces both the run
+// result and its findings/archive.
+struct DesktopModalRunResult final {
+  prometheus::structural::SolverRunResult run;
+  prometheus::structural::StructuralEvaluation evaluation;
+  std::optional<prometheus::structural::StructuralArchive> archive;
+  std::string archive_error;
+};
+
 class StructuralBackend {
 public:
   virtual ~StructuralBackend() = default;
@@ -58,6 +69,13 @@ public:
       prometheus::structural::CompletedStructuralSamplePtr fine,
       const prometheus::structural::ReviewedBoundaryCorrespondence &
           boundary_correspondence) const = 0;
+
+  // A modal_frequency run bypasses the coarse/fine refinement lifecycle
+  // entirely (see StructuralCapability's doc comment in types.hpp) -- one
+  // call runs the solver, compiles findings, and archives.
+  [[nodiscard]] virtual DesktopModalRunResult executeModalRun(
+      prometheus::structural::SolverRunOptions options,
+      prometheus::structural::CompiledStructuralSetup setup) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<const StructuralBackend>

@@ -225,6 +225,18 @@ std::optional<double> positive_optional(const QVariantMap &draft,
              : std::nullopt;
 }
 
+// A lightweight routing check, not the authoritative capability match --
+// ps::validate_setup/recommend_capability (structural_setup.cpp) still
+// decides for real once rebuildPreview compiles the full StructuralSetup.
+// This only decides which of the two very different review/run lifecycles
+// (coarse/fine mesh refinement vs. a single modal run) this reviewSetup
+// call should follow.
+bool draft_resolves_modal_capability(const QVariantMap &draft) {
+  return positive_optional(draft, "natural_frequency_limit_hz").has_value() &&
+         !positive_optional(draft, "displacement_limit_m").has_value() &&
+         !positive_optional(draft, "von_mises_limit_pa").has_value();
+}
+
 const ps::ReviewedRequirement *requirement_for(
     const std::vector<ps::ReviewedRequirement> &requirements,
     const ps::RequirementQuantity quantity) {
@@ -357,15 +369,17 @@ void append_unknown(QVariantList &target,
                     const ps::StructuralUnevaluatedObligation &unknown,
                     const ps::StructuralRequest &request) {
   const bool displacement = unknown.obligation == "maximum_displacement";
-  const auto limit = displacement ? request.displacement_limit_m
-                                  : request.von_mises_limit_pa;
+  const bool frequency = unknown.obligation == "minimum_natural_frequency";
+  const auto limit = frequency ? request.minimum_natural_frequency_hz
+                    : displacement ? request.displacement_limit_m
+                                   : request.von_mises_limit_pa;
   target.append(QVariantMap{
       {"obligation", QString::fromStdString(unknown.obligation)},
       {"disposition", "cannot_answer"},
       {"measured", QVariant{}},
       {"limit", limit.value_or(0.0)},
       {"margin", QVariant{}},
-      {"unit", displacement ? "m" : "Pa"},
+      {"unit", frequency ? "Hz" : displacement ? "m" : "Pa"},
       {"scope", QString::fromStdString(unknown.detail)},
       {"code", QString::fromStdString(unknown.code)}});
 }
@@ -611,6 +625,7 @@ StructuralController::StructuralController(
 
 void StructuralController::clearCompletedRun() {
   completed_refinement_.reset();
+  completed_modal_run_.reset();
   boundary_correspondence_.reset();
   refinement_comparison_.clear();
   restored_verification_.reset();
@@ -887,7 +902,14 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   if (busy_) return;
   draft_ = draft;
   QString criterionError;
-  if (!baseline_sample_) {
+  // A modal_frequency setup bypasses the coarse/fine mesh-refinement
+  // lifecycle entirely (see StructuralCapability's doc comment in
+  // types.hpp): no refinement criterion to compile, no baseline sample, no
+  // second-review draft lock the way a fine pass locks most fields to the
+  // coarse review.
+  if (draft_resolves_modal_capability(draft_)) {
+    refinement_criterion_.reset();
+  } else if (!baseline_sample_) {
     refinement_criterion_.reset();
     try {
       const auto maximumChange =
@@ -985,6 +1007,8 @@ void StructuralController::applyCompiledPreview(
     for (std::size_t axis = 0; axis < resultant.size(); ++axis)
       resultant[axis] += force.force_n[axis];
   request_preview_ = {
+      {"capability",
+       QString::fromStdString(std::string(ps::to_string(request.capability)))},
       {"analysis_id", QString::fromStdString(request.analysis_id)},
       {"component_name", QString::fromStdString(request.component_name)},
       {"nodes", static_cast<qlonglong>(request.nodes.size())},
@@ -1116,7 +1140,8 @@ void StructuralController::persistMaterialBindingEdge() {
       active->source_sha256 == compiled_setup_->reviewed_setup.material.source_sha256 &&
       active->applicability == compiled_setup_->reviewed_setup.material.applicability &&
       active->youngs_modulus_pa == compiled_setup_->reviewed_setup.material.youngs_modulus_pa &&
-      active->poisson_ratio == compiled_setup_->reviewed_setup.material.poisson_ratio) {
+      active->poisson_ratio == compiled_setup_->reviewed_setup.material.poisson_ratio &&
+      active->density_kg_m3 == compiled_setup_->reviewed_setup.material.density_kg_m3) {
     return;
   }
   const auto installed = prometheus::run_store::install_material_binding(
@@ -1125,7 +1150,8 @@ void StructuralController::persistMaterialBindingEdge() {
           geometry, analysisId, compiled_setup_->reviewed_setup.material.designation,
           compiled_setup_->reviewed_setup.material.source_sha256, compiled_setup_->reviewed_setup.material.applicability,
           compiled_setup_->reviewed_setup.material.youngs_modulus_pa,
-          compiled_setup_->reviewed_setup.material.poisson_ratio});
+          compiled_setup_->reviewed_setup.material.poisson_ratio,
+          compiled_setup_->reviewed_setup.material.density_kg_m3});
   if (installed.has_value()) {
     project_->acceptProject(installed.value());
   }
@@ -1353,6 +1379,19 @@ void StructuralController::rebuildPreview() {
          .reviewed = reviewed,
          .limit_basis = draft_.value("von_mises_limit_basis")
                             .toString().toStdString()});
+  if (const auto limit =
+          positive_optional(draft_, "natural_frequency_limit_hz"))
+    requirements.push_back(
+        {.quantity = ps::RequirementQuantity::natural_frequency,
+         .comparator = ps::RequirementComparator::greater_or_equal,
+         .limit_value = *limit,
+         .unit = "Hz",
+         .applicability = applicability,
+         .criticality = criticality,
+         .source_or_exploratory_rationale = rationale,
+         .reviewed = reviewed,
+         .limit_basis = draft_.value("natural_frequency_limit_basis")
+                            .toString().toStdString()});
   const auto otherDescription =
       draft_.value("other_requirement_description").toString().toStdString();
   if (!otherDescription.empty())
@@ -1381,14 +1420,21 @@ void StructuralController::rebuildPreview() {
                           requirement.source_or_exploratory_rationale)},
         {"reviewed", requirement.reviewed}});
   }
+  // A modal_frequency setup has no *CLOAD, so an unselected load patch is
+  // expected, not an error (see StructuralCapability's doc comment in
+  // types.hpp) -- resolve_boundary_selection throws on an empty selection,
+  // which would otherwise perpetually block a modal-only review.
+  const bool modal = draft_resolves_modal_capability(draft_);
   ps::BoundarySelection load;
   ps::BoundarySelection restraint;
-  try {
-    load = ps::resolve_boundary_selection("reviewed load surface", patches_,
-                                          load_patch_ids_);
-  } catch (const std::exception &error) {
-    blockers_.append(QVariantMap{{"code", "load_selection_invalid"},
-                                 {"message", QString::fromUtf8(error.what())}});
+  if (!modal) {
+    try {
+      load = ps::resolve_boundary_selection("reviewed load surface", patches_,
+                                            load_patch_ids_);
+    } catch (const std::exception &error) {
+      blockers_.append(QVariantMap{{"code", "load_selection_invalid"},
+                                   {"message", QString::fromUtf8(error.what())}});
+    }
   }
   try {
     restraint = ps::resolve_boundary_selection(
@@ -1416,7 +1462,8 @@ void StructuralController::rebuildPreview() {
            .reviewed = draft_.value("material_reviewed").toBool(),
            .temper = draft_.value("material_temper").toString().toStdString(),
            .product_form =
-               draft_.value("material_product_form").toString().toStdString()},
+               draft_.value("material_product_form").toString().toStdString(),
+           .density_kg_m3 = positive_optional(draft_, "density_kg_m3")},
       .load = {.selection = std::move(load),
                .total_force_n =
                    {draft_.value("force_x_n").toDouble(),
@@ -1457,7 +1504,7 @@ void StructuralController::rebuildPreview() {
     setup.scenario_description = coarse.scenario_description;
     setup.scenario_confirmed = coarse.scenario_confirmed;
   }
-  if (!refinement_criterion_)
+  if (!modal && !refinement_criterion_)
     blockers_.append(QVariantMap{
         {"code", "refinement_criterion_invalid"},
         {"message",
@@ -1530,7 +1577,20 @@ void StructuralController::rebuildPreview() {
 void StructuralController::runAnalysis(const QUrl &calculixExecutable,
                                        const QUrl &outputRoot) {
   if (busy_) return;
-  if (!can_run_ || !compiled_setup_ || !refinement_criterion_) {
+  if (!can_run_ || !compiled_setup_) {
+    error_ = "The reviewed structural setup is not ready for execution.";
+    emit changed();
+    return;
+  }
+  // A modal_frequency setup bypasses the coarse/fine mesh-refinement
+  // lifecycle entirely (see StructuralCapability's doc comment in
+  // types.hpp): one run, no refinement criterion, no baseline sample.
+  if (compiled_setup_->request.capability ==
+      ps::StructuralCapability::modal_frequency) {
+    runModalAnalysis(calculixExecutable, outputRoot);
+    return;
+  }
+  if (!refinement_criterion_) {
     error_ = "The reviewed structural setup is not ready for execution.";
     emit changed();
     return;
@@ -1777,6 +1837,130 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
       }));
 }
 
+// A modal_frequency setup's single-run analogue of runAnalysis's coarse/
+// fine two-pass dispatch: one solver call, one findings compile, one
+// archive write, via StructuralBackend::executeModalRun -- no refinement
+// criterion, no baseline sample, no boundary correspondence.
+void StructuralController::runModalAnalysis(const QUrl &calculixExecutable,
+                                            const QUrl &outputRoot) {
+  if (!calculixExecutable.isLocalFile() || !outputRoot.isLocalFile()) {
+    error_ = "Select a local CalculiX executable and output directory.";
+    emit changed();
+    return;
+  }
+  const auto executablePath = calculixExecutable.toLocalFile();
+  const auto rootPath = outputRoot.toLocalFile();
+  const QFileInfo executable(executablePath);
+  if (!executable.exists() || !executable.isFile() ||
+      executable.isSymbolicLink()) {
+    error_ = "Select a regular local CalculiX executable.";
+    emit changed();
+    return;
+  }
+  QDir root(rootPath);
+  if (!root.exists() && !QDir().mkpath(rootPath)) {
+    error_ = "The structural output directory could not be created.";
+    emit changed();
+    return;
+  }
+  const QString runName =
+      "structural-modal-" +
+      QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
+      QUuid::createUuid().toString(QUuid::Id128).left(8);
+  if (!root.mkdir(runName)) {
+    error_ = "A unique structural run directory could not be created.";
+    emit changed();
+    return;
+  }
+  const QString runDirectory = root.filePath(runName);
+  const auto options =
+      ps::SolverRunOptions{native_path(executablePath), native_path(runDirectory),
+                           "prometheus_structural_modal", std::chrono::minutes(5)};
+  const auto setup = *compiled_setup_;
+  const auto backend = backend_;
+  clearCompletedRun();
+  refinement_stage_ = "modal";
+  error_.clear();
+  busy_ = true;
+  status_ = "executing_modal";
+  emit changed();
+  auto *watcher = new QFutureWatcher<DesktopModalRunResult>(this);
+  connect(watcher, &QFutureWatcher<DesktopModalRunResult>::finished, this,
+          [this, watcher, runDirectory, setup] {
+    completed_modal_run_ = watcher->result();
+    const auto &completed = *completed_modal_run_;
+    watcher->deleteLater();
+    busy_ = false;
+    const auto &run = completed.run;
+    last_run_ = {
+        {"status", run_status(run.status)},
+        {"capability", QStringLiteral("modal_frequency")},
+        {"exit_code", run.exit_code},
+        {"elapsed_ms", static_cast<qlonglong>(run.elapsed.count())},
+        {"detail", QString::fromStdString(run.detail)},
+        {"stdout", QString::fromStdString(run.standard_output)},
+        {"stderr", QString::fromStdString(run.standard_error)},
+        {"output_directory", runDirectory},
+        {"archived", false},
+        {"declared_obligations", completed.evaluation.declared_obligations},
+        {"evaluated_obligations", completed.evaluation.evaluated_obligations},
+        {"limitation", QString::fromStdString(completed.evaluation.limitation)}};
+    findings_.clear();
+    for (const auto &finding : completed.evaluation.findings)
+      append_finding(findings_, finding);
+    for (const auto &unknown : completed.evaluation.unknowns)
+      findings_.append(QVariantMap{
+          {"obligation", QString::fromStdString(unknown.obligation)},
+          {"disposition", "cannot_answer"},
+          {"measured", QVariant{}},
+          {"limit", setup.request.minimum_natural_frequency_hz.value_or(0.0)},
+          {"margin", QVariant{}},
+          {"unit", "Hz"},
+          {"scope", QString::fromStdString(unknown.detail)},
+          {"code", QString::fromStdString(unknown.code)}});
+    if (run.validated_result && run.validated_result->metrics &&
+        run.validated_result->metrics->first_natural_frequency_hz)
+      last_run_["first_natural_frequency_hz"] =
+          *run.validated_result->metrics->first_natural_frequency_hz;
+    if (completed.archive) {
+      last_run_["archived"] = true;
+      const auto &archive = *completed.archive;
+      last_run_["archive_manifest"] = qt_path(archive.manifest_path);
+      last_run_["archive_sha256"] =
+          QString::fromStdString(archive.manifest_sha256);
+      last_run_["archive_schema_version"] =
+          QString::fromStdString(archive.schema_version);
+      last_run_["validated_result_identity"] =
+          QString::fromStdString(archive.validated_result_identity);
+    } else if (!completed.archive_error.empty()) {
+      last_run_["archive_error"] =
+          QString::fromStdString(completed.archive_error);
+    }
+    const auto executionState =
+        run.status != ps::SolverRunStatus::completed
+            ? decision::ExecutionState::failed
+            : (!completed.evaluation.unknowns.empty() ||
+               !uncovered_requirements_.isEmpty())
+                  ? decision::ExecutionState::completed_with_blocked_work
+                  : decision::ExecutionState::completed;
+    append_assessment(last_run_, completed.evaluation,
+                      uncovered_requirements_.size(), executionState,
+                      setup.request.geometry_sha256);
+    status_ = run.status != ps::SolverRunStatus::completed
+                  ? "execution_failed"
+              : completed.archive ? "modal_run_archived"
+                                   : "modal_archive_failed";
+    can_run_ = false;
+    refinement_stage_ = "completed";
+    emit changed();
+    emit runFinished();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [backend, options, setup]() -> DesktopModalRunResult {
+        return backend->executeModalRun(options, setup);
+      }));
+}
+
 void StructuralController::commitLastRun() {
   if (busy_) return;
   if (!project_ || !project_->project() ||
@@ -1785,12 +1969,17 @@ void StructuralController::commitLastRun() {
     emit changed();
     return;
   }
-  if (!completed_refinement_ || !completed_refinement_->archive) {
-    error_ = "A completed active structural refinement archive is required.";
+  const auto trustedArchivePtr = completed_refinement_ && completed_refinement_->archive
+      ? &*completed_refinement_->archive
+      : completed_modal_run_ && completed_modal_run_->archive
+            ? &*completed_modal_run_->archive
+            : nullptr;
+  if (!trustedArchivePtr) {
+    error_ = "A completed refinement archive is required.";
     emit changed();
     return;
   }
-  const auto trustedArchive = *completed_refinement_->archive;
+  const auto trustedArchive = *trustedArchivePtr;
   if (last_run_.value("archive_manifest").toString() !=
       qt_path(trustedArchive.manifest_path)) {
     error_ = "The active archive handle no longer matches the displayed run.";
@@ -1926,10 +2115,16 @@ void StructuralController::reloadProject() {
                     .value("metrics")
                     .toObject()
               : root.value("metrics").toObject();
-      display["maximum_displacement_m"] =
-          metrics.value("maximum_displacement_m").toDouble();
-      display["maximum_von_mises_pa"] =
-          metrics.value("maximum_von_mises_pa").toDouble();
+      display["archive_kind"] = root.value("archive_kind").toString();
+      if (metrics.contains("first_natural_frequency_hz")) {
+        display["first_natural_frequency_hz"] =
+            metrics.value("first_natural_frequency_hz").toDouble();
+      } else {
+        display["maximum_displacement_m"] =
+            metrics.value("maximum_displacement_m").toDouble();
+        display["maximum_von_mises_pa"] =
+            metrics.value("maximum_von_mises_pa").toDouble();
+      }
     }
     stored_runs_.append(display);
   }
@@ -2036,19 +2231,29 @@ void StructuralController::restoreStoredRun(const int index,
       }
       return covered == selectedFaces.size() ? result : std::vector<int>{};
     };
+    const auto *displacement = requirement_for(
+        reviewed.requirements, ps::RequirementQuantity::displacement);
+    const auto *vonMises = requirement_for(
+        reviewed.requirements, ps::RequirementQuantity::von_mises_stress);
+    const auto *frequency = requirement_for(
+        reviewed.requirements, ps::RequirementQuantity::natural_frequency);
+    // A modal_frequency setup never reviews a load selection (see
+    // StructuralCapability's doc comment in types.hpp), so its restored
+    // load.selection is empty and cannot map to any restored patch --
+    // that is expected, not a restoration failure.
+    const bool modalRestore = frequency != nullptr;
     load_patch_ids_ = patch_ids_for(reviewed.load.selection);
     restraint_patch_ids_ = patch_ids_for(reviewed.restraint.selection);
-    if (load_patch_ids_.empty() || restraint_patch_ids_.empty()) {
+    if ((!modalRestore && load_patch_ids_.empty()) ||
+        restraint_patch_ids_.empty()) {
       error_ = "Stored reviewed surfaces do not map to restored patches.";
       status_ = "structural_archive_restore_failed";
       emit changed();
       return;
     }
-    const auto *displacement = requirement_for(
-        reviewed.requirements, ps::RequirementQuantity::displacement);
-    const auto *vonMises = requirement_for(
-        reviewed.requirements, ps::RequirementQuantity::von_mises_stress);
-    const auto *shared = displacement != nullptr ? displacement : vonMises;
+    const auto *shared = displacement != nullptr ? displacement
+                        : vonMises != nullptr     ? vonMises
+                                                   : frequency;
     const auto uncovered = std::ranges::find(
         reviewed.requirements, ps::RequirementQuantity::other,
         &ps::ReviewedRequirement::quantity);
@@ -2069,6 +2274,7 @@ void StructuralController::restoreStoredRun(const int index,
          QString::fromStdString(reviewed.material.applicability)},
         {"youngs_modulus_pa", reviewed.material.youngs_modulus_pa},
         {"poisson_ratio", reviewed.material.poisson_ratio},
+        {"density_kg_m3", reviewed.material.density_kg_m3.value_or(0.0)},
         {"material_reviewed", reviewed.material.reviewed},
         {"force_x_n", reviewed.load.total_force_n[0]},
         {"force_y_n", reviewed.load.total_force_n[1]},
@@ -2079,6 +2285,8 @@ void StructuralController::restoreStoredRun(const int index,
          displacement == nullptr ? 0.0 : displacement->limit_value},
         {"von_mises_limit_pa",
          vonMises == nullptr ? 0.0 : vonMises->limit_value},
+        {"natural_frequency_limit_hz",
+         frequency == nullptr ? 0.0 : frequency->limit_value},
         {"requirement_rationale", shared == nullptr
              ? QString{}
              : QString::fromStdString(
@@ -2095,6 +2303,9 @@ void StructuralController::restoreStoredRun(const int index,
         {"von_mises_limit_basis", vonMises == nullptr
              ? QString{}
              : QString::fromStdString(vonMises->limit_basis)},
+        {"natural_frequency_limit_basis", frequency == nullptr
+             ? QString{}
+             : QString::fromStdString(frequency->limit_basis)},
         {"requirement_reviewed", shared != nullptr &&
              std::ranges::all_of(reviewed.requirements,
                                  &ps::ReviewedRequirement::reviewed)},
@@ -2260,9 +2471,10 @@ void StructuralController::restoreStoredRun(const int index,
         {"limitation", QString::fromStdString(evaluation.limitation)}};
     const auto restoredState =
         (!evaluation.unknowns.empty() || !uncovered_requirements_.isEmpty() ||
-         !restored.verification.refinement ||
-         restored.verification.refinement->status() !=
-             ps::StructuralRefinementStatus::accepted)
+         (!modalRestore &&
+          (!restored.verification.refinement ||
+           restored.verification.refinement->status() !=
+               ps::StructuralRefinementStatus::accepted)))
             ? decision::ExecutionState::completed_with_blocked_work
             : decision::ExecutionState::completed;
     append_assessment(last_run_, evaluation, uncovered_requirements_.size(),

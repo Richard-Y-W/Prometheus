@@ -46,6 +46,12 @@ inline constexpr std::string_view structural_manifest_schema_id_v3 =
     "urn:prometheus:schema:structural-run-archive:3.0.0";
 inline constexpr std::string_view structural_manifest_schema_id_v4 =
     "urn:prometheus:schema:structural-run-archive:4.0.0";
+// A modal_frequency run has no coarse/fine mesh-refinement pairing, so it
+// is a distinctly-named coexisting archive shape rather than a "v5"
+// evolution of the linear-static v1-v4 progression (see
+// StructuralCapability's doc comment in types.hpp).
+inline constexpr std::string_view structural_manifest_schema_id_modal =
+    "urn:prometheus:schema:structural-run-archive-modal:1.0.0";
 inline constexpr std::string_view structural_manifest_schema_id =
     structural_manifest_schema_id_v1;
 inline constexpr std::string_view structural_project_run_media_type =
@@ -241,6 +247,10 @@ struct MaterialBinding final {
   std::string applicability;
   double youngs_modulus_pa;
   double poisson_ratio;
+  // Required (and positive) only for a material reviewed for the
+  // modal_frequency capability. Appended at the end so existing positional
+  // initializers of this struct are unaffected.
+  std::optional<double> density_kg_m3;
 };
 
 // Phase 6 checkpoint 5: the append-only, content-free counterpart of

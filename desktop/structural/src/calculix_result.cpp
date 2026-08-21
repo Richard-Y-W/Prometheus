@@ -190,7 +190,7 @@ CompiledCalculixResult compile_result(
     const StructuralRequest &request, const std::string_view expectedDeck,
     const bool requestAlreadyValidated,
     const std::string_view compiledSetupIdentity,
-    const CalculixRunEvidence &evidence) {
+    const CalculixRunEvidence &evidence, const bool modal) {
   CompiledCalculixResult result;
   result.compiled_setup_identity = compiledSetupIdentity;
   result.artifacts = {
@@ -234,6 +234,47 @@ CompiledCalculixResult compile_result(
               "Executed deck bytes do not match the reviewed request");
   if (!result.issues.empty())
     return result;
+
+  if (modal) {
+    // A modal_frequency run has no time-stepping increments, so its .sta
+    // carries no convergence rows at all (verified against real ccx
+    // output) -- result.convergence deliberately stays unset;
+    // CompiledCalculixResult::complete() treats that as expected once
+    // metrics carries a first_natural_frequency_hz value.
+    CalculixDat parsed;
+    try {
+      parsed = parse_calculix_dat(evidence.data_bytes);
+    } catch (const std::exception &error) {
+      add_issue(result, "invalid_result_data", error.what());
+    }
+    if (result.issues.empty() && parsed.natural_frequencies_hz.empty())
+      add_issue(result, "missing_eigenvalue_row",
+                "CalculiX produced no eigenvalue rows");
+    if (!result.issues.empty())
+      return result;
+    result.normalized = std::move(parsed);
+    result.metrics = summarize_calculix_dat(result.normalized);
+    const auto identityDocument = integrity::canonicalize_json_bytes(
+        Json{{"$schema",
+              "urn:prometheus:schema:compiled-calculix-result:3.0.0"},
+             {"schema_version", "3.0.0"},
+             {"compiler_version", "calculix-evidence-compiler-v3"},
+             {"compiled_setup_identity", result.compiled_setup_identity},
+             {"request_geometry_sha256", request.geometry_sha256},
+             {"backend",
+              {{"executable_sha256", result.backend.executable_sha256},
+               {"version", result.backend.version}}},
+             {"artifacts",
+              {{"deck", result.artifacts.deck.sha256},
+               {"sta", result.artifacts.sta.sha256},
+               {"dat", result.artifacts.dat.sha256},
+               {"frd", result.artifacts.frd.sha256},
+               {"stdout", result.artifacts.standard_output.sha256},
+               {"stderr", result.artifacts.standard_error.sha256}}}}
+            .dump());
+    result.identity = integrity::sha256_bytes(identityDocument);
+    return result;
+  }
 
   std::vector<CalculixConvergenceEvidence> statusRows;
   try {
@@ -351,7 +392,7 @@ CompiledCalculixResult compile_result(
 } // namespace
 
 CalculixDat parse_calculix_dat(const std::string_view rawDat) {
-  enum class Section { none, displacement, stress };
+  enum class Section { none, displacement, stress, eigenvalue };
   Section section = Section::none;
   double currentTime{};
   bool sawDisplacementSection = false;
@@ -373,6 +414,38 @@ CalculixDat parse_calculix_dat(const std::string_view rawDat) {
       section = Section::stress;
       currentTime = section_time(line);
       sawStressSection = true;
+      continue;
+    }
+    if (line.find("E I G E N V A L U E") != std::string::npos) {
+      section = Section::eigenvalue;
+      continue;
+    }
+    // The eigenvalue table is followed by participation-factor/modal-mass
+    // tables whose rows would otherwise also parse as "an integer then
+    // several doubles" -- stop consuming eigenvalue rows once that section
+    // starts (verified against real ccx output).
+    if (section == Section::eigenvalue &&
+        line.find("P A R T I C I P A T I O N") != std::string::npos) {
+      section = Section::none;
+      continue;
+    }
+    if (section == Section::eigenvalue) {
+      std::istringstream row(line);
+      row.imbue(std::locale::classic());
+      int mode{};
+      std::array<std::string, 4> values;
+      if (row >> mode >> values[0] >> values[1] >> values[2] >> values[3]) {
+        std::string trailing;
+        if (!(row >> trailing)) {
+          // Columns: mode, eigenvalue (rad/time)^2, angular frequency
+          // (rad/time), frequency (cycles/time = Hz), imaginary part --
+          // verified against real ccx *FREQUENCY output.
+          const double frequencyHz = real_token(values[2]);
+          if (mode <= 0)
+            throw std::runtime_error("CalculiX eigenvalue mode number is invalid");
+          result.natural_frequencies_hz.push_back(frequencyHz);
+        }
+      }
       continue;
     }
     if (section == Section::none)
@@ -436,9 +509,11 @@ CalculixDat parse_calculix_dat(const std::string_view rawDat) {
       result.stresses.push_back(parsed);
     }
   }
-  if (!sawDisplacementSection || !sawStressSection)
+  if (!(sawDisplacementSection && sawStressSection) &&
+      result.natural_frequencies_hz.empty())
     throw std::runtime_error(
-        "CalculiX output is missing required displacement or stress sections");
+        "CalculiX output is missing required displacement/stress or "
+        "eigenvalue sections");
   return result;
 }
 
@@ -452,6 +527,8 @@ CalculixMetrics summarize_calculix_dat(const CalculixDat &normalized) {
   for (const auto &row : normalized.stresses)
     result.maximum_von_mises_pa =
         std::max(result.maximum_von_mises_pa, row.von_mises_pa);
+  if (!normalized.natural_frequencies_hz.empty())
+    result.first_natural_frequency_hz = normalized.natural_frequencies_hz.front();
   return result;
 }
 
@@ -462,14 +539,16 @@ CompiledCalculixResult compile_calculix_result(
   if (requestIssues.empty())
     expectedDeck = detail::generate_validated_calculix_deck(request);
   return compile_result(request, expectedDeck, requestIssues.empty(), {},
-                        evidence);
+                        evidence,
+                        request.capability == StructuralCapability::modal_frequency);
 }
 
 CompiledCalculixResult compile_calculix_result(
     const CompiledStructuralSetup &setup,
     const CalculixRunEvidence &evidence) {
-  return compile_result(setup.request, setup.calculix_deck, true,
-                        setup.identity, evidence);
+  return compile_result(
+      setup.request, setup.calculix_deck, true, setup.identity, evidence,
+      setup.request.capability == StructuralCapability::modal_frequency);
 }
 
 } // namespace prometheus::structural
