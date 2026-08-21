@@ -38,6 +38,17 @@ $axialOutput = Join-Path $output 'axial'
 $cantileverOutput = Join-Path $output 'cantilever'
 $buildDirectory = Join-Path $repo 'out/build/windows-structural-release'
 
+$ucrtBin = 'C:\msys64\ucrt64\bin'
+if (-not (Test-Path -LiteralPath $ucrtBin -PathType Container)) {
+  throw "The required UCRT64 tool directory does not exist: $ucrtBin"
+}
+$env:Path = "$ucrtBin;$env:Path"
+$solver = (Get-Command -Name 'ccx' -CommandType Application `
+  -ErrorAction Stop).Source
+if ((Split-Path -Parent $solver) -ine $ucrtBin) {
+  throw "CalculiX resolved outside the required UCRT64 tool directory: $solver"
+}
+
 cmake --preset windows-structural-release
 if ($LASTEXITCODE -ne 0) { throw 'Windows structural configuration failed.' }
 cmake --build --preset windows-structural-release --target `
@@ -52,9 +63,6 @@ if ($LASTEXITCODE -ne 0) {
   throw 'Structural known-pass/known-fail fixture gate failed.'
 }
 
-$env:Path = "C:\msys64\ucrt64\bin;$env:Path"
-$solver = (Get-Command -Name 'ccx' -CommandType Application `
-  -ErrorAction Stop).Source
 $solverVersionOutput = (& $solver -v 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or
     [string]::IsNullOrWhiteSpace($solverVersionOutput)) {
