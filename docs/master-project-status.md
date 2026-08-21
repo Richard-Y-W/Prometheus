@@ -1,6 +1,6 @@
 # Prometheus master project status
 
-Last audited: 2026-08-18
+Last audited: 2026-08-20
 
 This document is the current implementation-status authority. Historical
 completion records and implementation plans remain useful evidence for the
@@ -8,10 +8,9 @@ gate they describe, but several of them preserve statements that were true
 before later programs landed. When a historical status sentence conflicts
 with this audit, use this document and the named phase status file.
 
-The audit covers the feature branch after merging `origin/main` at
-`8e69f22`. The finite-bounds/YUBI fixes were first published at `36c1209`, and
-the non-rewriting mainline reconciliation is recorded by merge commit
-`d32c724`.
+This update starts from synchronized `main` at
+`00adcb6ca59e368eacabf8a66ed8acc71cb4a865`. The reviewed-pair execution work
+is isolated on a feature branch until its local and Windows checkpoints pass.
 
 ## Executive state
 
@@ -45,7 +44,7 @@ That claim is not yet earned.
 | Program 01B: package-driven built-in execution | Complete under its bounded gate | Motor A/B and one manually entered gearmotor feed the shared C++ motor backend; not general mechanics |
 | Program 01C: Windows real-folder screen | Complete under its bounded gate | Pinned YUBI project inventory and STEP import; not a YUBI engineering result |
 | Program 01D: multi-project evidence | Technical trials complete; human evidence open | YUBI, OpenArm, and JPL Rover are recorded; the required outside-user session is missing |
-| Phase 3: structural workflow | Technical workflow implemented; real-component validation open | Reviewed setup, isolated CalculiX process, result validation, two-mesh refinement, findings, archives, replay, and desktop flow exist; the current Windows external gates and YUBI case remain open |
+| Phase 3: structural workflow | Windows backend validation passed; native YUBI execution open | Reviewed setup, isolated CalculiX process, typed two-mesh refinement, findings, v4 archives, replay, desktop flow, and the exact approved YUBI pair exist; the YUBI pair has not yet run on native CalculiX |
 | Phase 4: persistence and portability | Thirteen implementation checkpoints complete; external trial open | Content-addressed project/run graphs, stale-state handling, bundle export/restore, backup recovery, inventory, and evidence archive are automated; a physically separate clean-machine trial is missing |
 | Phase 5: component intake | Bounded exit gate met; broader acquisition open | Manual typed intake, review/publication, CAD binding, supersession, supported gearmotor consumption, and linked-page identity acquisition exist; document-derived specifications and desktop intake UI do not |
 | Phase 6: semantic graph | Checkpoint 1 complete | A CAD-part-to-component-revision binding is a persisted append-only edge; the rest of the engineering graph is absent |
@@ -148,8 +147,17 @@ mechanical analysis.
 - Emit a scoped finding only after two validated results satisfy the locked
   refinement criterion. An above-threshold pair remains replayable but
   indeterminate.
-- Publish a version-3 two-sample archive, embed it in the project, reconstruct
-  it offline, and restore the result view without rerunning CalculiX.
+- Publish a version-4 two-sample archive with typed refinement observables,
+  embed it in the project, reconstruct it offline, and restore the result view
+  without rerunning CalculiX. Earlier archive versions retain their original
+  replay semantics.
+- Preflight one strict reviewed-pair manifest before solver execution. The
+  compiler verifies both mesh hashes, material evidence, selected patch
+  geometry, shared physics, mesh ordering, and boundary correspondence before
+  creating an output directory.
+- Run a prepared pair through one Qt-free CLI that invokes the existing
+  structural core once for each mesh. The CLI does not implement a second
+  calculation or rerun either sample during archive creation.
 
 For one active coarse/fine session, each mesh is prepared once, each deck is
 compiled once, each solver sample runs once, and each result is normalized
@@ -193,20 +201,20 @@ structural backend and the component-binding/execution-variant sources. The QML
 test conflict now exposes both controllers to the same offscreen application.
 No second physics or structural execution path was introduced.
 
-## Verification recorded for the merged tree
+## Verification recorded for the current base and reviewed-pair branch
 
-| Check | Result on 2026-08-18 | Interpretation |
+| Check | Recorded result | Interpretation |
 | --- | --- | --- |
 | Backend, default SQLite environment | 454 passed, 1 PostgreSQL-only test skipped | Full local backend suite passed |
 | New acquisition/intake/API subset | 75 passed | Pulled acquisition paths passed focused coverage |
-| Headless C++ | 16/16 passed | Core, integrity, execution, run store, replay, and structural library passed |
-| Desktop without Open Cascade | 28/30 passed in the managed socket sandbox; the two loopback tests passed 2/2 outside it | All 30 tests were observed passing; the split is environmental |
+| Headless C++ reviewed-pair branch | 19/19 passed on 2026-08-20 | Core, integrity, execution, run store, replay, structural library, reviewed-pair preflight, and one-run tool fixture passed |
+| Desktop without Open Cascade reviewed-pair branch | 31/33 passed in the managed socket sandbox; the two blocked loopback tests passed 2/2 outside it | All 33 tests were observed passing; the split is environmental |
 | macOS Open Cascade build | Built successfully | Combined CAD, structural, component-binding, and desktop sources compiled |
 | macOS Open Cascade CTest set | 28/31 passed in the managed socket sandbox; the three loopback-dependent tests passed 3/3 outside it | All 31 tests were observed passing across the two runs |
 | Pinned YUBI external import | `roots=1`, `leaves=90`, `triangles=37367`, `interferences=deferred` | The finite-bounds loading fix survived the mainline merge |
 | PostgreSQL 17 local rerun | Not executed | The configured local server at `127.0.0.1:55432` was not running; connection was refused before test setup |
-| Current external CalculiX gate | Not executed in this audit | The strengthened Windows workflow remains a required evidence item |
-| GitHub Actions for the final merged/status commit | [Run 32219192928](https://github.com/Richard-Y-W/Prometheus/actions/runs/32219192928) was blocked before execution | All nine jobs were rejected before their first step because GitHub reported failed account payments or an exhausted spending limit; this is not test evidence |
+| Current external CalculiX gate | [Run 32445951610](https://github.com/Richard-Y-W/Prometheus/actions/runs/32445951610) passed on Windows | CalculiX 2.23 analytic, refinement, result-validation, and replay evidence passed for the structural core at the current base |
+| GitHub Actions for synchronized `main` | [Run 32446755703](https://github.com/Richard-Y-W/Prometheus/actions/runs/32446755703) passed 9/9 jobs | The standard matrix is green at `00adcb6`; the reviewed-pair branch still needs its own remote run after integration |
 
 The loopback split is not a product exemption. CI and normal developer hosts
 must run those tests where local listeners are permitted.
@@ -215,87 +223,83 @@ must run those tests where local listeners are permitted.
 
 ### Blocks the first credible real-component result
 
-1. **The strengthened external structural gate has not been rerun.** The
-   current `run-calculix-smoke.ps1` and `run-structural-validation.ps1` paths
-   need a recorded Windows CalculiX run after the structural reconciliation.
-2. **The YUBI scenario is not reviewed.** `A2024` in the BOM does not identify
-   temper, product form, delivered stock, elastic applicability, or an
-   allowable. The load vector, load faces, restraint faces, displacement/stress
-   limits, mesh controls, and scenario also require explicit user review.
-3. **No coarse/fine YUBI pair has been accepted.** The current recorded mesh
-   counts are preparation evidence, not a convergence study. The user must
-   manually load and review two meshes and confirm physical-region
-   correspondence.
-4. **No YUBI bracket finding exists.** Prometheus must not report pass or fail
-   until items 1–3 produce two complete, identity-bound solver results.
-5. **The outside-user screening session is missing.** The YUBI, OpenArm, and
+1. **The reviewed YUBI pair has not run on native CalculiX.** The exact coarse
+   and fine meshes, assumed elastic material, 100 N load, selected
+   load/restraint regions, 0.50 mm informational displacement threshold, and
+   10% global-observable refinement rule are locked in
+   `fixtures/structural/yubi-bracket/reviewed-pair.json`. Local preflight is not
+   solver evidence.
+2. **No YUBI bracket finding exists.** The manual Windows YUBI workflow must
+   produce two complete identity-bound results, a v4 archive, and a successful
+   offline replay before Prometheus reports either a scoped displacement
+   finding or an indeterminate evaluation. No stress pass/fail is possible
+   because no stress allowable was reviewed.
+3. **The outside-user screening session is missing.** The YUBI, OpenArm, and
    Rover developer trials do not substitute for an unassisted participant.
 
 ### Limits general project compilation
 
-6. **The semantic graph is narrow.** Only the append-only CAD-part-to-component
+4. **The semantic graph is narrow.** Only the append-only CAD-part-to-component
    edge is production graph state. BOM rows, documents, materials, joints,
    contacts, loads, restraints, requirements, scenarios, requests, and findings
    are still separate workflow records rather than one reviewable project
    graph.
-7. **There is no general proof-obligation compiler or capability planner.** The
+5. **There is no general proof-obligation compiler or capability planner.** The
    motor and structural workflows compile their own fixed questions; Prometheus
    cannot yet take arbitrary project requirements and explain which supported
    analyses cover them.
-8. **There is no project-wide coverage engine.** Individual workflows preserve
+6. **There is no project-wide coverage engine.** Individual workflows preserve
    findings and unknowns, but no current reducer accounts for all requirements,
    scenarios, artifacts, and unsupported questions in one project answer.
-9. **Automatic meshing is absent.** Manual coarse/fine mesh loading is the
+7. **Automatic meshing is absent.** Manual coarse/fine mesh loading is the
    current deliberate boundary. A later mesher can feed that boundary, but it
    must retain the same review, refinement, identity, replay, and no-duplicate-
    solve invariants.
-10. **Component acquisition remains narrow.** There is no structured CSV/BOM
+8. **Component acquisition remains narrow.** There is no structured CSV/BOM
     import, datasheet attachment flow, deterministic PDF/table extraction, or
     reviewed machine-assisted specification extraction in the desktop.
-11. **Acquired pages are not claim evidence yet.** The retained page can prefill
+9. **Acquired pages are not claim evidence yet.** The retained page can prefill
     identity, but parameter claims still use the manual measurement shape.
-12. **No other engineering domain is validated.** Thermal, circuits/power,
+10. **No other engineering domain is validated.** Thermal, circuits/power,
     CFD, controls, fatigue, buckling, contact, tolerance, fastening, and
     manufacturability remain unsupported or not evaluated.
 
 ### Runtime, security, deployment, and UX debt
 
-13. **Pathological exact Open Cascade booleans are not cancellable in-process.**
+11. **Pathological exact Open Cascade booleans are not cancellable in-process.**
     YUBI import now returns promptly by deferring the batch. A safe user-triggered
     retry requires moving the exact operation behind an isolated cancellable
     process boundary.
-14. **CAD parsing still runs inside the desktop process.** The long-term parser
+12. **CAD parsing still runs inside the desktop process.** The long-term parser
     worker sandbox, resource limits, and crash containment are not implemented.
-15. **Linked-page fetching has an accepted DNS-rebinding residual risk.** The
+13. **Linked-page fetching has an accepted DNS-rebinding residual risk.** The
     current fetch validates public addresses and rejects redirects, but it does
     not pin the connected address against rebinding.
-16. **Component-edge persistence can be session-only.** When no writable open
+14. **Component-edge persistence can be session-only.** When no writable open
     project exists, a verified live binding is retained in the session but the
     graph-persist step is intentionally skipped; the UI does not yet present a
     binding-history panel.
-17. **Clean-machine evidence remains incomplete.** Bundle export/restore is
+15. **Clean-machine evidence remains incomplete.** Bundle export/restore is
     automated, but the supported project has not completed a physically
     separate clean-machine recovery trial or a signed installer flow.
-18. **The automatic CI matrix is blocked by GitHub billing.** Run 32219192928
-    created all nine expected jobs, but GitHub rejected every job before its
-    first step because recent account payments failed or the spending limit
-    needs to be increased. No runner started and no test failed. Billing must be
-    restored and the same commit rerun before this branch has remote matrix
-    evidence.
-19. **Automatic CI does not exercise Open Cascade or CalculiX on every push.**
+16. **The reviewed-pair branch lacks remote matrix evidence.** Synchronized
+    `main` passed all nine standard jobs in run 32446755703. The feature branch
+    must obtain its own green standard matrix and manual YUBI workflow after
+    integration; the earlier billing block is no longer current.
+17. **Automatic CI does not exercise Open Cascade or CalculiX on every push.**
     The required matrix covers the no-OCCT desktop; structural validation and
     participant packaging are manual Windows workflows. This is acceptable for
     prototype checkpoints but remains a release-evidence boundary.
-20. **Living documentation has drifted.** `README.md`, `product-scope.md`,
+18. **Living documentation has drifted.** `README.md`, `product-scope.md`,
     `architecture.md`, `validation-plan.md`, and `validation-policy.md` retain
     pre-01B, pre-structural, or pre-Phase-4 statements. Historical completion
     records should stay immutable, but living documents need a focused
     harmonization pass.
-21. **Implementation-plan checkboxes are not reliable status.** Several plan
+19. **Implementation-plan checkboxes are not reliable status.** Several plan
     files retain unchecked execution steps after their commits landed. Plans
     describe the intended sequence; this document and phase evidence records
     describe current completion.
-22. **Minor dependency/UI warnings remain.** The backend emits a Starlette
+20. **Minor dependency/UI warnings remain.** The backend emits a Starlette
     deprecation warning for the current test-client bridge, and manual macOS
     runs have exposed Qt native-style/customization and shutdown-time QML
     warnings. They did not fail the verified workflows but should be cleaned up
@@ -305,15 +309,13 @@ must run those tests where local listeners are permitted.
 
 ### Checkpoint A: earn the first real structural result
 
-1. Restore GitHub Actions billing/spending, rerun commit `0ae70ff` or its
-   documentation-only successor, and require the automatic matrix to pass.
-2. Run and retain the current Windows CalculiX smoke, analytic, known-pass,
-   known-fail, and refinement evidence.
-3. Review the YUBI material applicability, load/restraint regions, load vector,
-   limits, scenario, mesh controls, and locked refinement threshold.
-4. Load the manual coarse and fine meshes, confirm their physical boundary
-   correspondence, run each solver sample once, and archive the pair.
-5. Report the bounded YUBI result with its assumptions, convergence evidence,
+1. Keep the already-green standard matrix and Windows structural validation as
+   prerequisites for the integrated commit.
+2. Run the dedicated manual YUBI workflow. Its preflight must accept the exact
+   reviewed manifest before it starts coarse or fine CalculiX.
+3. Retain and independently replay the v4 archive. Do not rerun either solver
+   while downloading, viewing, or reporting it.
+4. Report the bounded YUBI result with its assumptions, convergence evidence,
    exclusions, and uncovered project questions.
 
 ### Checkpoint B: establish that the workflow generalizes
@@ -364,13 +366,12 @@ coverage. Domain labels alone do not create general engineering support.
 Do not add another general framework before obtaining the first real YUBI
 result. The shortest evidence-bearing sequence is:
 
-1. restore GitHub Actions billing and obtain green automatic CI on the
-   reconciled branch;
-2. current Windows structural-validation workflow;
-3. user-reviewed YUBI setup and manual coarse/fine pair;
-4. bounded YUBI report;
-5. outside-user and clean-machine trials; and
-6. only then the next graph/planner/automation increment selected from observed
+1. integrate the reviewed-pair branch and obtain green automatic CI;
+2. run and retain the dedicated Windows YUBI structural trial;
+3. replay and write the bounded YUBI result without changing the predeclared
+   threshold;
+4. complete the outside-user and clean-machine trials; and
+5. only then select the next graph, planner, or automation increment from observed
    friction.
 
 This sequence uses the trust, persistence, and structural code that already

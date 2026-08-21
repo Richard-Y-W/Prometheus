@@ -20,7 +20,7 @@ project evidence
   -> isolated CalculiX process -> validated fine result
   -> verified two-result comparison
   -> scoped findings or an honest indeterminate evaluation
-  -> two-sample archive v3 and project publication
+  -> two-sample archive v4 and project publication
 ```
 
 There is one desktop controller (`StructuralController`), one setup panel
@@ -62,7 +62,7 @@ archive or project object store. Structural publication now hashes and chunks
 each artifact in one streaming read rather than reading the whole artifact once
 to hash it and again to chunk it.
 
-Reopening or importing persisted bytes is a new trust-boundary operation. V3
+Reopening or importing persisted bytes is a new trust-boundary operation. V4
 replay deliberately reconstructs both setup/result packages and returns one
 typed pair snapshot. Restoration then regroups the visual patches for display
 but does not execute a solver. Counting-backend desktop tests enforce these
@@ -74,19 +74,29 @@ The selected component is Toyota YUBI `BRACKET_GRIPPER` at upstream revision
 `e8334ff04945ccf56c0576a56f6fab74b63daaa2`. Its exact STEP SHA-256 is
 `4a6fba05b237b725be2ca4e5ba7f7617674b4bcae4164ff32e88d9e75275017a`.
 The BOM identifies the material only as `A2024` and describes the component as
-the gripper-to-UR5e attachment. That is candidate identity, not a reviewed
-temper, product form, elastic model, strength allowable, or material
+the gripper-to-UR5e attachment. That source does not establish temper, product
+form, elastic constants, strength allowable, or the supplied material
 certificate.
 
-Prepare the deliberately blocked slice with:
+The project owner approved one explicitly hypothetical scenario on 2026-08-20.
+Its immutable manifest records assumed 2024-T351 bare plate properties, a
+100 N local negative-Y load on source CAD `Surface76`, a fully fixed source CAD
+`Surface75`, a 0.50 mm informational displacement threshold, and a 10% global
+displacement/global-stress refinement threshold. The material assumption,
+load, restraint idealization, and threshold are not Toyota requirements.
+
+Preflight the exact reviewed pair and run it on the supported Windows solver
+host with:
 
 ```powershell
-.\scripts\prepare-yubi-structural-slice.ps1
+.\scripts\run-yubi-structural-slice.ps1
 ```
 
-The generated manifest leaves material applicability, loads, restraints,
-requirements, mesh controls, and scenario confirmation unresolved. Prometheus
-must not turn that folder into a structural pass.
+The runner verifies both complete setups before it creates an output directory,
+then executes coarse once and fine once. The exact manifest and claim boundary
+are in `fixtures/structural/yubi-bracket/`. Local preflight passed, but no native
+YUBI result exists until the manual Windows workflow completes and its archive
+replays.
 
 ## Implemented structural boundary
 
@@ -111,10 +121,12 @@ is distributed by triangle area to consistent first-order nodal forces. Tests
 require the compiled nodal vectors to reproduce the reviewed resultant exactly
 and reject duplicate, overlapping, missing, or stale selections.
 
-The recorded local YUBI mesh contains 2,451 nodes, 7,566 `C3D4` volume
-elements, and 4,616 exterior triangles. At the desktop's 15-degree grouping
-angle it produces 263 geometric patches. Those counts are topology evidence,
-not an engineering interpretation or convergence result.
+The reviewed coarse YUBI mesh contains 2,446 nodes, 7,533 `C3D4` elements, and
+4,616 exterior faces; its observed minimum mean ratio is about 0.314787. The
+reviewed fine mesh contains 7,876 nodes, 29,015 `C3D4` elements, and 12,076
+exterior faces; its observed minimum mean ratio is about 0.248135. Both exceed
+the predeclared 0.20 quality floor. These are topology and preflight facts, not
+a convergence result or a component finding.
 
 ### Reviewed setup compiler
 
@@ -223,10 +235,11 @@ reference is Euler-Bernoulli `u = F L^3 / (3 E I)` with root stress
 `sigma = 6 F L / (b h^2)`. These equations are independent checks of the
 external adapter, not evidence about YUBI.
 
-Earlier Windows development runs recorded CalculiX 2.23 completing the
-one-tetrahedron wiring smoke and the analytic benchmark cases. Those values are
-historical evidence for the pre-reconciliation path. They are not substituted
-for a run of the strengthened current scripts.
+The strengthened Windows structural workflow passed at the synchronized base
+commit in [GitHub Actions run 32445951610](https://github.com/Richard-Y-W/Prometheus/actions/runs/32445951610).
+That run exercised CalculiX 2.23 through the current solver, result,
+refinement, finding, archive, and replay boundaries. It validates the structural
+backend; it does not supply YUBI inputs or a YUBI result.
 
 Run the current external gates on the supported Windows environment with:
 
@@ -236,15 +249,17 @@ Run the current external gates on the supported Windows environment with:
 ```
 
 The validation command first runs the focused known-pass/known-fail polarity
-fixture. It then runs coarse and fine forms of the compiled axial benchmark,
-derives their displacement and stress changes, writes one two-sample v3 archive,
-and verifies both raw result packages plus the derived comparison offline. The
-cantilever refinement gate uses the same typed pair API and v3 writer. Neither
-archive creation nor active publication repeats a solve or finding compilation.
-The checked-in Gmsh tension-bar geometry and expectations remain historical
-validation inputs; the retired parallel case exporter/verifier no longer
-executes them. A post-reconciliation Windows run must be recorded before
-claiming these current external gates passed.
+fixture. It then runs the axial analytic benchmark and the predeclared
+cantilever pair, evaluates typed displacement and regional-stress observables,
+writes v4 evidence, and verifies the retained archive offline. The global
+cantilever clamp stress remains visible as a nonconverged diagnostic and does
+not become a stress finding. Neither archive creation nor active publication
+repeats a solve or finding compilation.
+
+The separate `yubi-structural-trial.yml` workflow consumes the checked-in
+reviewed pair. It does not regenerate meshes or repeat the analytic suite. Its
+only expensive operations are one coarse and one fine CalculiX execution,
+followed by archive replay at the release trust boundary.
 
 ## Desktop workflow
 
@@ -271,29 +286,27 @@ proof, or a safety claim.
 
 ## Archives, replay, and project publication
 
-New structural writes use archive schema v3. Each manifest closes over fourteen
+New structural writes use archive schema v4. Each manifest closes over fourteen
 artifacts: reviewed setup, deck, DAT, FRD, STA, standard output, and standard
-error for both coarse and fine samples. It also binds the locked criterion,
-reviewed boundary correspondence, two backend/execution records, derived
-comparison, coverage, findings, and limitation. Accepted and valid
-above-threshold pairs can both be archived; the latter contains zero findings.
-The writer consumes already validated objects and does not rerun either solver,
-reparse active output, or compile findings again.
+error for both coarse and fine samples. It also binds typed observable
+definitions and identities, reviewed boundary correspondence, two
+backend/execution records, per-observable comparisons, global-extremum
+diagnostics, coverage, findings, unknowns, and limitation. Accepted and valid
+above-threshold pairs can both be archived; the latter contains zero findings
+and one unknown for each declared obligation.
 
-Offline v3 verification treats persisted bytes as untrusted. It rehashes all
+Offline v4 verification treats persisted bytes as untrusted. It rehashes all
 fourteen artifacts, reconstructs both reviewed setups and raw result packages,
-reruns the pair compiler, and requires the regenerated comparison, coverage,
-and findings to match the manifest. This trust-boundary replay is distinct from
-active-session calculation.
+reevaluates the declared observables, reruns the pair and finding compilers, and
+requires the regenerated comparison, coverage, findings, and unknowns to match
+the manifest. This trust-boundary replay is distinct from active-session
+calculation.
 
-V1 and v2 remain legacy read contracts. V1 retains its narrower historical
-claim. V2 reconstructs its one stored active result and reproduces its original
-scoped finding claim through an isolated compatibility routine, but it cannot
-produce `VerifiedStructuralRefinement` or enter the new finding compiler. New
-desktop runs never write v1 or v2.
+V1, v2, and v3 remain legacy read contracts with their original semantics. New
+desktop and reviewed-pair runs write v4.
 
 A verified archive can be relocated and embedded in a Prometheus project as a
-closed content-addressed artifact graph. V3 embedding retains all fourteen
+closed content-addressed artifact graph. V4 embedding retains all fourteen
 sample artifacts. Reopen reconstructs and verifies both results, restores the
 editable reviewed setup and visualization, and compares the archive's bound
 assembly identity with the current project. Evidence bound to a changed source
@@ -316,16 +329,13 @@ here.
 
 ## Remaining Phase 3 evidence
 
-1. Rerun and record the strengthened external smoke, analytic, refinement, and
-   offline-replay gates on the supported Windows CalculiX environment.
-2. Have the user review the YUBI bracket's actual temper, product form,
-   applicability, elastic properties, load faces and vector, restraint faces,
-   requirements, mesh controls, and scenario.
-3. Manually supply and review coarse and fine YUBI meshes, including explicit
-   physical-region correspondence and an acceptable locked-threshold study.
-4. Execute the reviewed bracket and retain a physically independent
-   real-component comparison.
-5. Complete the outstanding outside-user folder-screening session.
+1. Execute the exact reviewed YUBI manifest through the dedicated manual
+   Windows workflow and retain both native CalculiX result packages.
+2. Replay the emitted v4 archive independently and report either the scoped
+   informational displacement finding or the honest indeterminate evaluation.
+   Do not change the 10% criterion after observing the result, and do not add a
+   stress pass/fail without a reviewed stress allowable.
+3. Complete the outstanding outside-user folder-screening session.
 
 Until those items are complete, Prometheus has a bounded, fail-closed
 structural workflow—not a validated YUBI result and not proof that an arbitrary
@@ -352,6 +362,26 @@ The manual coarse/fine release checkpoint produced this local evidence:
   isolation, fine-only invalidation, or exact stage counts.
 
 This checkpoint did not run Windows. A second independent reviewer has not
-assessed the final inline diff. The post-reconciliation Windows CalculiX run,
-reviewed YUBI scenario, independent component comparison, and outside-user
-session remain open.
+assessed that historical inline diff. Later Windows run 32445951610 closed the
+post-reconciliation backend-validation item, and the 2026-08-20 manifest closed
+the selected YUBI input-review item. Native YUBI execution, its evidence-bound
+result report, and the outside-user session remain open.
+
+## Reviewed-pair preparation checkpoint — 2026-08-20
+
+The current feature branch produced this bounded local evidence:
+
+- all 19 headless CTests passed;
+- 31 of 33 desktop-no-OCCT tests passed inside the managed socket sandbox;
+- the two blocked loopback-listener tests passed 2 of 2 outside that sandbox;
+- the exact 2,446-node/7,533-element coarse and
+  7,876-node/29,015-element fine YUBI meshes passed hash, topology, quality,
+  patch-geometry, material-candidate, setup, and refinement-order preflight;
+- the fake-solver tool fixture created exactly two solver job sets, one v4
+  archive, and a successful offline replay; and
+- a changed coarse-mesh hash failed before the runner created any output
+  directory.
+
+This checkpoint did not execute native CalculiX on the YUBI pair. It establishes
+that the reviewed inputs reach the existing authoritative structural backend
+without adding another physics implementation or a duplicate solve path.
