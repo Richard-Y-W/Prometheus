@@ -12,6 +12,8 @@
 #include "prometheus/structural/surface_groups.hpp"
 #include "prometheus/structural/surface_selection.hpp"
 
+#include "calculix_deck_internal.hpp"
+
 #include <prometheus/integrity/canonical_json.hpp>
 
 #include <nlohmann/json.hpp>
@@ -869,6 +871,40 @@ int main() {
               deck.find("*STATIC, SOLVER=SPOOLES") != std::string::npos &&
               deck.find("4, 3, -1.0000000000e+02") != std::string::npos,
           "deck pins the solver and contains bounded tetra and reviewed force");
+  const auto changedMaterialDeck = replaceOnce(
+      deck, "7.0000000000e+10", "7.0000000035e+10");
+  require(!ps::detail::calculix_decks_round_trip_equivalent(
+              changedMaterialDeck, deck),
+          "deck replay keeps reviewed material properties exact");
+  const auto withinPrecisionLoadDeck = replaceOnce(
+      deck, "-1.0000000000e+02", "-1.0000000005e+02");
+  require(ps::detail::calculix_decks_round_trip_equivalent(
+              withinPrecisionLoadDeck, deck),
+          "deck replay accepts a derived CLOAD token inside deck precision");
+  const auto outsidePrecisionLoadDeck = replaceOnce(
+      deck, "-1.0000000000e+02", "-1.0000000020e+02");
+  require(!ps::detail::calculix_decks_round_trip_equivalent(
+              outsidePrecisionLoadDeck, deck),
+          "deck replay rejects a derived CLOAD token outside deck precision");
+  const auto changedLoadNodeDeck = replaceOnce(
+      deck, "4, 3, -1.0000000000e+02",
+      "4.000000001, 3, -1.0000000000e+02");
+  require(!ps::detail::calculix_decks_round_trip_equivalent(
+              changedLoadNodeDeck, deck),
+          "deck replay keeps the CLOAD node identity exact");
+  const auto changedLoadDirectionDeck = replaceOnce(
+      deck, "4, 3, -1.0000000000e+02",
+      "4, 3.000000001, -1.0000000000e+02");
+  require(!ps::detail::calculix_decks_round_trip_equivalent(
+              changedLoadDirectionDeck, deck),
+          "deck replay keeps the CLOAD direction exact");
+  const std::string nearZeroStoredLoadDeck =
+      "*CLOAD\n4, 3, 5.0000000000e-16\n*NODE FILE\n";
+  const std::string nearZeroReplayedLoadDeck =
+      "*CLOAD\n4, 3, 1.0000000000e-16\n*NODE FILE\n";
+  require(ps::detail::calculix_decks_round_trip_equivalent(
+              nearZeroStoredLoadDeck, nearZeroReplayedLoadDeck),
+          "deck replay applies the absolute floor to near-zero CLOAD tokens");
   const auto restoredDeckMesh = ps::parse_gmsh_abaqus_mesh(deck, 1.0);
   require(restoredDeckMesh.nodes.size() == request.nodes.size() &&
               restoredDeckMesh.elements.size() == request.elements.size(),
@@ -1281,6 +1317,21 @@ Synthetic two-group tetrahedron; coordinates are millimetres
               std::abs(distributed[0].force_n[2] + 20.0) < 1e-12 &&
               std::abs(distributed[1].force_n[2] + 40.0) < 1e-12,
           "surface force distribution preserves the reviewed total vector");
+  auto withinPrecisionSelection = selected;
+  withinPrecisionSelection.area_m2 *= 1.0 + 5.0e-10;
+  require(!ps::distribute_surface_total_force(
+               withinPrecisionSelection, {0.0, 0.0, -120.0}, flatFaces)
+               .empty(),
+          "surface load accepts boundary area inside deck precision");
+  auto outsidePrecisionSelection = selected;
+  outsidePrecisionSelection.area_m2 *= 1.0 + 2.0e-9;
+  requireThrows(
+      [&] {
+        (void)ps::distribute_surface_total_force(
+            outsidePrecisionSelection, {0.0, 0.0, -120.0}, flatFaces);
+      },
+      "area does not match",
+      "surface load rejects boundary area outside deck precision");
   try {
     (void)ps::resolve_boundary_selection("reviewed load face", flatPatches,
                                          {1, 1});
@@ -1448,6 +1499,16 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   staleSelection.load.selection.area_m2 *= 2.0;
   require(hasIssue(ps::validate_setup(staleSelection), "load_selection_invalid"),
           "stale exact boundary selection is rejected before solver compilation");
+  auto withinPrecisionSetupSelection = setup;
+  withinPrecisionSetupSelection.load.selection.area_m2 *= 1.0 + 5.0e-10;
+  require(!hasIssue(ps::validate_setup(withinPrecisionSetupSelection),
+                    "load_selection_invalid"),
+          "setup accepts boundary area inside deck precision");
+  auto outsidePrecisionSetupSelection = setup;
+  outsidePrecisionSetupSelection.load.selection.area_m2 *= 1.0 + 2.0e-9;
+  require(hasIssue(ps::validate_setup(outsidePrecisionSetupSelection),
+                   "load_selection_invalid"),
+          "setup rejects boundary area outside deck precision");
   auto invalidPatchAngle = setup;
   invalidPatchAngle.selection_patch_angle_degrees = 0.0;
   require(hasIssue(ps::validate_setup(invalidPatchAngle),
@@ -2061,15 +2122,15 @@ Synthetic two-group tetrahedron; coordinates are millimetres
   require(!tamperedV4GlobalEntity.valid &&
               tamperedV4GlobalEntity.code == "replay_finding_mismatch",
           "a changed v4 global-peak entity cannot replay");
-  require(!tamperV4(
-               v4Archive, "tampered-v4-global-location", [](auto &document) {
-                 auto &coordinate =
-                     document["comparison"]["global_extrema"][1]
-                             ["fine_position_m"][0];
-                 coordinate = coordinate.template get<double>() + 0.001;
-               })
-               .valid,
-          "a changed v4 global-peak location cannot replay");
+  const auto tamperedV4GlobalLocation = tamperV4(
+      v4Archive, "tampered-v4-global-location", [](auto &document) {
+        auto &coordinate = document["comparison"]["global_extrema"][1]
+                                   ["fine_position_m"][0];
+        coordinate = coordinate.template get<double>() * (1.0 + 2.0e-9);
+      });
+  require(!tamperedV4GlobalLocation.valid &&
+              tamperedV4GlobalLocation.code == "replay_numeric_mismatch",
+          "a v4 global-peak location outside deck precision cannot replay");
   require(!tamperV4(
                v4Archive, "tampered-v4-global-value", [](auto &document) {
                  auto &value = document["comparison"]["global_extrema"][1]

@@ -44,7 +44,8 @@ void write_valid_data(const std::string &job, const std::vector<int> &nodes,
                       const std::vector<int> &elements,
                       const double maximumDisplacementX = 0.0,
                       const double maximumDisplacementZ = -2.0e-5,
-                      const double stress = 1.0e6) {
+                      const double stress = 1.0e6,
+                      const int peakStressElement = 0) {
   std::ofstream output(job + ".dat");
   output << " displacements (vx,vy,vz) for set NALL and time  "
             "0.1000000E+01\n\n";
@@ -57,7 +58,8 @@ void write_valid_data(const std::string &job, const std::vector<int> &nodes,
   output << "\n stresses (elem, integ.pnt.,sxx,syy,szz,sxy,sxz,syz) "
             "for set COMPONENT and time  0.1000000E+01\n\n";
   for (const int element : elements)
-    output << element << "  1  " << stress
+    output << element << "  1  "
+           << (element == peakStressElement ? stress * 1.25 : stress)
            << "  0.000000E+00  0.000000E+00  "
               "0.000000E+00  0.000000E+00  0.000000E+00\n";
 }
@@ -97,6 +99,7 @@ int main(int argc, char **argv) {
         job.ends_with("reviewed_pair_indeterminate_coarse");
     const bool reviewedPairIndeterminateFine =
         job.ends_with("reviewed_pair_indeterminate_fine");
+    const bool yubiFine = job.ends_with("yubi_bracket_fine");
     write_valid_data(
         job, nodes, elements, axialBenchmark ? 5.0e-7 : 0.0,
         axialBenchmark ? 0.0
@@ -110,7 +113,8 @@ int main(int argc, char **argv) {
                          : reviewedPairIndeterminateFine ? 1.25e6
                        : cantileverCoarse ? 5.5e6
                          : cantileverFine ? 5.8e6
-                                           : 1.0e6);
+                                           : 1.0e6,
+        yubiFine ? 40946 : 0);
   }
   std::ofstream(job + ".frd") << "fixture frd\n";
   std::ofstream(job + ".sta") << "1 1 1 1 1.0 1.0 1.0\n";

@@ -74,10 +74,9 @@ bool valid_selection(const BoundarySelection &selection,
     selectedNodes.insert(key.begin(), key.end());
   }
   const std::vector<int> exactNodes(selectedNodes.begin(), selectedNodes.end());
-  const double areaTolerance =
-      std::max(1e-15, selection.area_m2 * 1e-12);
   return exactNodes == selection.node_ids &&
-         std::abs(selectedArea - selection.area_m2) <= areaTolerance;
+         detail::calculix_deck_round_trip_number_equivalent(
+             selection.area_m2, selectedArea);
 }
 
 std::array<double, 3> normalized(const std::array<double, 3> &value) {

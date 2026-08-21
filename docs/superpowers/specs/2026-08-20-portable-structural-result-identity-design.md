@@ -1,7 +1,7 @@
 # Portable Structural Result Identity Design
 
 **Date:** 2026-08-20
-**Status:** Implemented and locally verified
+**Status:** Implemented, amended for real-mesh deck replay, and locally verified
 
 ## Problem
 
@@ -94,8 +94,33 @@ The verifier applies this rule only to the following derived fields:
 - v4 global-extremum coarse value, fine value, and change fraction.
 
 Requirement limits, refinement thresholds, material properties, loads, mesh
-controls, boundary areas retained in reviewed setup evidence, and
-deck-precision extremum positions remain exact.
+controls, and the exact stored setup/deck bytes remain exact.
+
+### CalculiX deck round-trip rule
+
+The authoritative CalculiX deck writes floating-point tokens with ten digits
+after the decimal point in scientific notation. Reconstructing geometry from
+those tokens can move a summed surface area, a derived nodal load, or an
+element-centroid diagnostic by more than the binary64-only rule even though
+the stored deck and every selected face or extremum entity are unchanged.
+
+For values derived from deck-rounded geometry, replay therefore uses a
+separate one-part-per-billion bound:
+
+```text
+abs(stored - replayed)
+    <= max(1e-15,
+           1e-9 * max(abs(stored), abs(replayed)))
+```
+
+This rule is limited to validating a reviewed boundary area against the same
+exact face triples, comparing regenerated derived `*CLOAD` force tokens, and
+replaying v4 global-extremum position diagnostics. All other deck lines,
+including material properties and solver controls, compare exactly. Artifact
+hashes, topology identities, total loads recorded in the reviewed setup,
+extremum entity IDs, thresholds, and engineering decisions remain exact. It is
+a serialization allowance, not an engineering convergence or acceptance
+tolerance.
 
 ## New result identity flow
 
@@ -148,13 +173,14 @@ The following remain exact:
 - sample roles, convergence integers and times, entity IDs, row counts, and
   selected-row counts;
 - observable quantities, reductions, regions, and thresholds;
-- global-extremum participation flags and entity locations;
+- global-extremum participation flags and entity IDs;
 - accepted or indeterminate statuses;
 - finding obligations, dispositions, limits, units, scopes, assumptions, and
   evidence identities;
 - coverage counts, unknown codes and details, and limitations.
 
-Only the allowlisted derived values use numerical equivalence. If platform
+Only the allowlisted derived values and deck-rounded extremum coordinates use
+their respective numerical equivalence rules. If platform
 rounding changes an extremum entity, threshold decision, finding disposition,
 coverage result, or unknown reason, replay fails closed. Replayed normalized
 rows remain available for visualization. Legacy lineage retains the exact
@@ -204,6 +230,16 @@ The focused structural test also covers:
 - active-run archive creation and replay retaining one parse per sample and no
   solver call during Save, publication, or replay.
 
+The 2026-08-21 YUBI trial added a real-mesh regression. Its coarse setup
+retained every selected face but reconstructed the load and restraint areas at
+relative differences of `2.82e-12` and `2.01e-12`; derived nodal loads differed
+by at most `5.41e-10` on the coarse deck and `6.64e-10` on the fine deck. The
+fine stress-extremum centroid then differed by one final deck digit on each
+axis. The test now runs the exact checked-in YUBI pair through the fake solver,
+places its fine stress peak on the affected tetrahedron, and requires the v4
+archive to replay. A location change of `2e-9` relative remains rejected with
+`replay_numeric_mismatch`.
+
 The final local checkpoint produced these results on macOS:
 
 - focused `prometheus_structural_tests`: 1/1 passed in 4.09 seconds;
@@ -236,7 +272,8 @@ The ARM64 replay retained these SHA-256 values before and after execution:
 - fine STA: `01e324ec0ea28f4d1fd7f5e2da1277af53812b873e218be1604c17a4c8e4990d`; and
 - archive manifest: `3fdd97810b08aa8febb1ef1503c4a39be34a0138941a449d08625a98c9d80fe9`.
 
-CalculiX was not executed during this checkpoint. The replay CLI accepts only
+CalculiX was not re-executed while diagnosing or repairing the YUBI replay
+boundary. The replay CLI accepts only
 an archive path, and the archive audit found one evidence-compilation call in
 the shared v3/v4 sample path, one in the v2 root path, one DAT parse in the v1
 path, and no solver-runner call.
@@ -244,6 +281,5 @@ path, and no solver-runner call.
 ## Non-goals
 
 This change does not add a structural results UI, create archive v5, alter a
-material property or engineering threshold, generate a mesh, run Windows
-validation, or execute another solver study. It fixes portable identity and
-replay semantics only.
+material property or engineering threshold, generate a mesh, or execute
+another solver study. It fixes portable identity and replay semantics only.

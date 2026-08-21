@@ -1,5 +1,7 @@
 #include "prometheus/structural/surface_selection.hpp"
 
+#include "calculix_deck_internal.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -86,8 +88,8 @@ std::vector<NodalForce> distribute_surface_total_force(
       throw std::invalid_argument("Selected boundary face has invalid area");
     resolvedArea += face.area_m2;
   }
-  const double areaTolerance = std::max(1e-15, selection.area_m2 * 1e-12);
-  if (std::abs(resolvedArea - selection.area_m2) > areaTolerance)
+  if (!detail::calculix_deck_round_trip_number_equivalent(
+          selection.area_m2, resolvedArea))
     throw std::invalid_argument("Boundary selection area does not match its exact faces");
 
   for (const auto &selectedFace : selection.face_node_ids) {

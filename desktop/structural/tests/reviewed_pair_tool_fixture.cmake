@@ -1,5 +1,6 @@
 if(NOT DEFINED PAIR_RUNNER OR NOT DEFINED REPLAY OR NOT DEFINED SOLVER OR
-   NOT DEFINED FIXTURE_ROOT OR NOT DEFINED OUTPUT_ROOT)
+   NOT DEFINED FIXTURE_ROOT OR NOT DEFINED YUBI_FIXTURE_ROOT OR
+   NOT DEFINED OUTPUT_ROOT)
   message(FATAL_ERROR "reviewed-pair tool fixture arguments are incomplete")
 endif()
 
@@ -70,6 +71,36 @@ if(NOT replay_result EQUAL 0 OR
    NOT replay_stdout MATCHES "status=verified")
   message(FATAL_ERROR
     "reviewed-pair archive replay failed (${replay_result})\n${replay_stdout}\n${replay_stderr}")
+endif()
+
+set(yubi_output "${OUTPUT_ROOT}/yubi-run")
+execute_process(
+  COMMAND "${PAIR_RUNNER}"
+          "${YUBI_FIXTURE_ROOT}/reviewed-pair.json"
+          "${SOLVER}"
+          "${yubi_output}"
+          10
+  RESULT_VARIABLE yubi_result
+  OUTPUT_VARIABLE yubi_stdout
+  ERROR_VARIABLE yubi_stderr
+)
+if(NOT yubi_result EQUAL 0 OR
+   NOT yubi_stdout MATCHES "status=completed" OR
+   NOT yubi_stdout MATCHES "archive_schema_version=4.0.0")
+  message(FATAL_ERROR
+    "reviewed YUBI fixture did not produce an archive (${yubi_result})\n${yubi_stdout}\n${yubi_stderr}")
+endif()
+execute_process(
+  COMMAND "${REPLAY}"
+          "${yubi_output}/prometheus-structural-run.json"
+  RESULT_VARIABLE yubi_replay_result
+  OUTPUT_VARIABLE yubi_replay_stdout
+  ERROR_VARIABLE yubi_replay_stderr
+)
+if(NOT yubi_replay_result EQUAL 0 OR
+   NOT yubi_replay_stdout MATCHES "status=verified")
+  message(FATAL_ERROR
+    "reviewed YUBI archive did not replay (${yubi_replay_result})\n${yubi_replay_stdout}\n${yubi_replay_stderr}")
 endif()
 
 set(indeterminate_manifest

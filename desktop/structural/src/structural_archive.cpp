@@ -1,5 +1,6 @@
 #include "prometheus/structural/structural_archive.hpp"
 
+#include "calculix_deck_internal.hpp"
 #include "prometheus/structural/gmsh_mesh.hpp"
 
 #include "prometheus/integrity/canonical_json.hpp"
@@ -245,6 +246,30 @@ void reconcile_derived_number(const Json &storedDocument,
     const auto stored = storedValue.get<double>();
     const auto replayed = replayedValue.get<double>();
     if (!derived_number_equivalent(stored, replayed))
+      reject("replay_numeric_mismatch",
+             std::string(fieldPath) + " differs: stored=" +
+                 round_trip_number(stored) +
+                 " replayed=" + round_trip_number(replayed));
+    replayedDocument[pointer] = storedValue;
+  } catch (const Json::exception &) {
+    reject("archive_contract_invalid",
+           std::string(fieldPath) + " is missing or invalid");
+  }
+}
+
+void reconcile_deck_round_trip_number(
+    const Json &storedDocument, Json &replayedDocument,
+    const Json::json_pointer &pointer, const std::string_view fieldPath) {
+  try {
+    const auto &storedValue = storedDocument.at(pointer);
+    const auto &replayedValue = replayedDocument.at(pointer);
+    if (!storedValue.is_number() || !replayedValue.is_number())
+      reject("archive_contract_invalid",
+             std::string(fieldPath) + " must be a finite number");
+    const auto stored = storedValue.get<double>();
+    const auto replayed = replayedValue.get<double>();
+    if (!detail::calculix_deck_round_trip_number_equivalent(
+            stored, replayed))
       reject("replay_numeric_mismatch",
              std::string(fieldPath) + " differs: stored=" +
                  round_trip_number(stored) +
@@ -675,6 +700,19 @@ void require_v4_comparison_replay(const Json &stored, Json replayed) {
   };
   reconcileArray("observables", stored.at("observables").size());
   reconcileArray("global_extrema", stored.at("global_extrema").size());
+  for (std::size_t index = 0;
+       index < stored.at("global_extrema").size(); ++index)
+    for (const auto *sample : {"coarse", "fine"})
+      for (std::size_t axis = 0; axis < 3U; ++axis) {
+        const auto pointer = "/global_extrema/" + std::to_string(index) +
+                             "/" + sample + "_position_m/" +
+                             std::to_string(axis);
+        const auto fieldPath = "comparison.global_extrema[" +
+                               std::to_string(index) + "]." + sample +
+                               "_position_m[" + std::to_string(axis) + "]";
+        reconcile_deck_round_trip_number(
+            stored, replayed, Json::json_pointer{pointer}, fieldPath);
+      }
   if (stored != replayed)
     reject("replay_finding_mismatch",
            "v4 non-derived comparison fields differ from replay");
@@ -768,39 +806,48 @@ std::vector<std::string_view> comma_tokens(const std::string_view line) {
 }
 
 bool deck_lines_equivalent(const std::string_view stored,
-                           const std::string_view replayed) {
+                           const std::string_view replayed,
+                           const bool allowDeckRoundTrip) {
   if (stored == replayed)
     return true;
+  if (!allowDeckRoundTrip)
+    return false;
   const auto storedTokens = comma_tokens(stored);
   const auto replayedTokens = comma_tokens(replayed);
-  if (storedTokens.size() != replayedTokens.size() ||
-      storedTokens.size() < 2U)
+  if (storedTokens.size() != 3U || replayedTokens.size() != 3U ||
+      storedTokens[0] != replayedTokens[0] ||
+      storedTokens[1] != replayedTokens[1])
     return false;
-  for (std::size_t index = 0; index < storedTokens.size(); ++index) {
-    const auto storedToken = storedTokens[index];
-    const auto replayedToken = replayedTokens[index];
-    if (storedToken == replayedToken)
-      continue;
-    const bool floatingToken =
-        storedToken.find_first_of(".eEdD") != std::string_view::npos ||
-        replayedToken.find_first_of(".eEdD") != std::string_view::npos;
-    const auto storedNumber = deck_number(storedToken);
-    const auto replayedNumber = deck_number(replayedToken);
-    if (!floatingToken || !storedNumber || !replayedNumber)
+  const auto storedForce = storedTokens[2];
+  const auto replayedForce = replayedTokens[2];
+  if (storedForce == replayedForce)
+    return true;
+  const bool floatingForce =
+      storedForce.find_first_of(".eEdD") != std::string_view::npos ||
+      replayedForce.find_first_of(".eEdD") != std::string_view::npos;
+  const auto storedNumber = deck_number(storedForce);
+  const auto replayedNumber = deck_number(replayedForce);
+  // CLOAD force values are derived from deck-rounded geometry and can
+  // accumulate a few round-off units when the total load is redistributed.
+  return floatingForce && storedNumber && replayedNumber &&
+         detail::calculix_deck_round_trip_number_equivalent(
+             *storedNumber, *replayedNumber);
+}
+
+bool deck_lines_semantically_equivalent(const std::string_view stored,
+                                        const std::string_view replayed,
+                                        bool &insideCload) {
+  const auto storedTrimmed = trimmed(stored);
+  const auto replayedTrimmed = trimmed(replayed);
+  const bool storedDirective = storedTrimmed.starts_with('*');
+  const bool replayedDirective = replayedTrimmed.starts_with('*');
+  if (storedDirective || replayedDirective) {
+    if (stored != replayed)
       return false;
-    const double scale =
-        std::max(std::abs(*storedNumber), std::abs(*replayedNumber));
-    if (scale == 0.0)
-      continue;
-    // Node coordinates are authoritative at the deck's ten-digit scientific
-    // precision. Recomputed surface areas and distributed nodal forces can
-    // accumulate a few such round-off units during setup replay.
-    constexpr double roundTripRelativeTolerance = 5.0e-10;
-    if (std::abs(*storedNumber - *replayedNumber) >
-        scale * roundTripRelativeTolerance)
-      return false;
+    insideCload = storedTrimmed == "*CLOAD";
+    return true;
   }
-  return true;
+  return deck_lines_equivalent(stored, replayed, insideCload);
 }
 
 bool decks_round_trip_equivalent(const std::string &stored,
@@ -809,6 +856,7 @@ bool decks_round_trip_equivalent(const std::string &stored,
   std::istringstream replayedInput(replayed);
   std::string storedLine;
   std::string replayedLine;
+  bool insideCload = false;
   while (true) {
     const bool hasStored = static_cast<bool>(
         std::getline(storedInput, storedLine));
@@ -820,7 +868,8 @@ bool decks_round_trip_equivalent(const std::string &stored,
       return true;
     if (storedLine.size() > 4096U || replayedLine.size() > 4096U)
       return false;
-    if (!deck_lines_equivalent(storedLine, replayedLine))
+    if (!deck_lines_semantically_equivalent(
+            storedLine, replayedLine, insideCload))
       return false;
   }
 }
@@ -832,6 +881,7 @@ std::string deck_difference_detail(const std::string &stored,
   std::string storedLine;
   std::string replayedLine;
   std::size_t lineNumber{};
+  bool insideCload = false;
   while (true) {
     const bool hasStored =
         static_cast<bool>(std::getline(storedInput, storedLine));
@@ -843,7 +893,8 @@ std::string deck_difference_detail(const std::string &stored,
              std::to_string(lineNumber);
     if (!hasStored)
       return "v3 solver deck differs after semantic comparison";
-    if (!deck_lines_equivalent(storedLine, replayedLine))
+    if (!deck_lines_semantically_equivalent(
+            storedLine, replayedLine, insideCload))
       return "v3 solver deck differs at line " +
              std::to_string(lineNumber) + "; stored line [" +
              storedLine.substr(0U, 160U) + "]; replayed line [" +
@@ -1441,6 +1492,11 @@ std::optional<StructuralEvaluation> replay_legacy_v2_findings(
 
 } // namespace
 
+bool detail::calculix_decks_round_trip_equivalent(
+    const std::string &stored, const std::string &replayed) {
+  return decks_round_trip_equivalent(stored, replayed);
+}
+
 StructuralArchive write_structural_refinement_archive(
     const VerifiedStructuralRefinement &refinement,
     const StructuralEvaluation &evaluation) {
@@ -1762,8 +1818,8 @@ CompletedStructuralSamplePtr replay_v3_sample(
   if (compiledSetup.canonical_setup_evidence != artifacts.setup)
     reject("setup_binding_mismatch",
            "v3 reviewed setup bytes do not recompile exactly");
-  if (!decks_round_trip_equivalent(artifacts.deck,
-                                   compiledSetup.calculix_deck))
+  if (!detail::calculix_decks_round_trip_equivalent(
+          artifacts.deck, compiledSetup.calculix_deck))
     reject("setup_binding_mismatch",
            deck_difference_detail(artifacts.deck,
                                   compiledSetup.calculix_deck));

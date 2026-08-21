@@ -110,6 +110,7 @@ if(BUILD_TESTING)
     prometheus_structural
   )
   target_include_directories(prometheus_structural_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
   )
   target_link_libraries(prometheus_structural_observable_tests PRIVATE
@@ -159,6 +160,7 @@ if(BUILD_TESTING)
       -DREPLAY=$<TARGET_FILE:prometheus_replay_structural_run>
       -DSOLVER=$<TARGET_FILE:prometheus_structural_solver_fixture>
       -DFIXTURE_ROOT=${PROJECT_SOURCE_DIR}/fixtures/structural/reviewed-pair-smoke
+      -DYUBI_FIXTURE_ROOT=${PROJECT_SOURCE_DIR}/fixtures/structural/yubi-bracket
       -DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/reviewed-pair-tool-fixture
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/reviewed_pair_tool_fixture.cmake
   )
