@@ -1,7 +1,7 @@
 # Linux Structural Artifact Role Validation Design
 
 **Date:** 2026-08-20
-**Status:** Approved for implementation
+**Status:** Implemented and locally verified
 
 ## Problem
 
@@ -52,3 +52,21 @@ regression test. After the minimal production change:
 
 Success means the v3 and v4 round trips publish and reconstruct while the
 existing forged-role and malformed-manifest cases remain rejected.
+
+## Verification
+
+GitHub Actions run
+[`32436491170`](https://github.com/Richard-Y-W/Prometheus/actions/runs/32436491170)
+first exposed the regression in `Native / Linux`: the headless build completed,
+then `prometheus_run_store_transaction` rejected publication of the embedded
+structural-v3 fixture.
+
+The exact focused test was reproduced before the change under GCC 13.3 in the
+pinned `prometheus-structural-validation-arm64:ccx-2.23` image. It failed 0/1
+with the same diagnostic. After replacing only the expected-role construction,
+the same container test passed 1/1 in 33.24 seconds.
+
+On macOS with Apple Clang 21, the focused transaction test passed 1/1 in 34.04
+seconds. The complete headless suite then passed 17/17 in 56.90 seconds. These
+are local feature-branch results; a new GitHub matrix result requires a
+separately authorized push.
