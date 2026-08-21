@@ -99,9 +99,14 @@ if(BUILD_TESTING)
     PROPERTIES TIMEOUT 60
   )
   if(WIN32)
+    find_program(PROMETHEUS_TEST_POWERSHELL_EXECUTABLE
+      NAMES pwsh powershell
+      REQUIRED
+    )
     add_test(
       NAME prometheus_outside_user_bundle_fixture
-      COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+      COMMAND "${PROMETHEUS_TEST_POWERSHELL_EXECUTABLE}"
+        -NoProfile -ExecutionPolicy Bypass
         -File ${PROJECT_SOURCE_DIR}/scripts/tests/outside-user-bundle-fixture.ps1
     )
   endif()
