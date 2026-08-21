@@ -229,6 +229,32 @@ void testReviewedYubiPair(const fs::path &repository) {
           "reviewed YUBI fine restraint region retained");
 }
 
+void testYubiExecutionScriptContract(const fs::path &repository) {
+  const auto script = read(repository / "scripts/run-yubi-structural-slice.ps1");
+  require(script.find("prometheus_run_reviewed_structural_pair") !=
+              std::string::npos,
+          "YUBI script calls the reviewed-pair runner");
+  require(script.find("prometheus_replay_structural_run") != std::string::npos,
+          "YUBI script replays the retained archive");
+  require(script.find("status=completed") != std::string::npos &&
+              script.find("status=verified") != std::string::npos,
+          "YUBI script requires execution and replay markers");
+  require(script.find("Output directory already exists") != std::string::npos,
+          "YUBI script rejects an existing output directory");
+  require(script.find("gmsh") == std::string::npos,
+          "YUBI execution does not regenerate reviewed meshes");
+  require(script.find("run-structural-validation.ps1") == std::string::npos,
+          "YUBI execution does not repeat the analytic validation suite");
+
+  const auto workflow =
+      read(repository / ".github/workflows/yubi-structural-trial.yml");
+  require(workflow.find("workflow_dispatch:") != std::string::npos &&
+              workflow.find("windows-2022") != std::string::npos,
+          "YUBI workflow is a manual Windows 2022 checkpoint");
+  require(workflow.find("run-yubi-structural-slice.ps1") != std::string::npos,
+          "YUBI workflow delegates to the bounded script");
+}
+
 } // namespace
 
 int main() {
@@ -239,6 +265,7 @@ int main() {
   testStrictManifestFailures(fixture);
   testDuplicateJsonMemberFails(fixture);
   testReviewedYubiPair(repository);
+  testYubiExecutionScriptContract(repository);
   std::cout << "reviewed structural pair tests passed\n";
   return 0;
 }
