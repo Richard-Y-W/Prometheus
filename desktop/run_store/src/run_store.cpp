@@ -659,16 +659,19 @@ Result<detail::Unit> validate_embedded_structural_graph(
             "structural_chunk_set_invalid",
             "structural chunk contract or identity is invalid"));
     }
+    constexpr std::array artifactRoles{
+        "setup", "deck", "dat", "frd", "sta", "stdout", "stderr"};
+    constexpr std::array refinementSamples{"coarse", "fine"};
     std::vector<std::string> expectedRoles;
-    for (const auto sample : projectReferenceV2
-                                 ? std::initializer_list<const char *>{
-                                       "coarse", "fine"}
-                                 : std::initializer_list<const char *>{""})
-      for (const auto key : {"setup", "deck", "dat", "frd", "sta",
-                             "stdout", "stderr"})
-        expectedRoles.push_back(
-            *sample == '\0' ? std::string(key)
-                             : std::string(sample) + "/" + key);
+    expectedRoles.reserve(expectedArtifactCount);
+    if (projectReferenceV2) {
+      for (const auto sample : refinementSamples)
+        for (const auto role : artifactRoles)
+          expectedRoles.push_back(std::string(sample) + "/" + role);
+    } else {
+      for (const auto role : artifactRoles)
+        expectedRoles.emplace_back(role);
+    }
     const auto &declaredForRole = [&](const std::string &role) -> const Json & {
       if (!projectReferenceV2)
         return archive.at("artifacts").at(role);
