@@ -199,14 +199,46 @@ void testDuplicateJsonMemberFails(const fs::path &fixture) {
   fail("duplicate JSON members fail closed");
 }
 
+void testReviewedYubiPair(const fs::path &repository) {
+  const auto pair = ps::preflight_reviewed_structural_pair(
+      repository /
+      "fixtures/structural/yubi-bracket/reviewed-pair.json");
+  require(pair.coarse_setup.request.nodes.size() == 2446U,
+          "reviewed YUBI coarse node count");
+  require(pair.coarse_setup.request.elements.size() == 7533U,
+          "reviewed YUBI coarse element count");
+  require(pair.fine_setup.request.nodes.size() == 7876U,
+          "reviewed YUBI fine node count");
+  require(pair.fine_setup.request.elements.size() == 29015U,
+          "reviewed YUBI fine element count");
+  require(pair.fine_setup.request.displacement_limit_m == 0.0005,
+          "informational YUBI displacement threshold retained");
+  require(!pair.fine_setup.request.von_mises_limit_pa,
+          "no unsupported YUBI stress allowable invented");
+  require(pair.fine_setup.reviewed_setup.material.applicability == "assumed",
+          "YUBI material remains an explicit assumption");
+  require(std::abs(forceComponent(pair.fine_setup, 1U) + 100.0) < 1e-9,
+          "reviewed YUBI fine load retains the total force");
+  require(std::abs(
+              pair.coarse_setup.reviewed_setup.load.selection.area_m2 -
+              0.0020520254379) < 1e-12,
+          "reviewed YUBI coarse load region retained");
+  require(std::abs(
+              pair.fine_setup.reviewed_setup.restraint.selection.area_m2 -
+              0.00304765727052) < 1e-12,
+          "reviewed YUBI fine restraint region retained");
+}
+
 } // namespace
 
 int main() {
-  const auto fixture = fs::path(PROMETHEUS_REPOSITORY_ROOT) /
+  const auto repository = fs::path(PROMETHEUS_REPOSITORY_ROOT);
+  const auto fixture = repository /
                        "fixtures/structural/reviewed-pair-smoke";
   testValidSmokePair(fixture);
   testStrictManifestFailures(fixture);
   testDuplicateJsonMemberFails(fixture);
+  testReviewedYubiPair(repository);
   std::cout << "reviewed structural pair tests passed\n";
   return 0;
 }
