@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -39,6 +40,52 @@ namespace fs = std::filesystem;
 
 void require(const bool condition, const char *message) {
   if (!condition) fail(message);
+}
+
+const char *solverRunStatusName(const ps::SolverRunStatus status) {
+  switch (status) {
+  case ps::SolverRunStatus::completed: return "completed";
+  case ps::SolverRunStatus::launch_failed: return "launch_failed";
+  case ps::SolverRunStatus::timed_out: return "timed_out";
+  case ps::SolverRunStatus::nonzero_exit: return "nonzero_exit";
+  case ps::SolverRunStatus::output_conflict: return "output_conflict";
+  case ps::SolverRunStatus::output_missing: return "output_missing";
+  case ps::SolverRunStatus::result_invalid: return "result_invalid";
+  }
+  return "unknown";
+}
+
+std::string solverRunDiagnostic(const ps::SolverRunResult &run) {
+  std::ostringstream output;
+  output << "solver_run.status=" << solverRunStatusName(run.status)
+         << "\nsolver_run.detail=" << run.detail
+         << "\nsolver_run.exit_code=" << run.exit_code
+         << "\nsolver_run.stdout_bytes=" << run.standard_output.size()
+         << "\nsolver_run.stderr_bytes=" << run.standard_error.size()
+         << "\nsolver_run.result_present="
+         << (run.validated_result ? "true" : "false");
+  if (run.validated_result) {
+    output << "\nsolver_run.result_complete="
+           << (run.validated_result->complete() ? "true" : "false")
+           << "\nsolver_run.issue_count="
+           << run.validated_result->issues.size()
+           << "\nsolver_run.metrics_present="
+           << (run.validated_result->metrics ? "true" : "false");
+    for (const auto &issue : run.validated_result->issues)
+      output << "\nsolver_run.issue=" << issue.code;
+    if (run.validated_result->metrics)
+      output << "\nsolver_run.maximum_displacement_m="
+             << run.validated_result->metrics->maximum_displacement_m;
+  }
+  return output.str();
+}
+
+void requireSolverRun(const bool condition, const ps::SolverRunResult &run,
+                      const char *message) {
+  if (!condition) {
+    std::cerr << solverRunDiagnostic(run) << '\n';
+    fail(message);
+  }
 }
 
 std::string fixtureBytes(const fs::path &path) {
@@ -748,6 +795,26 @@ ps::CalculixRunEvidence completeCalculixEvidence(
 }
 
 int main() {
+  ps::SolverRunResult diagnosticExample;
+  diagnosticExample.status = ps::SolverRunStatus::launch_failed;
+  diagnosticExample.detail = "process_launch_failed:193";
+  diagnosticExample.exit_code = -1;
+  diagnosticExample.standard_output = "ab";
+  diagnosticExample.standard_error = "c";
+  const auto diagnostic = solverRunDiagnostic(diagnosticExample);
+  require(diagnostic.find("solver_run.status=launch_failed") !=
+                  std::string::npos &&
+              diagnostic.find(
+                  "solver_run.detail=process_launch_failed:193") !=
+                  std::string::npos &&
+              diagnostic.find("solver_run.stdout_bytes=2") !=
+                  std::string::npos &&
+              diagnostic.find("solver_run.stderr_bytes=1") !=
+                  std::string::npos &&
+              diagnostic.find("solver_run.result_present=false") !=
+                  std::string::npos,
+          "solver run diagnostics expose bounded process state");
+
   requireRetiredStructuralApisAbsent();
   const auto axialBenchmark = ps::axial_tension_bar_benchmark();
   const auto refinedAxialBenchmark =
@@ -1449,18 +1516,28 @@ Synthetic two-group tetrahedron; coordinates are millimetres
     return ps::run_calculix({fixture, processRoot, job, timeout}, compiled);
   };
   const auto completed = runFixture("success", std::chrono::seconds(5));
-  require(completed.status == ps::SolverRunStatus::completed &&
-              completed.exit_code == 0 && completed.validated_result &&
-              completed.validated_result->complete() &&
-              completed.validated_result->compiled_setup_identity ==
-                  compiled.identity &&
-              std::abs(completed.validated_result->metrics
-                           ->maximum_displacement_m -
-                       2.0e-5) < 1e-15 &&
-              completed.standard_output.find("CalculiX Version 2.23") !=
-                  std::string::npos &&
-              completed.standard_error.find("fixture stderr") != std::string::npos,
-          "isolated solver captures and compiles complete evidence exactly once");
+  requireSolverRun(completed.status == ps::SolverRunStatus::completed,
+                   completed, "isolated solver process completes");
+  requireSolverRun(completed.exit_code == 0, completed,
+                   "isolated solver exits successfully");
+  requireSolverRun(completed.validated_result.has_value(), completed,
+                   "isolated solver produces a validated result");
+  requireSolverRun(completed.validated_result->complete(), completed,
+                   "isolated solver evidence is complete");
+  requireSolverRun(
+      completed.validated_result->compiled_setup_identity == compiled.identity,
+      completed, "isolated solver result retains compiled setup identity");
+  requireSolverRun(
+      std::abs(completed.validated_result->metrics->maximum_displacement_m -
+               2.0e-5) < 1e-15,
+      completed, "isolated solver result retains expected displacement");
+  requireSolverRun(
+      completed.standard_output.find("CalculiX Version 2.23") !=
+          std::string::npos,
+      completed, "isolated solver captures standard output");
+  requireSolverRun(
+      completed.standard_error.find("fixture stderr") != std::string::npos,
+      completed, "isolated solver captures standard error");
 
   auto coarseReviewed =
       ps::cantilever_benchmark(8, 2, 2).setup.reviewed_setup;
