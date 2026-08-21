@@ -72,6 +72,13 @@ target_link_libraries(prometheus_run_structural_refinement PRIVATE
   prometheus_structural
 )
 
+add_executable(prometheus_run_reviewed_structural_pair
+  tools/run_reviewed_structural_pair.cpp
+)
+target_link_libraries(prometheus_run_reviewed_structural_pair PRIVATE
+  prometheus_structural
+)
+
 add_executable(prometheus_replay_structural_run
   tools/replay_structural_run.cpp
 )
@@ -130,6 +137,12 @@ if(BUILD_TESTING)
     prometheus_run_structural_refinement
     prometheus_structural_solver_fixture
   )
+  add_dependencies(
+    prometheus_reviewed_pair_tests
+    prometheus_run_reviewed_structural_pair
+    prometheus_replay_structural_run
+    prometheus_structural_solver_fixture
+  )
   add_test(NAME prometheus_structural_tests COMMAND prometheus_structural_tests)
   add_test(
     NAME prometheus_structural_observable_tests
@@ -138,6 +151,16 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_reviewed_pair_tests
     COMMAND prometheus_reviewed_pair_tests
+  )
+  add_test(
+    NAME prometheus_reviewed_pair_tool_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DPAIR_RUNNER=$<TARGET_FILE:prometheus_run_reviewed_structural_pair>
+      -DREPLAY=$<TARGET_FILE:prometheus_replay_structural_run>
+      -DSOLVER=$<TARGET_FILE:prometheus_structural_solver_fixture>
+      -DFIXTURE_ROOT=${PROJECT_SOURCE_DIR}/fixtures/structural/reviewed-pair-smoke
+      -DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/reviewed-pair-tool-fixture
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/reviewed_pair_tool_fixture.cmake
   )
   add_test(
     NAME prometheus_structural_tool_fixture
