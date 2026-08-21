@@ -5,6 +5,7 @@ add_library(prometheus_structural STATIC
   src/gmsh_mesh.cpp
   src/mesh_validation.cpp
   src/prepared_mesh.cpp
+  src/reviewed_pair.cpp
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
@@ -95,6 +96,9 @@ if(BUILD_TESTING)
   add_executable(prometheus_structural_observable_tests
     tests/structural_observable_tests.cpp
   )
+  add_executable(prometheus_reviewed_pair_tests
+    tests/reviewed_pair_tests.cpp
+  )
   target_link_libraries(prometheus_structural_tests PRIVATE
     prometheus_structural
   )
@@ -103,6 +107,15 @@ if(BUILD_TESTING)
   )
   target_link_libraries(prometheus_structural_observable_tests PRIVATE
     prometheus_structural
+  )
+  target_link_libraries(prometheus_reviewed_pair_tests PRIVATE
+    prometheus_structural
+  )
+  target_include_directories(prometheus_reviewed_pair_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
+  target_compile_definitions(prometheus_reviewed_pair_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
   )
   target_compile_definitions(prometheus_structural_tests PRIVATE
     PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
@@ -121,6 +134,10 @@ if(BUILD_TESTING)
   add_test(
     NAME prometheus_structural_observable_tests
     COMMAND prometheus_structural_observable_tests
+  )
+  add_test(
+    NAME prometheus_reviewed_pair_tests
+    COMMAND prometheus_reviewed_pair_tests
   )
   add_test(
     NAME prometheus_structural_tool_fixture

@@ -1,0 +1,130 @@
+{
+  "$schema": "urn:prometheus:schema:reviewed-structural-pair:1.0.0",
+  "schema_version": "1.0.0",
+  "review": {
+    "status": "approved",
+    "reviewed_on": "2026-08-20",
+    "reviewer_role": "test_fixture_author",
+    "claim_boundary": "Synthetic execution-plumbing fixture; not engineering evidence."
+  },
+  "analysis": {
+    "analysis_id": "synthetic-reviewed-pair-smoke-v1",
+    "component_name": "synthetic reviewed-pair component"
+  },
+  "geometry": {
+    "upstream": "checked-in synthetic fixture",
+    "source_commit": "1111111111111111111111111111111111111111",
+    "source_path": "synthetic-reviewed-pair.geo",
+    "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "material": {
+    "evidence": {
+      "path": "material-evidence.json",
+      "sha256": "sha256:a25b00f3f76962d5c0d30f4f20c4549bd8f34936b47b713d78ed04fbc577f733"
+    },
+    "candidate_id": "synthetic-reviewed-pair-aluminum",
+    "designation": "synthetic aluminum",
+    "temper": "synthetic T0",
+    "product_form": "synthetic plate",
+    "applicability": "assumed",
+    "youngs_modulus_pa": 70000000000,
+    "poisson_ratio": 0.33,
+    "reviewed": true
+  },
+  "load": {
+    "label": "synthetic loaded face",
+    "total_force_n": [0, -100, 0],
+    "reviewed": true
+  },
+  "restraint": {
+    "label": "synthetic fixed face",
+    "reviewed": true
+  },
+  "requirements": [
+    {
+      "quantity": "displacement",
+      "comparator": "less_or_equal",
+      "limit_value": 0.0005,
+      "unit": "m",
+      "applicability": "Synthetic solver-plumbing fixture only.",
+      "criticality": "informational",
+      "source_or_exploratory_rationale": "Synthetic informational threshold selected for the fixture.",
+      "limit_basis": "Synthetic fixture threshold; not a design allowable.",
+      "reviewed": true
+    }
+  ],
+  "scenario": {
+    "description": "Synthetic linear-static execution-plumbing scenario.",
+    "confirmed": true
+  },
+  "refinement": {
+    "selection_patch_angle_degrees": 15,
+    "maximum_change_fraction": 0.1,
+    "load_region_correspondence_reviewed": true,
+    "restraint_region_correspondence_reviewed": true
+  },
+  "jobs": {
+    "coarse": "reviewed_pair_coarse",
+    "fine": "reviewed_pair_fine"
+  },
+  "samples": {
+    "coarse": {
+      "mesh": {
+        "path": "coarse.inp",
+        "sha256": "sha256:470736a3283085f70819fdc2652ce1e6195a94f6b6b3581f47e1a4785c8682ae",
+        "coordinate_scale_to_m": 0.001,
+        "minimum_size_m": 0.001,
+        "maximum_size_m": 0.003,
+        "target_size_m": 0.002,
+        "minimum_mean_ratio_threshold": 0.05,
+        "expected_minimum_mean_ratio": 0.839947,
+        "expected_node_count": 4,
+        "expected_element_count": 1,
+        "expected_boundary_face_count": 4,
+        "mesher_identity": "synthetic reviewed-pair fixture",
+        "reviewed": true
+      },
+      "load_selection": {
+        "patch_ids": [2],
+        "expected_area_m2": 0.00005,
+        "expected_centroid_m": [0.00333333333333, 0, 0.00333333333333],
+        "expected_normal": [0, -1, 0]
+      },
+      "restraint_selection": {
+        "patch_ids": [1],
+        "expected_area_m2": 0.00005,
+        "expected_centroid_m": [0.00333333333333, 0.00333333333333, 0],
+        "expected_normal": [0, 0, -1]
+      }
+    },
+    "fine": {
+      "mesh": {
+        "path": "fine.inp",
+        "sha256": "sha256:4a3512749db68627ff7ebb75ccd094259b32bf997984568f047f5fc0d456a1b5",
+        "coordinate_scale_to_m": 0.001,
+        "minimum_size_m": 0.0005,
+        "maximum_size_m": 0.0015,
+        "target_size_m": 0.001,
+        "minimum_mean_ratio_threshold": 0.05,
+        "expected_minimum_mean_ratio": 0.0864242,
+        "expected_node_count": 8,
+        "expected_element_count": 6,
+        "expected_boundary_face_count": 12,
+        "mesher_identity": "synthetic reviewed-pair fixture",
+        "reviewed": true
+      },
+      "load_selection": {
+        "patch_ids": [2],
+        "expected_area_m2": 0.0000001,
+        "expected_centroid_m": [0.0005, 0, 0.00005],
+        "expected_normal": [0, -1, 0]
+      },
+      "restraint_selection": {
+        "patch_ids": [1],
+        "expected_area_m2": 0.0000001,
+        "expected_centroid_m": [0.0005, 0.00005, 0],
+        "expected_normal": [0, 0, -1]
+      }
+    }
+  }
+}

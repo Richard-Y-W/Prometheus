@@ -1,0 +1,14 @@
+{
+  "$schema": "urn:prometheus:material-candidate-evidence:0.1.0",
+  "candidates": [
+    {
+      "candidate_id": "synthetic-reviewed-pair-aluminum",
+      "designation": "synthetic aluminum",
+      "poisson_ratio": 0.33,
+      "product_form": "synthetic plate",
+      "temper": "synthetic T0",
+      "youngs_modulus_pa": 70000000000
+    }
+  ],
+  "sources": []
+}
