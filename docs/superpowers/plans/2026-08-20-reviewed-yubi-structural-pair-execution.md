@@ -425,7 +425,7 @@ that the user choices or coarse/fine pair are unresolved. Preserve the explicit
 non-claims about material identity, strength, safety, and project-wide
 correctness.
 
-- [ ] **Step 3: Commit the verified implementation record**
+- [x] **Step 3: Commit the verified implementation record**
 
 ```bash
 git add docs/phase-03-structural-workflow.md docs/master-project-status.md \
@@ -434,7 +434,7 @@ git add docs/phase-03-structural-workflow.md docs/master-project-status.md \
 git commit -m "Document reviewed YUBI execution boundary"
 ```
 
-- [ ] **Step 4: Run final branch verification**
+- [x] **Step 4: Run final branch verification**
 
 Run the headless and desktop suites again from the final commit, inspect
 `git status --short --branch`, and confirm that no existing structural
