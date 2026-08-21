@@ -1,7 +1,8 @@
 # Reviewed YUBI Structural Pair Execution Design
 
 **Date:** 2026-08-20  
-**Status:** Implemented and locally verified; native YUBI execution pending
+**Status:** Implemented; native YUBI execution and independent replay verified;
+engineering evaluation indeterminate
 
 ## Problem
 
@@ -215,6 +216,26 @@ analytic/refinement/replay record at commit
 `00adcb6ca59e368eacabf8a66ed8acc71cb4a865`. If implementation changes any
 existing numerical, solver, refinement, or archive code rather than adding the
 new adapter, the full structural validation workflow must run again.
+
+## Recorded Native Evidence
+
+Corrected commit `6195ec6275097bdb37c921c646b99e3084169cc0`
+passed the nine-job automatic matrix in
+[run 32499570880](https://github.com/Richard-Y-W/Prometheus/actions/runs/32499570880)
+and the Windows structural-validation gate in
+[run 32502246569](https://github.com/Richard-Y-W/Prometheus/actions/runs/32502246569).
+The explicit YUBI workflow then ran the checked-in pair once in
+[run 32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787).
+
+Both CalculiX 2.23 cases completed with exit code zero, and the downloaded v4
+archive passed independent local replay. Global maximum displacement changed
+by `0.0704380451306449`, within the locked `0.10` criterion. Global maximum von
+Mises stress changed by `0.1401320289035979`, outside it. The resulting
+comparison and engineering evaluation are therefore `indeterminate`, with zero
+findings and `0/1` evaluated obligations. The
+[trial record](../../trials/yubi-bracket-structural-result.md) retains the exact
+artifact, solver, setup, result, criterion, and mesh identities beside the
+assumptions and non-claims.
 
 ## Claim Boundary
 

@@ -62,6 +62,20 @@ coarse mesh and once for the fine mesh, writes one structural archive, and
 replays that archive once at the release boundary. It does not regenerate the
 meshes or rerun the analytic structural suite.
 
+## Recorded native checkpoint
+
+[GitHub Actions run 32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787)
+executed this exact pair at commit
+`6195ec6275097bdb37c921c646b99e3084169cc0`. Both solver cases completed and
+the downloaded v4 archive passed independent replay. Maximum displacement
+changed by `7.04380451306449%`, while maximum von Mises stress changed by
+`14.01320289035979%`. Because the stress diagnostic exceeded the locked 10%
+criterion, the engineering evaluation remains `indeterminate`, with zero
+findings and `0/1` evaluated obligations.
+
+The exact run identities, artifact hashes, results, and limitations are in the
+[YUBI bracket structural trial result](../../../docs/trials/yubi-bracket-structural-result.md).
+
 ## Excluded claims
 
 This model does not evaluate bolt preload, fastener stress, contact, friction,

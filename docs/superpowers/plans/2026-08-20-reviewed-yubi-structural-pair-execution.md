@@ -8,6 +8,11 @@
 
 **Tech Stack:** C++20, nlohmann/json, Prometheus RFC 8785/SHA-256 integrity library, existing `prometheus_structural` library, CMake/CTest, PowerShell 7, GitHub Actions, CalculiX 2.23.
 
+**Execution status:** Tasks 1–6 are complete. [Run
+32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787)
+completed at commit `6195ec6275097bdb37c921c646b99e3084169cc0`; its
+independently replayed engineering evaluation is `indeterminate`.
+
 ---
 
 ## File Map
@@ -418,12 +423,12 @@ record both outcomes.
 
 - [x] **Step 2: Update the two status documents**
 
-Record that the current Windows structural validation is already green, the
-reviewed YUBI execution path and exact inputs are prepared, and no native YUBI
-result exists until the manual workflow completes. Remove stale statements
-that the user choices or coarse/fine pair are unresolved. Preserve the explicit
-non-claims about material identity, strength, safety, and project-wide
-correctness.
+At that preparation checkpoint, record that the current Windows structural
+validation is already green, the reviewed YUBI execution path and exact inputs
+are prepared, and a native YUBI result will not exist until the manual workflow
+completes. Remove stale statements that the user choices or coarse/fine pair
+are unresolved. Preserve the explicit non-claims about material identity,
+strength, safety, and project-wide correctness.
 
 - [x] **Step 3: Commit the verified implementation record**
 
@@ -449,12 +454,12 @@ addition to the YUBI trial.
 - Modify after a successful workflow only: `docs/phase-03-structural-workflow.md`
 - Modify after a successful workflow only: `docs/master-project-status.md`
 
-- [ ] **Step 1: Push the reviewed branch and dispatch the manual workflow**
+- [x] **Step 1: Push the reviewed branch and dispatch the manual workflow**
 
 Push only after local verification and explicit integration approval. Dispatch
 `.github/workflows/yubi-structural-trial.yml` at the exact pushed commit.
 
-- [ ] **Step 2: Inspect and replay the retained artifact**
+- [x] **Step 2: Inspect and replay the retained artifact**
 
 Download the workflow artifact, verify its hashes, and run:
 
@@ -467,7 +472,19 @@ Expected: `status=verified`. Record the exact workflow URL, commit, CalculiX
 version and executable hash, archive hash, coarse/fine mesh hashes, observable
 changes, refinement status, finding or unknown, and limitations.
 
-- [ ] **Step 3: Write the evidence-bound result document**
+Recorded evidence:
+
+- workflow run: `32503165787`, attempt 1;
+- artifact: `yubi-structural-trial-32503165787-1`;
+- artifact digest:
+  `sha256:42030c8fd85c944b7c313c12bdae0ce4b3c5bedf6a34440c904391ec82891b25`;
+- archive manifest SHA-256:
+  `7794c99815e7ccfed597e860fa16d60a566a19fd25d801f7ad8137ba030b12a7`;
+- independent replay: `status=verified`, fine maximum displacement
+  `7.70501e-09 m`, fine maximum von Mises stress `143224 Pa`, and coverage
+  `0/1`.
+
+- [x] **Step 3: Write the evidence-bound result document**
 
 Create `docs/trials/yubi-bracket-structural-result.md` only from the replayed
 archive. State the measured displacement and its informational comparison if
@@ -475,7 +492,13 @@ the refinement is accepted. If either global observable exceeds 10%, state
 that the evaluation is indeterminate and do not alter the criterion. Never add
 a stress pass/fail because no stress allowable was reviewed.
 
-- [ ] **Step 4: Commit and rerun documentation hygiene**
+The result is recorded in
+[`docs/trials/yubi-bracket-structural-result.md`](../../trials/yubi-bracket-structural-result.md).
+Global displacement changed by `7.04380451306449%`; global von Mises stress
+changed by `14.01320289035979%`. The locked 10% rule therefore retained an
+indeterminate evaluation with zero findings and `0/1` evaluated obligations.
+
+- [x] **Step 4: Commit and rerun documentation hygiene**
 
 Run `git diff --check`, inspect every numerical claim against the archive, and
 commit with a literal result-scoped message such as:

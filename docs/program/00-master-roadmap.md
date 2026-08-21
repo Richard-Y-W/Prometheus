@@ -1,6 +1,6 @@
 # Prometheus master roadmap
 
-Current audited implementation status: [Prometheus master project status](../master-project-status.md), last audited 2026-08-18. This roadmap defines capability order; the dated status records which implementation and evidence gates are actually complete.
+Current audited implementation status: [Prometheus master project status](../master-project-status.md), last audited 2026-08-21. This roadmap defines capability order; the dated status records which implementation and evidence gates are actually complete.
 
 The [approved general-engineering design](../superpowers/specs/2026-08-11-prometheus-general-engineering-platform-design.md) defines Prometheus as a local project compiler and solver-orchestration environment. The roadmap advances by evidence-bearing capability gates. A broad intake goal does not permit Prometheus to claim that an arbitrary project works when its parsers, semantic model, requirements, boundary conditions, solvers, or validation coverage are incomplete.
 
@@ -22,6 +22,13 @@ current sequence is:
    by the working project workflows and at least two analysis adapters.
 5. **Harden observed failures:** add persistence, parser isolation, recovery,
    portability, and broader matrices at explicit release checkpoints.
+
+The first bounded instance of step 3 is now recorded in the
+[YUBI bracket structural trial](../trials/yubi-bracket-structural-result.md).
+The workflow completed and replayed, but stress changed by 14.0132% between the
+reviewed meshes, so the engineering evaluation remains indeterminate. The next
+evidence task is repeatability on materially different components, not a claim
+that the YUBI bracket or general structural capability has been validated.
 
 Ordinary implementation checkpoints target 60–90 minutes. Each must unlock a
 new real project, a new trustworthy failure class, or materially reduce setup
@@ -56,7 +63,7 @@ Program 01 prevents candidate evidence, stale state, or failed computation from 
 - **[01A — Integrity and contracts](01-trust-kernel/01a-amended-implementation-plan.md) — complete under the amended `contract_tested` gate:** the v2 code provides stable claims, append-only review, immutable RFC 8785 objects, durable publication replay, database backstops, and independent C++ byte verification. The [amended completion record](01-trust-kernel/01a-amended-completion.md) cites the successful database, Python, frontend, and native release matrix. These controls establish reviewed-input integrity only; the package is not an engineering result.
 - **01B — Package-to-C++ execution — complete under the bounded `contract_tested` gate:** the shared C++ execution path consumes exact reviewed Motor A/B packages, persists immutable run objects, changes the holding outcome under one unchanged scenario, and reproduces exact results offline. The [completion record](01-trust-kernel/01b-package-driven-execution-completion.md) binds the claim to the implementation SHA and successful release matrix.
 - **[01C — Windows-first real-project screening](01-trust-kernel/01c-windows-screening-completion.md) — complete:** a pinned independent YUBI project now opens through the ordinary Windows folder path, all artifacts retain visible states, its 90-leaf STEP assembly imports reproducibly, and unsupported questions remain explicit. The conservative importer preserves topology without automatic OCCT shape healing after a real assembly exposed an access violation.
-- **[01D — Multi-project evidence](01-trust-kernel/01d-multi-project-evidence.md) — current:** technical runs now cover clean YUBI, large OpenArm, and messy JPL Rover project shapes; observed failures are ranked and the YUBI gripper mounting bracket is selected for the first structural slice. An outside-user trial remains required before closure.
+- **[01D — Multi-project evidence](01-trust-kernel/01d-multi-project-evidence.md) — current:** technical runs now cover clean YUBI, large OpenArm, and messy JPL Rover project shapes; observed failures are ranked, and the selected YUBI gripper mounting bracket has produced one bounded native structural execution with an indeterminate result. An outside-user folder-screening trial remains required before closure.
 
 Program 01D is the current prototype gate. Program 01C evidence covers the
 motor-arm folder, the large OpenArm import boundary, a clean Windows OCCT
@@ -94,6 +101,12 @@ isolated process adapter. Keep its inputs, assumptions, raw output, convergence,
 and failure states explicit. After a second numerical adapter exists, extract
 the genuinely shared runtime/SDK boundary. Each analysis still names one
 authoritative backend under [ADR-0006](../adr/0006-authoritative-analysis-backends.md).
+
+The first reviewed real-component execution ran on the YUBI bracket at commit
+`6195ec6` and independently replayed its v4 archive. Its indeterminate
+refinement outcome establishes the execution/evidence boundary, not component
+safety or broad structural validation. At least two materially different
+real-component studies remain before treating this workflow as repeatable.
 
 ## Program 06 — Six bounded domain slices
 

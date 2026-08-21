@@ -1,9 +1,10 @@
 # Phase 3 structural workflow status
 
-Status: active. Prometheus has one bounded linear-static structural workflow,
-but it has not validated the selected YUBI bracket. Phase 2's outside-user
-folder-screening session also remains open; neither item is counted as complete
-evidence.
+Status: active. Prometheus has executed and independently replayed one bounded
+linear-static coarse/fine study on the selected YUBI bracket. The study did not
+meet its complete predeclared refinement criterion, so the engineering
+evaluation is `indeterminate`, not passed or validated. Phase 2's outside-user
+folder-screening session also remains open.
 
 ## Consolidated authority
 
@@ -94,9 +95,12 @@ host with:
 
 The runner verifies both complete setups before it creates an output directory,
 then executes coarse once and fine once. The exact manifest and claim boundary
-are in `fixtures/structural/yubi-bracket/`. Local preflight passed, but no native
-YUBI result exists until the manual Windows workflow completes and its archive
-replays.
+are in `fixtures/structural/yubi-bracket/`. The manual Windows workflow
+[completed on run 32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787)
+at commit `6195ec6275097bdb37c921c646b99e3084169cc0`. Its v4 archive passed workflow
+replay and an independent replay with the corrected local CLI. The retained
+result is recorded in
+[`docs/trials/yubi-bracket-structural-result.md`](trials/yubi-bracket-structural-result.md).
 
 ## Implemented structural boundary
 
@@ -235,11 +239,17 @@ reference is Euler-Bernoulli `u = F L^3 / (3 E I)` with root stress
 `sigma = 6 F L / (b h^2)`. These equations are independent checks of the
 external adapter, not evidence about YUBI.
 
-The strengthened Windows structural workflow passed at the synchronized base
-commit in [GitHub Actions run 32445951610](https://github.com/Richard-Y-W/Prometheus/actions/runs/32445951610).
+The corrected Windows structural workflow passed at commit
+`6195ec6275097bdb37c921c646b99e3084169cc0` in
+[GitHub Actions run 32502246569](https://github.com/Richard-Y-W/Prometheus/actions/runs/32502246569).
 That run exercised CalculiX 2.23 through the current solver, result,
-refinement, finding, archive, and replay boundaries. It validates the structural
-backend; it does not supply YUBI inputs or a YUBI result.
+refinement, finding, archive, and replay boundaries. It validates the bounded
+structural backend; it does not by itself supply YUBI inputs or a YUBI result.
+In its cantilever benchmark, global maximum von Mises stress changed by
+`1.0341770734e-01` and was recorded as `not_converged_in_this_study`; that
+diagnostic was predeclared with `participated_in_acceptance=false`. The bounded
+gate passed on its accepted displacement and section-stress observables, not on
+convergence of that global extremum.
 
 Run the current external gates on the supported Windows environment with:
 
@@ -260,6 +270,15 @@ The separate `yubi-structural-trial.yml` workflow consumes the checked-in
 reviewed pair. It does not regenerate meshes or repeat the analytic suite. Its
 only expensive operations are one coarse and one fine CalculiX execution,
 followed by archive replay at the release trust boundary.
+
+[YUBI run 32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787)
+executed that exact path once on corrected `main`. Both solver jobs completed
+with exit code zero and complete row coverage. Global maximum displacement
+changed by `0.0704380451306449`, inside the locked `0.10` threshold; global
+maximum von Mises stress changed by `0.1401320289035979`, outside it. The
+archive therefore contains an indeterminate comparison, zero findings, and
+`0/1` evaluated obligations. Workflow success establishes a reproducible
+execution record, not an engineering pass.
 
 ## Desktop workflow
 
@@ -329,17 +348,17 @@ here.
 
 ## Remaining Phase 3 evidence
 
-1. Execute the exact reviewed YUBI manifest through the dedicated manual
-   Windows workflow and retain both native CalculiX result packages.
-2. Replay the emitted v4 archive independently and report either the scoped
-   informational displacement finding or the honest indeterminate evaluation.
-   Do not change the 10% criterion after observing the result, and do not add a
+1. Keep the YUBI result indeterminate unless a newly reviewed finer mesh or
+   another predeclared convergence study resolves the stress sensitivity. Do
+   not change the 10% criterion after observing the result, and do not add a
    stress pass/fail without a reviewed stress allowable.
+2. Repeat the reviewed workflow on at least two materially different real
+   components so applicability failures are not inferred from one bracket.
 3. Complete the outstanding outside-user folder-screening session.
 
-Until those items are complete, Prometheus has a bounded, fail-closed
-structural workflow—not a validated YUBI result and not proof that an arbitrary
-engineering project works.
+Prometheus now has a bounded, fail-closed structural workflow and one replayed
+native YUBI result. It has not validated the bracket and has not shown that an
+arbitrary engineering project works.
 
 ## Reconciliation release gate — 2026-08-16
 
@@ -364,8 +383,10 @@ The manual coarse/fine release checkpoint produced this local evidence:
 This checkpoint did not run Windows. A second independent reviewer has not
 assessed that historical inline diff. Later Windows run 32445951610 closed the
 post-reconciliation backend-validation item, and the 2026-08-20 manifest closed
-the selected YUBI input-review item. Native YUBI execution, its evidence-bound
-result report, and the outside-user session remain open.
+the selected YUBI input-review item. Corrected structural-validation run
+32502246569 and YUBI run 32503165787 subsequently closed the native execution
+and replay items. The YUBI evaluation remained indeterminate, and the
+outside-user session remains open.
 
 ## Reviewed-pair preparation checkpoint — 2026-08-20
 
@@ -385,3 +406,21 @@ The current feature branch produced this bounded local evidence:
 This checkpoint did not execute native CalculiX on the YUBI pair. It establishes
 that the reviewed inputs reach the existing authoritative structural backend
 without adding another physics implementation or a duplicate solve path.
+
+## Native YUBI evidence checkpoint — 2026-08-21
+
+The explicit manual workflow ran the locked pair once at commit
+`6195ec6275097bdb37c921c646b99e3084169cc0`. The retained runner log contains
+one coarse and one fine CalculiX 2.23 execution. Both completed at step 1,
+increment 1, attempt 1, and iteration 1. The archive retained solver executable
+SHA-256
+`913abf828a2d706f3e8c9da89d7a0eddd68ce817f8dabf1098cb013dfe3f94f6`
+and manifest SHA-256
+`7794c99815e7ccfed597e860fa16d60a566a19fd25d801f7ad8137ba030b12a7`.
+
+The fine maximum displacement was `7.705012145689252e-9 m`, but the global
+stress refinement change was `14.01320289035979%`, above the locked 10% limit.
+Prometheus therefore emitted no finding and evaluated zero of one declared
+obligations. The recorded identities, per-sample archive artifact hashes,
+assumptions, and non-claims are in the
+[YUBI result record](trials/yubi-bracket-structural-result.md).

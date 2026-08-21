@@ -1,5 +1,14 @@
 # Trustworthy YUBI Structural Slice Design
 
+**Status update — 2026-08-21:** The bounded workflow designed here is now
+implemented. [Run 32503165787](https://github.com/Richard-Y-W/Prometheus/actions/runs/32503165787)
+executed the reviewed coarse/fine pair, and the downloaded archive replayed
+independently. The engineering evaluation is `indeterminate` because global
+maximum stress changed by more than the locked 10% criterion. The Problem
+section below records the pre-implementation deficiencies; the
+[trial result](../../trials/yubi-bracket-structural-result.md) is the current
+execution evidence and does not validate the bracket.
+
 ## Problem
 
 Prometheus can currently produce a deterministic CalculiX deck from a reviewed
