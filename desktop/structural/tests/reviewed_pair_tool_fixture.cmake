@@ -5,12 +5,19 @@ endif()
 
 file(REMOVE_RECURSE "${OUTPUT_ROOT}")
 file(MAKE_DIRECTORY "${OUTPUT_ROOT}/mutable-fixture")
+file(MAKE_DIRECTORY "${OUTPUT_ROOT}/indeterminate-fixture")
 file(COPY
   "${FIXTURE_ROOT}/reviewed-pair.json"
   "${FIXTURE_ROOT}/coarse.inp"
   "${FIXTURE_ROOT}/fine.inp"
   "${FIXTURE_ROOT}/material-evidence.json"
   DESTINATION "${OUTPUT_ROOT}/mutable-fixture")
+file(COPY
+  "${FIXTURE_ROOT}/reviewed-pair.json"
+  "${FIXTURE_ROOT}/coarse.inp"
+  "${FIXTURE_ROOT}/fine.inp"
+  "${FIXTURE_ROOT}/material-evidence.json"
+  DESTINATION "${OUTPUT_ROOT}/indeterminate-fixture")
 
 set(valid_output "${OUTPUT_ROOT}/valid-run")
 execute_process(
@@ -63,6 +70,50 @@ if(NOT replay_result EQUAL 0 OR
    NOT replay_stdout MATCHES "status=verified")
   message(FATAL_ERROR
     "reviewed-pair archive replay failed (${replay_result})\n${replay_stdout}\n${replay_stderr}")
+endif()
+
+set(indeterminate_manifest
+  "${OUTPUT_ROOT}/indeterminate-fixture/reviewed-pair.json")
+file(READ "${indeterminate_manifest}" indeterminate_bytes)
+string(REPLACE
+  "reviewed_pair_coarse"
+  "reviewed_pair_indeterminate_coarse"
+  indeterminate_bytes "${indeterminate_bytes}")
+string(REPLACE
+  "reviewed_pair_fine"
+  "reviewed_pair_indeterminate_fine"
+  indeterminate_bytes "${indeterminate_bytes}")
+file(WRITE "${indeterminate_manifest}" "${indeterminate_bytes}")
+set(indeterminate_output "${OUTPUT_ROOT}/indeterminate-run")
+execute_process(
+  COMMAND "${PAIR_RUNNER}"
+          "${indeterminate_manifest}"
+          "${SOLVER}"
+          "${indeterminate_output}"
+          5
+  RESULT_VARIABLE indeterminate_result
+  OUTPUT_VARIABLE indeterminate_stdout
+  ERROR_VARIABLE indeterminate_stderr
+)
+if(NOT indeterminate_result EQUAL 0 OR
+   NOT indeterminate_stdout MATCHES "status=completed" OR
+   NOT indeterminate_stdout MATCHES "refinement=indeterminate" OR
+   NOT indeterminate_stdout MATCHES "evaluation=indeterminate" OR
+   NOT indeterminate_stdout MATCHES "archive_schema_version=4.0.0")
+  message(FATAL_ERROR
+    "valid indeterminate pair was not retained (${indeterminate_result})\n${indeterminate_stdout}\n${indeterminate_stderr}")
+endif()
+execute_process(
+  COMMAND "${REPLAY}"
+          "${indeterminate_output}/prometheus-structural-run.json"
+  RESULT_VARIABLE indeterminate_replay_result
+  OUTPUT_VARIABLE indeterminate_replay_stdout
+  ERROR_VARIABLE indeterminate_replay_stderr
+)
+if(NOT indeterminate_replay_result EQUAL 0 OR
+   NOT indeterminate_replay_stdout MATCHES "status=verified")
+  message(FATAL_ERROR
+    "indeterminate pair archive replay failed (${indeterminate_replay_result})\n${indeterminate_replay_stdout}\n${indeterminate_replay_stderr}")
 endif()
 
 set(mutated_manifest

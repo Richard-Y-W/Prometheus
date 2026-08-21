@@ -93,13 +93,21 @@ int main(int argc, char **argv) {
     const bool axialBenchmark = job.starts_with("prometheus_axial_");
     const bool cantileverCoarse = job.ends_with("cantilever_coarse");
     const bool cantileverFine = job.ends_with("cantilever_fine");
+    const bool reviewedPairIndeterminateCoarse =
+        job.ends_with("reviewed_pair_indeterminate_coarse");
+    const bool reviewedPairIndeterminateFine =
+        job.ends_with("reviewed_pair_indeterminate_fine");
     write_valid_data(
         job, nodes, elements, axialBenchmark ? 5.0e-7 : 0.0,
         axialBenchmark ? 0.0
+                       : reviewedPairIndeterminateCoarse ? -2.0e-5
+                         : reviewedPairIndeterminateFine ? -2.5e-5
                        : cantileverCoarse ? -1.8e-4
                          : cantileverFine ? -1.9e-4
                                            : -2.0e-5,
         axialBenchmark ? 1.0e5
+                       : reviewedPairIndeterminateCoarse ? 1.0e6
+                         : reviewedPairIndeterminateFine ? 1.25e6
                        : cantileverCoarse ? 5.5e6
                          : cantileverFine ? 5.8e6
                                            : 1.0e6);
