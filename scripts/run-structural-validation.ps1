@@ -63,13 +63,6 @@ if ($LASTEXITCODE -ne 0) {
   throw 'Structural known-pass/known-fail fixture gate failed.'
 }
 
-$solverVersionOutput = (& $solver -v 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or
-    [string]::IsNullOrWhiteSpace($solverVersionOutput)) {
-  throw 'Could not obtain the CalculiX version.'
-}
-$solverVersion = ($solverVersionOutput -replace '[\r\n]+', ' | ').Trim()
-
 $toolRoot = Join-Path $buildDirectory 'desktop/structural'
 $benchmark = Join-Path $toolRoot 'prometheus_run_structural_benchmark.exe'
 $refinement = Join-Path $toolRoot 'prometheus_run_structural_refinement.exe'
@@ -96,6 +89,31 @@ $replayLog = Invoke-CheckedTool $replay `
   'status=verified' `
   'Offline replay rejected the axial benchmark archive.'
 Write-Output $replayLog.TrimEnd()
+$archiveDocument = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+if ($archiveDocument.schema_version -cne '4.0.0') {
+  throw 'The axial archive does not use structural schema version 4.0.0.'
+}
+$coarseBackend = $archiveDocument.samples.coarse.backend
+$fineBackend = $archiveDocument.samples.fine.backend
+$coarseVersion = [string]$coarseBackend.version
+$fineVersion = [string]$fineBackend.version
+if ([string]::IsNullOrWhiteSpace($coarseVersion) -or
+    $coarseVersion -cne $fineVersion) {
+  throw 'The axial archive backend versions are missing or inconsistent.'
+}
+$coarseSolverSha256 = [string]$coarseBackend.executable_sha256
+$fineSolverSha256 = [string]$fineBackend.executable_sha256
+if ($coarseSolverSha256 -cnotmatch '^sha256:[0-9a-f]{64}$' -or
+    $fineSolverSha256 -cnotmatch '^sha256:[0-9a-f]{64}$' -or
+    $coarseSolverSha256 -cne $fineSolverSha256) {
+  throw 'The axial archive backend executable identities are invalid.'
+}
+$selectedSolverSha256 = Get-PrefixedSha256 $solver
+if ($coarseSolverSha256 -cne $selectedSolverSha256) {
+  throw 'The axial archive backend does not match the selected CalculiX executable.'
+}
+$solverVersion = $coarseVersion
+$solverSha256 = $coarseSolverSha256
 $refinementLog = Invoke-CheckedTool $refinement `
   @($solver, $cantileverOutput) `
   'refinement=passed' `
@@ -114,7 +132,7 @@ Write-Output $refinementLog.TrimEnd()
 $summary = [ordered]@{
   '$schema' = 'urn:prometheus:structural-validation-summary:0.2.0'
   solver = [ordered]@{
-    executable_sha256 = Get-PrefixedSha256 $solver
+    executable_sha256 = $solverSha256
     version = $solverVersion
   }
   tools = [ordered]@{
