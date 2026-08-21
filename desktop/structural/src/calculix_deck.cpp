@@ -1,5 +1,6 @@
 #include "prometheus/structural/calculix_deck.hpp"
 
+#include "calculix_deck_internal.hpp"
 #include "prometheus/structural/structural_request.hpp"
 
 #include <algorithm>
@@ -10,11 +11,8 @@
 
 namespace prometheus::structural {
 
-std::string generate_calculix_deck(const StructuralRequest &request) {
-  const auto issues = validate_request(request);
-  if (!issues.empty())
-    throw std::invalid_argument(issues.front().code + ": " + issues.front().message);
-
+std::string detail::generate_validated_calculix_deck(
+    const StructuralRequest &request) {
   auto nodes = request.nodes;
   auto elements = request.elements;
   auto restraints = request.fully_fixed_node_ids;
@@ -57,6 +55,14 @@ std::string generate_calculix_deck(const StructuralRequest &request) {
       << "*NODE PRINT, NSET=NALL\nU\n"
       << "*EL PRINT, ELSET=COMPONENT\nS\n*END STEP\n";
   return out.str();
+}
+
+std::string generate_calculix_deck(const StructuralRequest &request) {
+  const auto issues = validate_request(request);
+  if (!issues.empty())
+    throw std::invalid_argument(issues.front().code + ": " +
+                                issues.front().message);
+  return detail::generate_validated_calculix_deck(request);
 }
 
 } // namespace prometheus::structural

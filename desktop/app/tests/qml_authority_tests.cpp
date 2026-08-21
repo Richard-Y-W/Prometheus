@@ -26,6 +26,7 @@
 #include <QVariantMap>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QtQuick3D/QQuick3DGeometry>
 
 #include <algorithm>
 #include <cstdlib>
@@ -175,6 +176,71 @@ private:
   QString step_path_;
 };
 
+class StructuralControllerProbe final : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString status READ status CONSTANT)
+  Q_PROPERTY(QString error READ error CONSTANT)
+  Q_PROPERTY(QVariantMap meshSummary READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantList surfacePatches READ emptyList CONSTANT)
+  Q_PROPERTY(QVariantMap activeSurfacePatch READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantList selectedLoadPatchIds READ emptyList CONSTANT)
+  Q_PROPERTY(QVariantList selectedRestraintPatchIds READ emptyList CONSTANT)
+  Q_PROPERTY(QVariantList materialCandidates READ materialCandidates CONSTANT)
+  Q_PROPERTY(QVariantList blockers READ blockers CONSTANT)
+  Q_PROPERTY(QVariantMap requestPreview READ emptyMap CONSTANT)
+  Q_PROPERTY(bool canRun READ canRun CONSTANT)
+  Q_PROPERTY(bool busy READ busy CONSTANT)
+  Q_PROPERTY(QVariantMap lastRun READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantList findings READ emptyList CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry *meshGeometry READ geometry CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry *highlightGeometry READ geometry CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry *resultGeometry READ geometry CONSTANT)
+  Q_PROPERTY(QVariantMap resultView READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantList storedRuns READ emptyList CONSTANT)
+  Q_PROPERTY(QVariantMap setupDraft READ emptyMap CONSTANT)
+  Q_PROPERTY(QString refinementStage READ refinementStage CONSTANT)
+  Q_PROPERTY(bool hasRefinementBaseline READ hasRefinementBaseline CONSTANT)
+  Q_PROPERTY(bool sharedInputsLocked READ sharedInputsLocked CONSTANT)
+  Q_PROPERTY(QVariantMap baselineRun READ emptyMap CONSTANT)
+  Q_PROPERTY(QVariantMap refinementComparison READ emptyMap CONSTANT)
+
+public:
+  QString status() const { return "setup_blocked"; }
+  QString error() const { return {}; }
+  QVariantMap emptyMap() const { return {}; }
+  QVariantList emptyList() const { return {}; }
+  QVariantList materialCandidates() const {
+    return {QVariantMap{{"candidate_id", "candidate-1"},
+                        {"designation", "test material"},
+                        {"applicability", "unresolved"}}};
+  }
+  QVariantList blockers() const {
+    return {QVariantMap{{"code", "mesh_required"},
+                        {"message", "Load a mesh."}}};
+  }
+  bool canRun() const { return false; }
+  bool busy() const { return false; }
+  QString refinementStage() const { return "coarse"; }
+  bool hasRefinementBaseline() const { return false; }
+  bool sharedInputsLocked() const { return false; }
+  QQuick3DGeometry *geometry() const { return nullptr; }
+
+  Q_INVOKABLE void loadMesh(const QUrl &, double, double) {}
+  Q_INVOKABLE void setPatchAngle(double) {}
+  Q_INVOKABLE void setActiveSurfacePatch(int) {}
+  Q_INVOKABLE void setPatchSelected(int, const QString &, bool) {}
+  Q_INVOKABLE bool loadMaterialEvidence(const QUrl &) { return true; }
+  Q_INVOKABLE void selectMaterialCandidate(const QString &, const QString &) {}
+  Q_INVOKABLE void reviewSetup(const QVariantMap &) {}
+  Q_INVOKABLE void runAnalysis(const QUrl &, const QUrl &) {}
+  Q_INVOKABLE void commitLastRun() {}
+  Q_INVOKABLE void restoreStoredRun(int, const QUrl &) {}
+  Q_INVOKABLE void discardRefinementBaseline() {}
+
+signals:
+  void changed();
+};
+
 namespace {
 
 namespace integrity = prometheus::integrity;
@@ -290,15 +356,48 @@ void verifyAuthorityScan() {
   const std::vector<QString> files{
       uiRoot + "/Main.qml", uiRoot + "/ComponentPackagePanel.qml",
       uiRoot + "/MotorScenarioDialog.qml", uiRoot + "/MotorRunPanel.qml",
-      uiRoot + "/RunHistoryPanel.qml", uiRoot + "/ProjectInventoryPanel.qml"};
+      uiRoot + "/RunHistoryPanel.qml", uiRoot + "/ProjectInventoryPanel.qml",
+      uiRoot + "/StructuralSetupPanel.qml"};
   QString source;
+  QString mainSource;
+  QString structuralSource;
   for (const auto &path : files) {
     QFile file(path);
     require(file.open(QIODevice::ReadOnly),
             "production QML workflow file exists: " + path.toStdString());
-    source += QString::fromUtf8(file.readAll());
+    const auto contents = QString::fromUtf8(file.readAll());
+    source += contents;
     source += '\n';
+    if (path.endsWith("/Main.qml")) mainSource = contents;
+    if (path.endsWith("/StructuralSetupPanel.qml"))
+      structuralSource = contents;
   }
+
+  require(mainSource.count(
+              QRegularExpression("\\bStructuralSetupPanel\\s*\\{")) == 1,
+          "Main exposes exactly one structural setup panel");
+  require(structuralSource.count(
+              "required property var structuralController") == 1,
+          "the structural panel declares exactly one controller authority");
+  for (const auto &retired : {"StructuralSetupController", "readyToExport",
+                              "exportReviewedCase"})
+    require(!source.contains(retired),
+            std::string("production QML excludes retired structural path: ") +
+                retired);
+  for (const auto &untrustedRefinementField : {
+           "refinement_complete", "refinement_criteria_satisfied",
+           "refinement_change_fraction", "refinement_result_sha256",
+           "validated_result_identity"})
+    require(!structuralSource.contains(untrustedRefinementField),
+            std::string("structural presentation cannot submit refinement evidence: ") +
+                untrustedRefinementField);
+  require(structuralSource.contains(
+              "refinement_maximum_change_fraction") &&
+              structuralSource.contains(
+                  "boundary_load_correspondence_reviewed") &&
+              structuralSource.contains(
+                  "boundary_restraint_correspondence_reviewed"),
+          "QML may declare a pre-run criterion and explicit human review");
 
   const std::vector<QRegularExpression> forbidden{
       QRegularExpression(
@@ -322,6 +421,54 @@ void verifyAuthorityScan() {
   }
   require(!source.contains("Project works", Qt::CaseInsensitive),
           "QML contains no unscoped project verdict");
+}
+
+void verifyStructuralPanel() {
+  StructuralControllerProbe structural;
+  QQmlApplicationEngine engine;
+  QQmlComponent panel(
+      &engine, QUrl::fromLocalFile(QStringLiteral(PROMETHEUS_UI_DIR) +
+                                   "/StructuralSetupPanel.qml"));
+  std::unique_ptr<QObject> root(panel.createWithInitialProperties({
+      {"structuralController", QVariant::fromValue<QObject *>(&structural)},
+      {"width", 1180},
+      {"height", 760},
+  }));
+  if (!root) {
+    for (const auto &error : panel.errors())
+      std::cerr << error.toString().toStdString() << '\n';
+  }
+  require(root != nullptr,
+          "the sole structural setup panel instantiates with a mock authority");
+  const std::vector<const char *> properties{
+      "status",          "error",          "meshSummary",
+      "surfacePatches",  "activeSurfacePatch",
+      "selectedLoadPatchIds", "selectedRestraintPatchIds",
+      "materialCandidates", "blockers",    "requestPreview",
+      "canRun",          "busy",           "lastRun",
+      "findings",        "meshGeometry",   "highlightGeometry",
+      "resultGeometry",  "resultView",     "storedRuns",
+      "setupDraft",      "refinementStage", "hasRefinementBaseline",
+      "sharedInputsLocked", "baselineRun", "refinementComparison"};
+  for (int repetition = 0; repetition < 2; ++repetition)
+    for (const auto *property : properties)
+      require(structural.property(property).isValid(),
+              std::string("mock structural property is readable: ") + property);
+  require(root->property("structuralController").value<QObject *>() ==
+              &structural,
+          "the panel retains the supplied single controller authority");
+  for (const auto *objectName : {"structuralMeshViewport",
+                                 "materialEvidenceButton",
+                                 "materialCandidateSelector",
+                                 "selectedSurfaceSummary",
+                                 "compiledEvidenceSummary",
+                                 "refinementMaximumChange",
+                                 "loadCorrespondenceReviewed",
+                                 "restraintCorrespondenceReviewed",
+                                 "discardRefinementBaseline",
+                                 "refinementStateSummary"})
+    require(requiredChild(root.get(), objectName) != nullptr,
+            std::string("structural workflow element exists: ") + objectName);
 }
 
 void verifyPendingSaveAs(const QByteArray &motorA) {
@@ -457,6 +604,7 @@ void verifyOffscreenWorkflow() {
   ProjectController project(&cad, &geometry);
   ProjectIntakeController intake;
   ExecutionController execution(&project, &service);
+  StructuralControllerProbe structural;
   ComponentBindingController componentBinding;
   project.openProject(QUrl::fromLocalFile(projectPath));
   require(project.errorCode().isEmpty(), "QML workflow project opens");
@@ -479,6 +627,7 @@ void verifyOffscreenWorkflow() {
   engine.rootContext()->setContextProperty("projectController", &project);
   engine.rootContext()->setContextProperty("projectIntakeController", &intake);
   engine.rootContext()->setContextProperty("executionController", &execution);
+  engine.rootContext()->setContextProperty("structuralController", &structural);
   engine.rootContext()->setContextProperty("componentBindingController", &componentBinding);
   engine.rootContext()->setContextProperty("demoResearch", false);
   engine.rootContext()->setContextProperty("demoEngineering", false);
@@ -738,6 +887,7 @@ void verifyProjectInventoryPanel() {
 int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   verifyAuthorityScan();
+  verifyStructuralPanel();
   verifyProjectInventoryPanel();
   verifyOffscreenWorkflow();
   return 0;

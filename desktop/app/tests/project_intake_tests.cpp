@@ -111,6 +111,41 @@ void accountsForEveryFile() {
           "unsupported readable file remains hashed and visible");
 }
 
+void computesRootIndependentInventoryIdentity() {
+  QTemporaryDir firstRoot;
+  QTemporaryDir secondRoot;
+  require(firstRoot.isValid() && secondRoot.isValid(),
+          "independent inventory roots exist");
+  require(QDir(firstRoot.path()).mkpath("docs") &&
+              QDir(secondRoot.path()).mkpath("docs"),
+          "matching nested inventory directories create");
+  writeFile(firstRoot.filePath("a.step"), "A");
+  writeFile(firstRoot.filePath("docs/readme.md"), "hello\n");
+  writeFile(secondRoot.filePath("a.step"), "A");
+  writeFile(secondRoot.filePath("docs/readme.md"), "hello\n");
+
+  constexpr auto expected =
+      "sha256:535ec79d19a301352ee1d10176bddd0e1080b4dea36241fc51daab29c34c296c";
+  const auto first = scanProjectFolder(firstRoot.path());
+  const auto second = scanProjectFolder(secondRoot.path());
+  require(first.ok && second.ok, "matching inventories scan successfully");
+  require(first.inventory_sha256 == expected &&
+              second.inventory_sha256 == expected,
+          "inventory identity follows the exact root-independent byte contract");
+
+  writeFile(secondRoot.filePath("docs/readme.md"), "hellO\n");
+  const auto changedBytes = scanProjectFolder(secondRoot.path());
+  require(changedBytes.inventory_sha256 != first.inventory_sha256,
+          "changing one content byte changes inventory identity");
+
+  require(QFile::rename(secondRoot.filePath("docs/readme.md"),
+                        secondRoot.filePath("docs/README.md")),
+          "inventory artifact renames");
+  const auto changedPath = scanProjectFolder(secondRoot.path());
+  require(changedPath.inventory_sha256 != changedBytes.inventory_sha256,
+          "changing a relative path changes inventory identity");
+}
+
 void handlesEmptyInvalidAndAmbiguousFolders() {
   QTemporaryDir empty;
   require(empty.isValid(), "empty project folder exists");
@@ -261,6 +296,7 @@ void controllerPublishesOnlySuccessfulInventory() {
               controller.unsupportedCount() == 0 &&
               controller.unreadableCount() == 0 &&
               controller.duplicateCopyCount() == 0 &&
+              !controller.inventorySha256().isEmpty() &&
               controller.status() == "1 file accounted for",
           "controller publishes inventory summary");
 
@@ -284,6 +320,7 @@ int main(int argc, char **argv) {
     QVariantMap summary{{"ok", result.ok},
                         {"error", result.error},
                         {"root_path", result.root_path},
+                        {"inventory_sha256", result.inventory_sha256},
                         {"total_files", result.artifacts.size()},
                         {"primary_step_path", result.primary_step_path},
                         {"elapsed_ms", timer.elapsed()}};
@@ -304,6 +341,7 @@ int main(int argc, char **argv) {
     return result.ok ? 0 : 2;
   }
   accountsForEveryFile();
+  computesRootIndependentInventoryIdentity();
   handlesEmptyInvalidAndAmbiguousFolders();
   buildsCanonicalImmutableInventorySnapshot();
   identifiesExactDuplicateCopies();

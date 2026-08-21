@@ -19,6 +19,8 @@ struct ReviewedMaterial final {
   double youngs_modulus_pa{};
   double poisson_ratio{};
   bool reviewed{};
+  std::string temper;
+  std::string product_form;
 };
 
 struct ReviewedSurfaceLoad final {
@@ -52,6 +54,7 @@ struct ReviewedRequirement final {
   RequirementCriticality criticality{RequirementCriticality::advisory};
   std::string source_or_exploratory_rationale;
   bool reviewed{};
+  std::string limit_basis;
 };
 
 [[nodiscard]] std::string_view to_string(RequirementQuantity value);
@@ -63,6 +66,11 @@ struct ReviewedMeshControls final {
   double maximum_size_m{};
   std::string mesher_identity;
   bool reviewed{};
+  std::string mesh_sha256;
+  double coordinate_scale_to_m{1.0};
+  double target_size_m{};
+  double minimum_mean_ratio_threshold{};
+  double observed_minimum_mean_ratio{};
 };
 
 struct StructuralSetup final {
@@ -79,12 +87,30 @@ struct StructuralSetup final {
   std::string scenario_description;
   bool scenario_confirmed{};
   double selection_patch_angle_degrees{15.0};
+  // New setups use the vector-based 2.1 evidence contract. Deserializers set
+  // this to 2.0.0 only when replaying a legacy single-requirement archive so
+  // its exact canonical bytes and compiled identity remain reproducible.
+  std::string evidence_schema_version{"2.1.0"};
+};
+
+struct CompiledStructuralSetup final {
+  StructuralRequest request;
+  std::string canonical_setup_evidence;
+  std::string calculix_deck;
+  std::string identity;
+  StructuralSetup reviewed_setup;
 };
 
 [[nodiscard]] std::vector<ValidationIssue> validate_setup(
     const StructuralSetup &setup);
 
 [[nodiscard]] StructuralRequest compile_structural_request(
+    const StructuralSetup &setup);
+
+[[nodiscard]] std::string serialize_structural_setup_evidence(
+    const StructuralSetup &setup);
+
+[[nodiscard]] CompiledStructuralSetup compile_structural_setup(
     const StructuralSetup &setup);
 
 } // namespace prometheus::structural

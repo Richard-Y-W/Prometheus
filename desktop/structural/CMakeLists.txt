@@ -3,10 +3,14 @@ add_library(prometheus_structural STATIC
   src/calculix_runner.cpp
   src/calculix_result.cpp
   src/gmsh_mesh.cpp
+  src/mesh_validation.cpp
+  src/prepared_mesh.cpp
   src/surface_groups.cpp
   src/surface_selection.cpp
   src/structural_request.cpp
+  src/structural_observables.cpp
   src/structural_findings.cpp
+  src/structural_refinement.cpp
   src/structural_archive.cpp
   src/structural_benchmarks.cpp
   src/structural_setup.cpp
@@ -88,12 +92,46 @@ if(BUILD_TESTING)
   add_executable(prometheus_structural_tests
     tests/structural_tests.cpp
   )
+  add_executable(prometheus_structural_observable_tests
+    tests/structural_observable_tests.cpp
+  )
   target_link_libraries(prometheus_structural_tests PRIVATE
     prometheus_structural
   )
+  target_include_directories(prometheus_structural_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include
+  )
+  target_link_libraries(prometheus_structural_observable_tests PRIVATE
+    prometheus_structural
+  )
   target_compile_definitions(prometheus_structural_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
   )
-  add_dependencies(prometheus_structural_tests prometheus_structural_solver_fixture)
+  add_dependencies(
+    prometheus_structural_tests
+    prometheus_export_structural_smoke
+    prometheus_replay_structural_run
+    prometheus_run_calculix_job
+    prometheus_run_structural_benchmark
+    prometheus_run_structural_refinement
+    prometheus_structural_solver_fixture
+  )
   add_test(NAME prometheus_structural_tests COMMAND prometheus_structural_tests)
+  add_test(
+    NAME prometheus_structural_observable_tests
+    COMMAND prometheus_structural_observable_tests
+  )
+  add_test(
+    NAME prometheus_structural_tool_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPORTER=$<TARGET_FILE:prometheus_export_structural_smoke>
+      -DRUNNER=$<TARGET_FILE:prometheus_run_calculix_job>
+      -DBENCHMARK=$<TARGET_FILE:prometheus_run_structural_benchmark>
+      -DREFINEMENT=$<TARGET_FILE:prometheus_run_structural_refinement>
+      -DREPLAY=$<TARGET_FILE:prometheus_replay_structural_run>
+      -DSOLVER=$<TARGET_FILE:prometheus_structural_solver_fixture>
+      -DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/structural-tool-fixture
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/structural_tool_fixture.cmake
+  )
 endif()

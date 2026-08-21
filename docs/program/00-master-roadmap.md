@@ -1,5 +1,7 @@
 # Prometheus master roadmap
 
+Current audited implementation status: [Prometheus master project status](../master-project-status.md), last audited 2026-08-18. This roadmap defines capability order; the dated status records which implementation and evidence gates are actually complete.
+
 The [approved general-engineering design](../superpowers/specs/2026-08-11-prometheus-general-engineering-platform-design.md) defines Prometheus as a local project compiler and solver-orchestration environment. The roadmap advances by evidence-bearing capability gates. A broad intake goal does not permit Prometheus to claim that an arbitrary project works when its parsers, semantic model, requirements, boundary conditions, solvers, or validation coverage are incomplete.
 
 ## Current project-value sequence

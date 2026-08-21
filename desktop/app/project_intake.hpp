@@ -18,6 +18,7 @@ struct ProjectIntakeResult final {
   QVariantList artifacts;
   QVariantList candidate_components;
   QString primary_step_path;
+  QString inventory_sha256;
   std::optional<prometheus::run_store::ObjectToStore> inventory_snapshot;
   std::optional<prometheus::run_store::ProjectEvidenceArchiveObjects>
       evidence_archive;
@@ -39,6 +40,7 @@ class ProjectIntakeController final : public QObject {
   Q_PROPERTY(int unreadableCount READ unreadableCount NOTIFY changed)
   Q_PROPERTY(int duplicateCopyCount READ duplicateCopyCount NOTIFY changed)
   Q_PROPERTY(QString primaryStepPath READ primaryStepPath NOTIFY changed)
+  Q_PROPERTY(QString inventorySha256 READ inventorySha256 NOTIFY changed)
   Q_PROPERTY(QString status READ status NOTIFY changed)
   Q_PROPERTY(QString error READ error NOTIFY changed)
   Q_PROPERTY(bool busy READ busy NOTIFY changed)
@@ -56,6 +58,7 @@ public:
   int unreadableCount() const;
   int duplicateCopyCount() const;
   QString primaryStepPath() const { return result_.primary_step_path; }
+  QString inventorySha256() const { return result_.inventory_sha256; }
   QString status() const;
   QString error() const { return result_.error; }
   bool busy() const { return busy_; }

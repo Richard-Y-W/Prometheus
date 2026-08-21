@@ -1,20 +1,30 @@
+param(
+  [switch]$OpenDesktop,
+  [string]$Preset = 'windows-release'
+)
+
 $ErrorActionPreference = 'Stop'
-
 $repo = Split-Path -Parent $PSScriptRoot
-$trialFolder = & (Join-Path $PSScriptRoot 'prepare-jpl-rover-trial.ps1') |
-  Select-Object -Last 1
+$driver = Join-Path $PSScriptRoot 'jpl-rover-trial.cmake'
+$trialFolder = Join-Path $repo 'out/trials/jpl-open-source-rover-0c4a0d9'
 
-cmake --preset windows-release
-if ($LASTEXITCODE -ne 0) { throw 'Windows Release configuration failed.' }
-cmake --build --preset windows-release
-if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed.' }
+Push-Location $repo
+try {
+  & cmake "-DPROMETHEUS_JPL_MODE=verify" "-DPROMETHEUS_JPL_PRESET=$Preset" -P $driver
+  if ($LASTEXITCODE -ne 0) {
+    throw "Pinned JPL Rover verification failed (exit $LASTEXITCODE)."
+  }
 
-$env:Path = "C:\msys64\ucrt64\bin;$env:Path"
-& (Join-Path $repo 'out/build/windows-release/desktop/app/prometheus_project_intake_tests.exe') --scan-only $trialFolder
-if ($LASTEXITCODE -ne 0) {
-  throw "The production project intake rejected the JPL Rover folder (exit $LASTEXITCODE)."
+  if ($OpenDesktop) {
+    & cmake --build --preset $Preset --target prometheus_desktop
+    if ($LASTEXITCODE -ne 0) {
+      throw "Prometheus desktop build failed (exit $LASTEXITCODE)."
+    }
+    $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
+    $env:PROMETHEUS_STARTUP_PROJECT_FOLDER = $trialFolder
+    Remove-Item Env:PROMETHEUS_STARTUP_STEP -ErrorAction SilentlyContinue
+    Start-Process -FilePath (Join-Path $repo "out/build/$Preset/desktop/app/prometheus_desktop.exe")
+  }
+} finally {
+  Pop-Location
 }
-
-$env:PROMETHEUS_STARTUP_PROJECT_FOLDER = $trialFolder
-Remove-Item Env:PROMETHEUS_STARTUP_STEP -ErrorAction SilentlyContinue
-& (Join-Path $repo 'out/build/windows-release/desktop/app/prometheus_desktop.exe')

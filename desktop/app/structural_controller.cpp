@@ -1,72 +1,86 @@
 #include "structural_controller.hpp"
 #include "project_controller.hpp"
 
-#include "prometheus/structural/structural_setup.hpp"
-#include "prometheus/structural/calculix_deck.hpp"
-#include "prometheus/structural/calculix_runner.hpp"
-#include "prometheus/structural/structural_findings.hpp"
-#include "prometheus/structural/structural_archive.hpp"
+#include "prometheus/integrity/canonical_json.hpp"
 #include "prometheus/decision/project_summary.hpp"
-#include "prometheus/run_store/run_store.hpp"
 #include "prometheus/run_store/object_store.hpp"
+#include "prometheus/run_store/run_store.hpp"
 #include "prometheus/run_store/structural_archive_store.hpp"
-
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <optional>
-#include <set>
-#include <unordered_map>
-#include <limits>
-
-#include <QVector3D>
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QtConcurrent>
+#include <QJsonParseError>
+#include <QSet>
 #include <QUuid>
+#include <QVector3D>
+#include <QtConcurrent>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <limits>
+#include <map>
+#include <optional>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace ps = prometheus::structural;
 namespace decision = prometheus::decision;
+namespace run_store = prometheus::run_store;
 
 namespace {
 
-ps::RequirementCriticality parseCriticality(const QString &value) {
+constexpr qint64 maximumMeshBytes = 512LL * 1024LL * 1024LL;
+constexpr qint64 maximumMaterialEvidenceBytes = 4LL * 1024LL * 1024LL;
+constexpr qsizetype maximumMaterialCandidates = 4096;
+
+ps::RequirementCriticality parse_criticality(const QString &value) {
   if (value == "critical") return ps::RequirementCriticality::critical;
-  if (value == "informational") return ps::RequirementCriticality::informational;
+  if (value == "informational")
+    return ps::RequirementCriticality::informational;
   return ps::RequirementCriticality::advisory;
 }
 
-QString criticalityLabel(const ps::RequirementCriticality value) {
+QString criticality_label(const ps::RequirementCriticality value) {
   const auto label = ps::to_string(value);
   return QString::fromUtf8(label.data(), static_cast<qsizetype>(label.size()));
 }
 
-QString dispositionLabel(const ps::StructuralFindingDisposition value) {
+QString disposition_label(const ps::StructuralFindingDisposition value) {
   switch (value) {
   case ps::StructuralFindingDisposition::violated: return "violated";
   case ps::StructuralFindingDisposition::cannot_answer: return "cannot_answer";
   case ps::StructuralFindingDisposition::no_violation_detected_within_scope:
     return "no_violation_detected_within_scope";
   }
-  return "no_violation_detected_within_scope";
+  return "cannot_answer";
 }
 
-QString verdictLabel(const decision::Verdict value) {
+QString verdict_label(const decision::Verdict value) {
   switch (value) {
-  case decision::Verdict::satisfied_within_scope: return "satisfied_within_scope";
-  case decision::Verdict::requirements_violated: return "requirements_violated";
+  case decision::Verdict::satisfied_within_scope:
+    return "satisfied_within_scope";
+  case decision::Verdict::requirements_violated:
+    return "requirements_violated";
   case decision::Verdict::indeterminate: return "indeterminate";
   }
   return "indeterminate";
 }
 
-QString coverageLabel(const decision::Coverage value) {
+QString coverage_label(const decision::Coverage value) {
   switch (value) {
   case decision::Coverage::sufficient: return "sufficient";
   case decision::Coverage::insufficient: return "insufficient";
@@ -75,7 +89,7 @@ QString coverageLabel(const decision::Coverage value) {
   return "not_assessed";
 }
 
-QString executionStateLabel(const decision::ExecutionState value) {
+QString execution_state_label(const decision::ExecutionState value) {
   switch (value) {
   case decision::ExecutionState::not_started: return "not_started";
   case decision::ExecutionState::ready: return "ready";
@@ -90,33 +104,63 @@ QString executionStateLabel(const decision::ExecutionState value) {
   return "failed";
 }
 
-struct DesktopRunResult final {
-  ps::SolverRunResult run;
-  ps::StructuralEvaluation evaluation;
+struct DesktopSampleCompletion final {
+  DesktopStructuralSampleResult sample;
+  std::optional<DesktopStructuralRefinementResult> refinement;
   QString output_directory;
-  std::optional<ps::StructuralArchive> archive;
-  std::string archive_error;
+  bool fine{};
 };
 
 struct DesktopStructuralCommitResult final {
-  std::optional<prometheus::run_store::ProjectV2> project;
+  std::optional<run_store::ProjectV2> project;
   bool already_committed{};
   std::string manifest_hash;
   std::string error;
 };
 
 struct DesktopStructuralRestoreResult final {
-  ps::VolumeMesh mesh;
-  std::vector<ps::BoundaryFace> boundary;
-  std::optional<ps::CalculixMetrics> metrics;
+  ps::StructuralArchiveVerification verification;
   QString manifest_path;
   QString output_directory;
-  std::string setup_bytes;
-  std::string archive_bytes;
   std::string error;
 };
 
-QString runStatus(const ps::SolverRunStatus status) {
+std::filesystem::path native_path(const QString &path) {
+#ifdef Q_OS_WIN
+  return std::filesystem::path(path.toStdWString());
+#else
+  const auto bytes = path.toUtf8();
+  return std::filesystem::path(
+      std::string(bytes.constData(), static_cast<std::size_t>(bytes.size())));
+#endif
+}
+
+QString qt_path(const std::filesystem::path &path) {
+#ifdef Q_OS_WIN
+  return QString::fromStdWString(path.native());
+#else
+  return QString::fromUtf8(path.native().c_str());
+#endif
+}
+
+std::string read_regular_file(const QString &path, const qint64 maximumBytes) {
+  const QFileInfo information(path);
+  if (!information.isAbsolute() || !information.exists() ||
+      !information.isFile() || information.isSymbolicLink() ||
+      information.size() < 0 || information.size() > maximumBytes)
+    throw std::invalid_argument(
+        "input must be an absolute bounded regular non-symlink file");
+  QFile input(information.absoluteFilePath());
+  if (!input.open(QIODevice::ReadOnly))
+    throw std::runtime_error("input file could not be opened");
+  const auto bytes = input.readAll();
+  if (input.error() != QFileDevice::NoError ||
+      bytes.size() != information.size())
+    throw std::runtime_error("input file could not be read exactly");
+  return {bytes.constData(), static_cast<std::size_t>(bytes.size())};
+}
+
+QString run_status(const ps::SolverRunStatus status) {
   switch (status) {
   case ps::SolverRunStatus::completed: return "completed";
   case ps::SolverRunStatus::launch_failed: return "launch_failed";
@@ -129,62 +173,327 @@ QString runStatus(const ps::SolverRunStatus status) {
   return "unknown";
 }
 
+QString refinement_status(const ps::StructuralRefinementStatus status) {
+  return status == ps::StructuralRefinementStatus::accepted
+             ? QStringLiteral("accepted")
+             : QStringLiteral("indeterminate");
+}
+
+QVariantMap comparison_map(const ps::VerifiedStructuralRefinement &comparison) {
+  return {
+      {"status", refinement_status(comparison.status())},
+      {"displacement_change_fraction",
+       comparison.displacement_change_fraction()},
+      {"stress_change_fraction", comparison.stress_change_fraction()},
+      {"maximum_change_fraction", comparison.maximum_change_fraction()},
+      {"maximum_allowed_change_fraction",
+       comparison.coarse().criterion().maximum_change_fraction()},
+      {"coarse_setup_identity",
+       QString::fromStdString(comparison.coarse().setup().identity)},
+      {"fine_setup_identity",
+       QString::fromStdString(comparison.fine().setup().identity)},
+      {"coarse_result_identity",
+       QString::fromStdString(
+           comparison.coarse().run().validated_result->identity)},
+      {"fine_result_identity",
+       QString::fromStdString(
+           comparison.fine().run().validated_result->identity)}};
+}
+
 QVariantList ids(const std::vector<int> &values) {
   QVariantList result;
   for (const int value : values) result.append(value);
   return result;
 }
 
-std::vector<int> sortedUnique(std::vector<int> values) {
+std::vector<int> sorted_unique(std::vector<int> values) {
   std::ranges::sort(values);
   values.erase(std::unique(values.begin(), values.end()), values.end());
   return values;
 }
 
-std::optional<double> positiveOptional(const QVariantMap &draft,
-                                       const char *key) {
-  const double value = draft.value(key).toDouble();
-  return value > 0.0 ? std::optional<double>(value) : std::nullopt;
+std::array<int, 3> canonical_face(std::array<int, 3> face) {
+  std::ranges::sort(face);
+  return face;
 }
 
-std::optional<prometheus::run_store::StoredObjectReference>
-storedReference(const QJsonObject &object) {
+std::optional<double> positive_optional(const QVariantMap &draft,
+                                        const char *key) {
+  const double value = draft.value(key).toDouble();
+  return std::isfinite(value) && value > 0.0
+             ? std::optional<double>(value)
+             : std::nullopt;
+}
+
+const ps::ReviewedRequirement *requirement_for(
+    const std::vector<ps::ReviewedRequirement> &requirements,
+    const ps::RequirementQuantity quantity) {
+  const auto found = std::ranges::find(requirements, quantity,
+                                       &ps::ReviewedRequirement::quantity);
+  return found == requirements.end() ? nullptr : &*found;
+}
+
+std::optional<run_store::StoredObjectReference>
+stored_reference(const QJsonObject &object) {
   const auto hash = object.value("object_hash").toString();
   const auto media = object.value("media_type").toString();
   const auto schema = object.value("schema_id").toString();
   const auto version = object.value("schema_version").toString();
   const auto length = object.value("byte_length").toDouble(-1.0);
-  if (hash.isEmpty() || media.isEmpty() || schema.isEmpty() || version.isEmpty() ||
-      length <= 0.0 || length > 9007199254740991.0)
+  if (hash.isEmpty() || media.isEmpty() || schema.isEmpty() ||
+      version.isEmpty() || length <= 0.0 || length > 9007199254740991.0)
     return std::nullopt;
-  return prometheus::run_store::StoredObjectReference{
+  return run_store::StoredObjectReference{
       hash.toStdString(), static_cast<std::uint64_t>(length),
       media.toStdString(), schema.toStdString(), version.toStdString()};
 }
 
+QVariantMap patch_map(const ps::SurfacePatch &patch) {
+  return {{"id", patch.id},
+          {"face_count", static_cast<qlonglong>(patch.face_node_ids.size())},
+          {"node_count", static_cast<qlonglong>(patch.node_ids.size())},
+          {"area_m2", patch.area_m2},
+          {"centroid_x_m", patch.area_weighted_centroid_m[0]},
+          {"centroid_y_m", patch.area_weighted_centroid_m[1]},
+          {"centroid_z_m", patch.area_weighted_centroid_m[2]},
+          {"normal_x", patch.representative_unit_normal[0]},
+          {"normal_y", patch.representative_unit_normal[1]},
+          {"normal_z", patch.representative_unit_normal[2]}};
+}
+
+struct MeshExtents final {
+  double minimum_x{};
+  double minimum_y{};
+  double minimum_z{};
+  double maximum_x{};
+  double maximum_y{};
+  double maximum_z{};
+  double diagonal{};
+};
+
+MeshExtents mesh_extents(const ps::VolumeMesh &mesh) {
+  MeshExtents result{
+      .minimum_x = std::numeric_limits<double>::max(),
+      .minimum_y = std::numeric_limits<double>::max(),
+      .minimum_z = std::numeric_limits<double>::max(),
+      .maximum_x = std::numeric_limits<double>::lowest(),
+      .maximum_y = std::numeric_limits<double>::lowest(),
+      .maximum_z = std::numeric_limits<double>::lowest()};
+  for (const auto &node : mesh.nodes) {
+    result.minimum_x = std::min(result.minimum_x, node.position_m[0]);
+    result.minimum_y = std::min(result.minimum_y, node.position_m[1]);
+    result.minimum_z = std::min(result.minimum_z, node.position_m[2]);
+    result.maximum_x = std::max(result.maximum_x, node.position_m[0]);
+    result.maximum_y = std::max(result.maximum_y, node.position_m[1]);
+    result.maximum_z = std::max(result.maximum_z, node.position_m[2]);
+  }
+  result.diagonal = std::hypot(result.maximum_x - result.minimum_x,
+                               result.maximum_y - result.minimum_y,
+                               result.maximum_z - result.minimum_z);
+  return result;
+}
+
+QVariantList string_list(const std::vector<std::string> &values) {
+  QVariantList result;
+  for (const auto &value : values)
+    result.append(QString::fromStdString(value));
+  return result;
+}
+
+QVariantList decode_material_candidates(const std::string_view bytes,
+                                        const QString &evidenceHash) {
+  const auto canonical = prometheus::integrity::canonicalize_json_bytes(bytes);
+  QJsonParseError error;
+  const auto document = QJsonDocument::fromJson(
+      QByteArray::fromStdString(canonical), &error);
+  if (error.error != QJsonParseError::NoError || !document.isObject())
+    throw std::invalid_argument("material evidence must be one JSON object");
+  const auto root = document.object();
+  if (root.keys().size() != 3 ||
+      root.value("$schema").toString() !=
+          "urn:prometheus:material-candidate-evidence:0.1.0" ||
+      !root.value("candidates").isArray() ||
+      !root.value("sources").isArray())
+    throw std::invalid_argument("material evidence contract is unsupported");
+  const auto candidates = root.value("candidates").toArray();
+  if (candidates.isEmpty() || candidates.size() > maximumMaterialCandidates)
+    throw std::invalid_argument("material candidate count is invalid");
+  QSet<QString> identities;
+  QVariantList result;
+  for (const auto &value : candidates) {
+    if (!value.isObject())
+      throw std::invalid_argument("material candidate must be an object");
+    const auto object = value.toObject();
+    const auto identity = object.value("candidate_id").toString();
+    const auto designation = object.value("designation").toString();
+    if (identity.isEmpty() || designation.isEmpty() ||
+        identities.contains(identity) || object.contains("yield_strength_pa") ||
+        object.contains("allowable_stress_pa") ||
+        object.contains("von_mises_limit_pa"))
+      throw std::invalid_argument("material candidate identity or scope is invalid");
+    identities.insert(identity);
+    auto candidate = object.toVariantMap();
+    candidate["applicability"] = "unresolved";
+    candidate["evidence_sha256"] = evidenceHash;
+    result.append(candidate);
+  }
+  return result;
+}
+
+void append_finding(QVariantList &target, const ps::StructuralFinding &finding) {
+  target.append(QVariantMap{
+      {"obligation", QString::fromStdString(finding.obligation)},
+      {"disposition", disposition_label(finding.disposition)},
+      {"measured", finding.measured_value},
+      {"limit", finding.limit_value},
+      {"margin", finding.margin_to_limit},
+      {"unit", QString::fromStdString(finding.unit)},
+      {"scope", QString::fromStdString(finding.scope)},
+      {"evidence_sha256", string_list(finding.evidence_sha256)},
+      {"assumptions", string_list(finding.assumptions)}});
+}
+
+void append_unknown(QVariantList &target,
+                    const ps::StructuralUnevaluatedObligation &unknown,
+                    const ps::StructuralRequest &request) {
+  const bool displacement = unknown.obligation == "maximum_displacement";
+  const auto limit = displacement ? request.displacement_limit_m
+                                  : request.von_mises_limit_pa;
+  target.append(QVariantMap{
+      {"obligation", QString::fromStdString(unknown.obligation)},
+      {"disposition", "cannot_answer"},
+      {"measured", QVariant{}},
+      {"limit", limit.value_or(0.0)},
+      {"margin", QVariant{}},
+      {"unit", displacement ? "m" : "Pa"},
+      {"scope", QString::fromStdString(unknown.detail)},
+      {"code", QString::fromStdString(unknown.code)}});
+}
+
+void append_assessment(QVariantMap &target,
+                       const ps::StructuralEvaluation &evaluation,
+                       const qsizetype uncoveredRequirements,
+                       const decision::ExecutionState executionState,
+                       const std::string &subjectIdentity) {
+  decision::Counts counts;
+  for (const auto &finding : evaluation.findings) {
+    switch (finding.disposition) {
+    case ps::StructuralFindingDisposition::no_violation_detected_within_scope:
+      ++counts.satisfied_within_scope;
+      break;
+    case ps::StructuralFindingDisposition::violated:
+      ++counts.violated;
+      break;
+    case ps::StructuralFindingDisposition::cannot_answer:
+      ++counts.not_evaluated;
+      break;
+    }
+  }
+  counts.not_evaluated +=
+      static_cast<std::uint64_t>(evaluation.unknowns.size());
+  counts.not_applicable +=
+      static_cast<std::uint64_t>(uncoveredRequirements);
+  const auto total = counts.satisfied_within_scope + counts.violated +
+      counts.indeterminate + counts.not_applicable + counts.not_evaluated;
+  if (total == 0U) return;
+  const auto summary =
+      decision::summarize(counts, executionState, total, subjectIdentity);
+  target["assessment"] = QVariantMap{
+      {"verdict", verdict_label(summary.verdict)},
+      {"coverage", coverage_label(summary.coverage)},
+      {"execution_state", execution_state_label(summary.execution_state)}};
+}
+
+template <typename Geometry>
+void clear_geometry(Geometry *&geometry) {
+  if (geometry) geometry->deleteLater();
+  geometry = nullptr;
+}
+
 } // namespace
+
+StructuralMeshGeometry::StructuralMeshGeometry(
+    const ps::VolumeMesh &mesh, const std::vector<ps::BoundaryFace> &boundary,
+    const std::vector<std::array<int, 3>> &highlightedFaces, QObject *parent)
+    : QQuick3DGeometry(nullptr) {
+  setParent(parent);
+  std::map<int, const ps::Node *> nodes;
+  for (const auto &node : mesh.nodes) nodes.emplace(node.id, &node);
+  std::set<std::array<int, 3>> selected;
+  for (auto face : highlightedFaces)
+    selected.insert(canonical_face(face));
+  std::vector<float> vertices;
+  std::vector<std::uint32_t> indices;
+  QVector3D minimum(std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max());
+  QVector3D maximum(std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest(),
+                    std::numeric_limits<float>::lowest());
+  for (const auto &face : boundary) {
+    if (!selected.empty() && !selected.contains(canonical_face(face.node_ids)))
+      continue;
+    for (const int nodeId : face.node_ids) {
+      const auto node = nodes.find(nodeId);
+      if (node == nodes.end())
+        throw std::runtime_error("display face references an unknown node");
+      const QVector3D position(
+          static_cast<float>(node->second->position_m[0] * 1000.0),
+          static_cast<float>(node->second->position_m[1] * 1000.0),
+          static_cast<float>(node->second->position_m[2] * 1000.0));
+      vertices.insert(vertices.end(),
+                      {position.x(), position.y(), position.z(),
+                       static_cast<float>(face.outward_unit_normal[0]),
+                       static_cast<float>(face.outward_unit_normal[1]),
+                       static_cast<float>(face.outward_unit_normal[2])});
+      indices.push_back(static_cast<std::uint32_t>(indices.size()));
+      minimum.setX(std::min(minimum.x(), position.x()));
+      minimum.setY(std::min(minimum.y(), position.y()));
+      minimum.setZ(std::min(minimum.z(), position.z()));
+      maximum.setX(std::max(maximum.x(), position.x()));
+      maximum.setY(std::max(maximum.y(), position.y()));
+      maximum.setZ(std::max(maximum.z(), position.z()));
+    }
+  }
+  clear();
+  setStride(6 * sizeof(float));
+  setPrimitiveType(QQuick3DGeometry::PrimitiveType::Triangles);
+  addAttribute(QQuick3DGeometry::Attribute::PositionSemantic, 0,
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::NormalSemantic, 3 * sizeof(float),
+               QQuick3DGeometry::Attribute::F32Type);
+  addAttribute(QQuick3DGeometry::Attribute::IndexSemantic, 0,
+               QQuick3DGeometry::Attribute::U32Type);
+  setVertexData(QByteArray(reinterpret_cast<const char *>(vertices.data()),
+                           static_cast<qsizetype>(vertices.size() * sizeof(float))));
+  setIndexData(QByteArray(reinterpret_cast<const char *>(indices.data()),
+                          static_cast<qsizetype>(indices.size() * sizeof(std::uint32_t))));
+  if (!vertices.empty()) setBounds(minimum, maximum);
+  update();
+}
 
 StructuralResultGeometry::StructuralResultGeometry(
     const ps::VolumeMesh &mesh,
     const std::vector<ps::BoundaryFace> &boundary,
-    const ps::CalculixMetrics &fields, const double deformationScale,
-    QObject *parent)
+    const ps::CalculixDat &normalized, const ps::CalculixMetrics &metrics,
+    const double deformationScale, QObject *parent)
     : QQuick3DGeometry(nullptr) {
   setParent(parent);
   std::unordered_map<int, ps::Node> nodes;
   for (const auto &node : mesh.nodes) nodes.emplace(node.id, node);
   std::unordered_map<int, ps::NodalDisplacement> displacement;
-  for (const auto &row : fields.displacements)
+  for (const auto &row : normalized.displacements)
     displacement.emplace(row.node_id, row);
   std::unordered_map<int, double> stress;
-  for (const auto &row : fields.stresses) {
+  for (const auto &row : normalized.stresses) {
     auto [entry, inserted] = stress.emplace(row.element_id, row.von_mises_pa);
     if (!inserted) entry->second = std::max(entry->second, row.von_mises_pa);
   }
   const auto color = [&](const double value) {
-    const auto ratio = fields.maximum_von_mises_pa > 0.0
-        ? std::clamp(value / fields.maximum_von_mises_pa, 0.0, 1.0) : 0.0;
-    // Perceptually ordered blue -> cyan -> yellow -> red ramp.
+    const auto ratio = metrics.maximum_von_mises_pa > 0.0
+                           ? std::clamp(value / metrics.maximum_von_mises_pa,
+                                        0.0, 1.0)
+                           : 0.0;
     if (ratio < 0.333333) {
       const auto t = ratio * 3.0;
       return std::array<float, 4>{0.05F, static_cast<float>(0.25 + 0.7 * t),
@@ -201,8 +510,6 @@ StructuralResultGeometry::StructuralResultGeometry(
   };
   std::vector<float> vertices;
   std::vector<std::uint32_t> indices;
-  vertices.reserve(boundary.size() * 3U * 10U);
-  indices.reserve(boundary.size() * 3U);
   QVector3D minimum(std::numeric_limits<float>::max(),
                     std::numeric_limits<float>::max(),
                     std::numeric_limits<float>::max());
@@ -236,12 +543,14 @@ StructuralResultGeometry::StructuralResultGeometry(
                                                  positions[2] - positions[0])
                             .normalized();
     const auto stressValue = stress.contains(face.source_element_id)
-        ? stress.at(face.source_element_id) : 0.0;
+                                 ? stress.at(face.source_element_id)
+                                 : 0.0;
     const auto rgba = color(stressValue);
     for (const auto &position : positions) {
       vertices.insert(vertices.end(),
-          {position.x(), position.y(), position.z(), normal.x(), normal.y(),
-           normal.z(), rgba[0], rgba[1], rgba[2], rgba[3]});
+                      {position.x(), position.y(), position.z(), normal.x(),
+                       normal.y(), normal.z(), rgba[0], rgba[1], rgba[2],
+                       rgba[3]});
       indices.push_back(static_cast<std::uint32_t>(indices.size()));
     }
   }
@@ -261,11 +570,14 @@ StructuralResultGeometry::StructuralResultGeometry(
   setIndexData(QByteArray(reinterpret_cast<const char *>(indices.data()),
                           static_cast<qsizetype>(indices.size() * sizeof(std::uint32_t))));
   if (!vertices.empty()) setBounds(minimum, maximum);
+  update();
 }
 
-StructuralController::StructuralController(ProjectController *project,
-                                           QObject *parent)
-    : QObject(parent), project_(project) {
+StructuralController::StructuralController(
+    ProjectController *project, QObject *parent,
+    std::shared_ptr<const StructuralBackend> backend)
+    : QObject(parent), backend_(std::move(backend)), project_(project) {
+  if (!backend_) backend_ = makeLocalStructuralBackend();
   if (project_) {
     connect(project_, &ProjectController::projectOpened,
             this, &StructuralController::reloadProject);
@@ -273,22 +585,23 @@ StructuralController::StructuralController(ProjectController *project,
             this, &StructuralController::reloadProject);
     connect(project_, &ProjectController::assemblyArtifactInvalidated, this,
             [this] {
-      compiled_request_.reset();
-      compiled_requirements_.clear();
-      compiled_material_.reset();
-      compiled_load_.reset();
-      compiled_restraint_.reset();
-      compiled_setup_evidence_.clear();
+      compiled_setup_.reset();
+      baseline_sample_.reset();
+      baseline_run_.clear();
+      refinement_criterion_.reset();
+      boundary_correspondence_.reset();
+      completed_refinement_.reset();
+      refinement_comparison_.clear();
+      refinement_stage_ = "coarse";
       can_run_ = false;
-      const auto present = std::any_of(
-          blockers_.cbegin(), blockers_.cend(), [](const QVariant &value) {
-            return value.toMap().value("code").toString() ==
-                   "source_artifact_changed";
+      const auto present = std::ranges::any_of(
+          blockers_, [](const QVariant &value) {
+            return value.toMap().value("code") == "source_artifact_changed";
           });
       if (!present)
         blockers_.append(QVariantMap{
             {"code", "source_artifact_changed"},
-            {"message", "The accounted CAD bytes changed. Historical results remain viewable, but geometry and selected load/restraint surfaces must be reviewed before rerun."}});
+            {"message", "The accounted CAD bytes changed. Historical results remain viewable, but geometry and selected surfaces require review before rerun."}});
       emit changed();
     });
   }
@@ -296,485 +609,27 @@ StructuralController::StructuralController(ProjectController *project,
   reloadProject();
 }
 
-void StructuralController::commitLastRun() {
-  if (busy_) return;
-  if (!project_ || project_->currentProjectPath().isEmpty()) {
-    error_ = "Open or save a Prometheus project before committing this run.";
-    emit changed();
-    return;
-  }
-  const auto manifestText = last_run_.value("archive_manifest").toString();
-  if (manifestText.isEmpty()) {
-    error_ = "A completed verified structural archive is required.";
-    emit changed();
-    return;
-  }
-  const auto manifestPath = std::filesystem::path(manifestText.toStdWString());
-  const auto projectPath = project_->projectPath();
-  const auto assemblyHash = project_->project()->assembly_artifact_hash;
-  busy_ = true;
-  status_ = "publishing_structural_archive";
-  error_.clear();
-  emit changed();
-  auto *watcher = new QFutureWatcher<DesktopStructuralCommitResult>(this);
-  connect(watcher, &QFutureWatcher<DesktopStructuralCommitResult>::finished,
-          this, [this, watcher] {
-    const auto completed = watcher->result();
-    watcher->deleteLater();
-    busy_ = false;
-    if (!completed.project) {
-      error_ = QString::fromStdString(completed.error);
-      last_run_["project_anchored"] = false;
-      status_ = "structural_archive_publication_failed";
-    } else {
-      project_->acceptProject(*completed.project);
-      last_run_["project_anchored"] = true;
-      last_run_["project_artifacts_embedded"] = true;
-      last_run_["project_manifest_hash"] =
-          QString::fromStdString(completed.manifest_hash);
-      last_run_["project_already_committed"] = completed.already_committed;
-      status_ = "structural_archive_published";
-      reloadProject();
-    }
-    emit changed();
-  });
-  watcher->setFuture(QtConcurrent::run(
-      [manifestPath, projectPath, assemblyHash] {
-        const auto verified = ps::verify_structural_archive(manifestPath);
-        if (!verified.valid)
-          return DesktopStructuralCommitResult{
-              std::nullopt, false, {}, verified.code + ": " + verified.detail};
-        auto objects = prometheus::run_store::build_structural_archive_objects(
-            manifestPath, assemblyHash);
-        if (!objects.has_value())
-          return DesktopStructuralCommitResult{
-              std::nullopt, false, {}, objects.diagnostic().code + ": " +
-                  objects.diagnostic().message};
-        const auto manifestHash =
-            objects.value().project_manifest.reference.object_hash;
-        auto published = prometheus::run_store::publish_structural_archive(
-            projectPath, objects.value());
-        if (!published.has_value())
-          return DesktopStructuralCommitResult{
-              std::nullopt, false, {}, published.diagnostic().code + ": " +
-                  published.diagnostic().message};
-        return DesktopStructuralCommitResult{
-            published.value().project, published.value().already_committed,
-            manifestHash, {}};
-      }));
+void StructuralController::clearCompletedRun() {
+  completed_refinement_.reset();
+  boundary_correspondence_.reset();
+  refinement_comparison_.clear();
+  restored_verification_.reset();
+  last_run_.clear();
+  findings_.clear();
+  uncovered_requirements_.clear();
+  reviewed_input_history_.clear();
+  clear_geometry(result_geometry_);
+  result_view_.clear();
+  refinement_stage_ = baseline_sample_ ? "fine" : "coarse";
 }
 
-void StructuralController::reloadProject() {
-  stored_runs_.clear();
-  rebuildReviewedInputHistory();
-  if (!project_ || !project_->project()) {
-    emit changed();
-    return;
-  }
-  for (const auto &reference : project_->project()->execution.committed_runs) {
-    if (reference.schema_id ==
-        prometheus::run_store::structural_manifest_schema_id) {
-      stored_runs_.append(QVariantMap{
-          {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
-          {"status", "legacy_manifest_only"},
-          {"restorable", false}});
-      continue;
-    }
-    if (reference.schema_id !=
-        prometheus::run_store::structural_project_run_schema_id)
-      continue;
-    QVariantMap display{
-        {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
-        {"status", "embedded"}, {"restorable", true}};
-    const auto projectManifest = prometheus::run_store::read_object(
-        project_->projectPath(), reference);
-    if (!projectManifest.has_value()) {
-      display["status"] = "unavailable";
-      display["restorable"] = false;
-      display["error"] = QString::fromStdString(projectManifest.diagnostic().message);
-      stored_runs_.append(display);
-      continue;
-    }
-    QJsonParseError parseError;
-    const auto projectDocument = QJsonDocument::fromJson(
-        QByteArray::fromStdString(projectManifest.value()), &parseError);
-    const auto archiveReference = projectDocument.isObject()
-        ? storedReference(projectDocument.object().value("archive_manifest").toObject())
-        : std::nullopt;
-    if (parseError.error != QJsonParseError::NoError || !archiveReference) {
-      display["status"] = "unavailable";
-      display["restorable"] = false;
-      display["error"] = "Embedded structural project manifest is invalid.";
-      stored_runs_.append(display);
-      continue;
-    }
-    const auto boundAssembly =
-        projectDocument.object().value("assembly_artifact_hash").toString();
-    const auto sourceCurrent =
-        boundAssembly.toStdString() == project_->project()->assembly_artifact_hash;
-    display["assembly_artifact_hash"] = boundAssembly;
-    display["source_current"] = sourceCurrent;
-    if (!sourceCurrent) display["status"] = "stale_source_changed";
-    const auto archive = prometheus::run_store::read_object(
-        project_->projectPath(), *archiveReference);
-    if (archive.has_value()) {
-      const auto archiveDocument = QJsonDocument::fromJson(
-          QByteArray::fromStdString(archive.value()));
-      const auto root = archiveDocument.object();
-      display["analysis_id"] = root.value("analysis_id").toString();
-      display["component_name"] = root.value("component_name").toString();
-      display["maximum_displacement_m"] =
-          root.value("metrics").toObject().value("maximum_displacement_m").toDouble();
-      display["maximum_von_mises_pa"] =
-          root.value("metrics").toObject().value("maximum_von_mises_pa").toDouble();
-    }
-    stored_runs_.append(display);
-  }
-  emit changed();
-}
-
-void StructuralController::restoreStoredRun(const int index,
-                                            const QUrl &outputRoot) {
-  if (busy_ || !project_ || !project_->project() || index < 0 ||
-      index >= stored_runs_.size())
-    return;
-  const auto selected = stored_runs_.at(index).toMap();
-  if (!selected.value("restorable").toBool()) {
-    error_ = "The selected structural history entry has no embedded artifacts.";
-    emit changed();
-    return;
-  }
-  const auto rootPath = outputRoot.toLocalFile();
-  const auto sourceCurrent = selected.value("source_current", true).toBool();
-  if (rootPath.isEmpty()) {
-    error_ = "Select an output folder for the reconstructed archive.";
-    emit changed();
-    return;
-  }
-  QDir root(rootPath);
-  if (!root.exists() && !QDir().mkpath(rootPath)) {
-    error_ = "The structural restore directory could not be created.";
-    emit changed();
-    return;
-  }
-  const auto hash = selected.value("project_manifest_hash").toString().toStdString();
-  const auto reference = std::ranges::find_if(
-      project_->project()->execution.committed_runs,
-      [&](const auto &candidate) { return candidate.object_hash == hash; });
-  if (reference == project_->project()->execution.committed_runs.end()) {
-    error_ = "The selected structural history reference is no longer current.";
-    emit changed();
-    return;
-  }
-  const auto destination = root.filePath(
-      "restored-structural-" + QDateTime::currentDateTimeUtc().toString(
-          "yyyyMMdd-HHmmss-zzz-") + QUuid::createUuid().toString(QUuid::Id128).left(8));
-  const auto projectPath = project_->projectPath();
-  const auto stored = *reference;
-  busy_ = true;
-  status_ = "restoring_structural_archive";
-  error_.clear();
-  emit changed();
-  auto *watcher = new QFutureWatcher<DesktopStructuralRestoreResult>(this);
-  connect(watcher, &QFutureWatcher<DesktopStructuralRestoreResult>::finished,
-          this, [this, watcher, sourceCurrent] {
-    auto restored = watcher->result();
-    watcher->deleteLater();
-    busy_ = false;
-    if (!restored.error.empty() || !restored.metrics) {
-      error_ = QString::fromStdString(restored.error);
-      status_ = "structural_archive_restore_failed";
-      emit changed();
-      return;
-    }
-    mesh_ = std::move(restored.mesh);
-    boundary_ = std::move(restored.boundary);
-    const auto setup = QJsonDocument::fromJson(
-        QByteArray::fromStdString(restored.setup_bytes)).object();
-    const auto patchAngle = setup.value("selection_patch_angle_degrees").toDouble(15.0);
-    patches_ = ps::group_boundary_faces(boundary_, patchAngle);
-    const auto selectedFaces = [&](const char *role) {
-      std::set<std::array<int, 3>> result;
-      const auto faces = setup.value(role).toObject().value("selection")
-                             .toObject().value("face_node_ids").toArray();
-      for (const auto &value : faces) {
-        const auto row = value.toArray();
-        if (row.size() != 3) continue;
-        std::array<int, 3> face{row[0].toInt(), row[1].toInt(), row[2].toInt()};
-        std::ranges::sort(face);
-        result.insert(face);
-      }
-      return result;
-    };
-    const auto loadFaces = selectedFaces("load");
-    const auto restraintFaces = selectedFaces("restraint");
-    const auto selectedPatchIds = [&](const std::set<std::array<int, 3>> &faces) {
-      std::vector<int> ids;
-      std::size_t covered = 0U;
-      for (const auto &patch : patches_) {
-        const auto contained = std::ranges::all_of(
-            patch.face_node_ids, [&](auto face) {
-              std::ranges::sort(face);
-              return faces.contains(face);
-            });
-        if (contained) {
-          ids.push_back(patch.id);
-          covered += patch.face_node_ids.size();
-        }
-      }
-      if (covered != faces.size()) return std::vector<int>{};
-      return ids;
-    };
-    load_patch_ids_ = selectedPatchIds(loadFaces);
-    restraint_patch_ids_ = selectedPatchIds(restraintFaces);
-    if (load_patch_ids_.empty() || restraint_patch_ids_.empty()) {
-      error_ = "Stored reviewed surface selections do not map to restored patches.";
-      status_ = "structural_archive_restore_failed";
-      emit changed();
-      return;
-    }
-    mesh_summary_.clear();
-    surface_patches_.clear();
-    double exteriorArea = 0.0;
-    for (const auto &face : boundary_) exteriorArea += face.area_m2;
-    mesh_summary_ = {{"nodes", static_cast<qlonglong>(mesh_.nodes.size())},
-                     {"elements", static_cast<qlonglong>(mesh_.elements.size())},
-                     {"exterior_faces", static_cast<qlonglong>(boundary_.size())},
-                     {"surface_patches", static_cast<qlonglong>(patches_.size())},
-                     {"patch_angle_degrees", patchAngle},
-                     {"exterior_area_m2", exteriorArea},
-                     {"coordinate_scale_to_m", 1.0}};
-    for (const auto &patch : patches_) {
-      surface_patches_.append(QVariantMap{
-          {"id", patch.id},
-          {"face_count", static_cast<qlonglong>(patch.face_node_ids.size())},
-          {"node_count", static_cast<qlonglong>(patch.node_ids.size())},
-          {"area_m2", patch.area_m2},
-          {"centroid_x_m", patch.area_weighted_centroid_m[0]},
-          {"centroid_y_m", patch.area_weighted_centroid_m[1]},
-          {"centroid_z_m", patch.area_weighted_centroid_m[2]},
-          {"normal_x", patch.representative_unit_normal[0]},
-          {"normal_y", patch.representative_unit_normal[1]},
-          {"normal_z", patch.representative_unit_normal[2]}});
-    }
-    const auto material = setup.value("material").toObject();
-    const auto load = setup.value("load").toObject();
-    const auto restraint = setup.value("restraint").toObject();
-    const auto meshControls = setup.value("mesh_controls").toObject();
-    const auto scenario = setup.value("scenario").toObject();
-    const auto force = load.value("total_force_n").toArray();
-    double displacementLimit = 0.0;
-    double vonMisesLimit = 0.0;
-    QString requirementRationale;
-    bool requirementReviewed = false;
-    QString requirementApplicability;
-    QString requirementCriticality = "advisory";
-    QString otherRequirementDescription;
-    QString otherRequirementUnit;
-    double otherRequirementLimit = 0.0;
-    // uncovered_requirements_ is rebuilt by rebuildPreview() below from these
-    // draft_ fields, mirroring how live review derives it.
-    for (const auto &value : setup.value("requirements").toArray()) {
-      const auto entry = value.toObject();
-      const auto quantity = entry.value("quantity").toString();
-      requirementRationale = entry.value("source_or_exploratory_rationale").toString();
-      requirementReviewed = entry.value("reviewed").toBool();
-      requirementApplicability = entry.value("applicability").toString();
-      requirementCriticality = entry.value("criticality").toString();
-      if (quantity == "displacement") {
-        displacementLimit = entry.value("limit_value").toDouble();
-      } else if (quantity == "von_mises_stress") {
-        vonMisesLimit = entry.value("limit_value").toDouble();
-      } else {
-        otherRequirementDescription = entry.value("other_quantity_description").toString();
-        otherRequirementUnit = entry.value("unit").toString();
-        otherRequirementLimit = entry.value("limit_value").toDouble();
-      }
-    }
-    draft_ = {
-        {"restored", true}, {"analysis_id", setup.value("analysis_id").toString()},
-        {"component_name", setup.value("component_name").toString()},
-        {"geometry_sha256", setup.value("geometry_sha256").toString()},
-        {"material_designation", material.value("designation").toString()},
-        {"material_source_sha256", material.value("source_sha256").toString()},
-        {"material_applicability", material.value("applicability").toString()},
-        {"youngs_modulus_pa", material.value("youngs_modulus_pa").toDouble()},
-        {"poisson_ratio", material.value("poisson_ratio").toDouble()},
-        {"material_reviewed", material.value("reviewed").toBool()},
-        {"force_x_n", force.at(0).toDouble()},
-        {"force_y_n", force.at(1).toDouble()},
-        {"force_z_n", force.at(2).toDouble()},
-        {"load_reviewed", load.value("reviewed").toBool()},
-        {"restraint_reviewed", restraint.value("reviewed").toBool()},
-        {"displacement_limit_m", displacementLimit},
-        {"von_mises_limit_pa", vonMisesLimit},
-        {"requirement_rationale", requirementRationale},
-        {"requirement_reviewed", requirementReviewed},
-        {"requirement_applicability", requirementApplicability},
-        {"requirement_criticality", requirementCriticality},
-        {"other_requirement_description", otherRequirementDescription},
-        {"other_requirement_unit", otherRequirementUnit},
-        {"other_requirement_limit_value", otherRequirementLimit},
-        {"mesh_minimum_size_m", meshControls.value("minimum_size_m").toDouble()},
-        {"mesh_maximum_size_m", meshControls.value("maximum_size_m").toDouble()},
-        {"mesher_identity", meshControls.value("mesher_identity").toString()},
-        {"mesh_controls_reviewed", meshControls.value("reviewed").toBool()},
-        {"scenario_description", scenario.value("description").toString()},
-        {"scenario_confirmed", scenario.value("confirmed").toBool()}};
-    rebuildPreview();
-    rebuildReviewedInputHistory();
-    if (!sourceCurrent) {
-      compiled_request_.reset();
-      compiled_requirements_.clear();
-      compiled_material_.reset();
-      compiled_load_.reset();
-      compiled_restraint_.reset();
-      compiled_setup_evidence_.clear();
-      can_run_ = false;
-      blockers_.append(QVariantMap{
-          {"code", "source_artifact_changed"},
-          {"message", "The project assembly identity changed after this structural run. Historical evidence remains viewable, but rerun is blocked until geometry and selections are reviewed again."}});
-    }
-    if (result_geometry_) result_geometry_->deleteLater();
-    double minimumX = std::numeric_limits<double>::max();
-    double minimumY = minimumX, minimumZ = minimumX;
-    double maximumX = std::numeric_limits<double>::lowest();
-    double maximumY = maximumX, maximumZ = maximumX;
-    for (const auto &node : mesh_.nodes) {
-      minimumX = std::min(minimumX, node.position_m[0]);
-      minimumY = std::min(minimumY, node.position_m[1]);
-      minimumZ = std::min(minimumZ, node.position_m[2]);
-      maximumX = std::max(maximumX, node.position_m[0]);
-      maximumY = std::max(maximumY, node.position_m[1]);
-      maximumZ = std::max(maximumZ, node.position_m[2]);
-    }
-    const auto diagonal = std::hypot(maximumX - minimumX,
-                                     maximumY - minimumY,
-                                     maximumZ - minimumZ);
-    const auto scale = restored.metrics->maximum_displacement_m > 0.0
-        ? std::clamp(0.1 * diagonal /
-                         restored.metrics->maximum_displacement_m,
-                     1.0, 1.0e6)
-        : 1.0;
-    result_geometry_ = new StructuralResultGeometry(
-        mesh_, boundary_, *restored.metrics, scale, this);
-    result_view_ = {{"center_x_mm", 500.0 * (minimumX + maximumX)},
-                    {"center_y_mm", 500.0 * (minimumY + maximumY)},
-                    {"center_z_mm", 500.0 * (minimumZ + maximumZ)},
-                    {"radius_mm", std::max(1.0, 0.55 * diagonal * 1000.0)},
-                    {"deformation_scale", scale}, {"color_min_pa", 0.0},
-                    {"color_max_pa", restored.metrics->maximum_von_mises_pa}};
-    findings_.clear();
-    const auto archive = QJsonDocument::fromJson(
-        QByteArray::fromStdString(restored.archive_bytes)).object();
-    for (const auto &value : archive.value("findings").toArray()) {
-      const auto finding = value.toObject();
-      findings_.append(QVariantMap{
-          {"obligation", finding.value("obligation").toString()},
-          {"disposition", finding.value("disposition").toString()},
-          {"measured", finding.value("measured").toDouble()},
-          {"limit", finding.value("limit").toDouble()},
-          {"margin", finding.value("margin").toDouble()},
-          {"unit", finding.value("unit").toString()},
-          {"scope", finding.value("scope").toString()}});
-    }
-    const auto maximumDisplacement = std::ranges::max_element(
-        restored.metrics->displacements, {}, &ps::NodalDisplacement::magnitude_m);
-    const auto maximumStress = std::ranges::max_element(
-        restored.metrics->stresses, {}, &ps::ElementStress::von_mises_pa);
-    last_run_ = {{"status", "restored_verified"},
-                 {"archive_manifest", restored.manifest_path},
-                 {"output_directory", restored.output_directory},
-                 {"project_anchored", true},
-                 {"project_artifacts_embedded", true},
-                 {"maximum_displacement_m",
-                  restored.metrics->maximum_displacement_m},
-                 {"maximum_von_mises_pa",
-                  restored.metrics->maximum_von_mises_pa},
-                 {"displacement_rows",
-                  static_cast<qlonglong>(restored.metrics->displacements.size())},
-                 {"stress_rows",
-                  static_cast<qlonglong>(restored.metrics->stresses.size())}};
-    if (maximumDisplacement != restored.metrics->displacements.end()) {
-      last_run_["maximum_displacement_node_id"] = maximumDisplacement->node_id;
-      last_run_["maximum_displacement_x_m"] = maximumDisplacement->x_m;
-      last_run_["maximum_displacement_y_m"] = maximumDisplacement->y_m;
-      last_run_["maximum_displacement_z_m"] = maximumDisplacement->z_m;
-    }
-    if (maximumStress != restored.metrics->stresses.end()) {
-      last_run_["maximum_stress_element_id"] = maximumStress->element_id;
-      last_run_["maximum_stress_integration_point"] =
-          maximumStress->integration_point;
-    }
-    const auto coverage = archive.value("coverage").toObject();
-    last_run_["declared_obligations"] =
-        coverage.value("declared_obligations").toInt();
-    last_run_["evaluated_obligations"] =
-        coverage.value("evaluated_obligations").toInt();
-    last_run_["limitation"] = archive.value("limitation").toString();
-    status_ = sourceCurrent ? "structural_archive_restored"
-                            : "structural_archive_restored_stale";
-    error_.clear();
-    emit changed();
-  });
-  watcher->setFuture(QtConcurrent::run(
-      [projectPath, stored, destination] {
-        try {
-        const auto restored = prometheus::run_store::reconstruct_structural_archive(
-            projectPath, stored,
-            std::filesystem::path(destination.toStdWString()));
-        if (!restored.has_value())
-          return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination, {}, {},
-              restored.diagnostic().code + ": " + restored.diagnostic().message};
-        const auto verification = ps::verify_structural_archive(restored.value());
-        if (!verification.valid)
-          return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination, {}, {},
-              verification.code + ": " + verification.detail};
-        const auto manifestBytes = [&] {
-          std::ifstream input(restored.value(), std::ios::binary);
-          return std::string{std::istreambuf_iterator<char>(input),
-                             std::istreambuf_iterator<char>()};
-        }();
-        const auto manifest = QJsonDocument::fromJson(
-            QByteArray::fromStdString(manifestBytes)).object();
-        const auto artifact = [&](const char *role) {
-          return manifest.value("artifacts").toObject().value(role).toObject()
-              .value("file").toString();
-        };
-        const auto directory = restored.value().parent_path();
-        std::ifstream deck(directory /
-                           std::filesystem::path(artifact("deck").toStdWString()),
-                           std::ios::binary);
-        const std::string deckBytes{std::istreambuf_iterator<char>(deck),
-                                    std::istreambuf_iterator<char>()};
-        std::ifstream dat(directory /
-                          std::filesystem::path(artifact("dat").toStdWString()),
-                          std::ios::binary);
-        const std::string datBytes{std::istreambuf_iterator<char>(dat),
-                                   std::istreambuf_iterator<char>()};
-        std::ifstream setup(directory /
-                            std::filesystem::path(artifact("setup").toStdWString()),
-                            std::ios::binary);
-        const std::string setupBytes{std::istreambuf_iterator<char>(setup),
-                                     std::istreambuf_iterator<char>()};
-        auto mesh = ps::parse_gmsh_abaqus_mesh(deckBytes, 1.0);
-        auto boundary = ps::extract_boundary_faces(mesh);
-        auto metrics = ps::parse_calculix_dat(datBytes);
-        return DesktopStructuralRestoreResult{
-            std::move(mesh), std::move(boundary), std::move(metrics),
-            QString::fromStdWString(restored.value().wstring()), destination,
-            setupBytes, manifestBytes, {}};
-        } catch (const std::exception &exception) {
-          return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination, {}, {}, exception.what()};
-        } catch (...) {
-          return DesktopStructuralRestoreResult{
-              {}, {}, std::nullopt, {}, destination, {}, {},
-              "unknown structural restore failure"};
-        }
-      }));
+void StructuralController::invalidateRefinementEvidence() {
+  for (const auto *key : {"refinement_complete",
+                          "refinement_criteria_satisfied",
+                          "refinement_change_fraction",
+                          "refinement_maximum_allowed_change_fraction",
+                          "refinement_result_sha256"})
+    draft_.remove(QString::fromLatin1(key));
 }
 
 QVariantList StructuralController::selectedLoadPatchIds() const {
@@ -785,6 +640,52 @@ QVariantList StructuralController::selectedRestraintPatchIds() const {
   return ids(restraint_patch_ids_);
 }
 
+void StructuralController::rebuildPatchPresentation() {
+  surface_patches_.clear();
+  active_surface_patch_.clear();
+  active_patch_id_.reset();
+  clear_geometry(highlight_geometry_);
+  if (!prepared_mesh_) {
+    mesh_summary_.clear();
+    return;
+  }
+  double exteriorArea = 0.0;
+  for (const auto &face : prepared_mesh_->boundary_faces)
+    exteriorArea += face.area_m2;
+  const auto extents = mesh_extents(prepared_mesh_->mesh);
+  const auto angle = mesh_summary_.value("patch_angle_degrees", 15.0).toDouble();
+  mesh_summary_ = {
+      {"nodes", static_cast<qlonglong>(prepared_mesh_->mesh.nodes.size())},
+      {"elements", static_cast<qlonglong>(prepared_mesh_->mesh.elements.size())},
+      {"exterior_faces",
+       static_cast<qlonglong>(prepared_mesh_->boundary_faces.size())},
+      {"surface_patches", static_cast<qlonglong>(patches_.size())},
+      {"patch_angle_degrees", angle},
+      {"exterior_area_m2", exteriorArea},
+      {"coordinate_scale_to_m",
+       prepared_mesh_->identity.coordinate_scale_to_m},
+      {"mesh_sha256",
+       QString::fromStdString(prepared_mesh_->identity.source_sha256)},
+      {"parser_version",
+       QString::fromStdString(prepared_mesh_->identity.parser_version)},
+      {"validation_version",
+       QString::fromStdString(prepared_mesh_->identity.validation_version)},
+      {"connected_components",
+       static_cast<qlonglong>(prepared_mesh_->diagnostics.connected_components)},
+      {"minimum_mean_ratio", prepared_mesh_->diagnostics.minimum_mean_ratio},
+      {"maximum_mean_ratio", prepared_mesh_->diagnostics.maximum_mean_ratio}};
+  mesh_summary_["center_x_mm"] =
+      500.0 * (extents.minimum_x + extents.maximum_x);
+  mesh_summary_["center_y_mm"] =
+      500.0 * (extents.minimum_y + extents.maximum_y);
+  mesh_summary_["center_z_mm"] =
+      500.0 * (extents.minimum_z + extents.maximum_z);
+  mesh_summary_["radius_mm"] =
+      std::max(1.0, 0.55 * extents.diagonal * 1000.0);
+  for (const auto &patch : patches_)
+    surface_patches_.append(patch_map(patch));
+}
+
 void StructuralController::loadMesh(const QUrl &url,
                                     const double coordinateScaleToM,
                                     const double patchAngleDegrees) {
@@ -793,95 +694,279 @@ void StructuralController::loadMesh(const QUrl &url,
     emit changed();
     return;
   }
-  reset();
-  const auto local = url.toLocalFile();
-  if (local.isEmpty()) {
-    error_ = "A local Gmsh/Abaqus mesh path is required.";
+  if (!baseline_sample_) {
+    reset();
+  } else {
+    prepared_mesh_.reset();
+    patches_.clear();
+    compiled_setup_.reset();
+    load_patch_ids_.clear();
+    restraint_patch_ids_.clear();
+    active_patch_id_.reset();
+    surface_patches_.clear();
+    active_surface_patch_.clear();
+    mesh_summary_.clear();
+    request_preview_.clear();
+    blockers_.clear();
+    can_run_ = false;
+    draft_["load_reviewed"] = false;
+    draft_["restraint_reviewed"] = false;
+    draft_["boundary_load_correspondence_reviewed"] = false;
+    draft_["boundary_restraint_correspondence_reviewed"] = false;
+    clear_geometry(mesh_geometry_);
+    clear_geometry(highlight_geometry_);
+    clearCompletedRun();
+  }
+  try {
+    if (!url.isLocalFile())
+      throw std::invalid_argument("a local mesh file is required");
+    const auto local = url.toLocalFile();
+    const auto bytes = read_regular_file(local, maximumMeshBytes);
+    auto prepared = backend_->prepareMesh(bytes, coordinateScaleToM);
+    auto patches = backend_->groupPatches(prepared, patchAngleDegrees);
+    prepared_mesh_ = std::move(prepared);
+    patches_ = std::move(patches);
+    mesh_summary_["patch_angle_degrees"] = patchAngleDegrees;
+    mesh_geometry_ = new StructuralMeshGeometry(
+        prepared_mesh_->mesh, prepared_mesh_->boundary_faces, {}, this);
+    rebuildPatchPresentation();
+    status_ = "setup_blocked";
+    error_.clear();
+    rebuildPreview();
+  } catch (const std::exception &error) {
     status_ = "mesh_failed";
+    error_ = QString::fromUtf8(error.what());
+  }
+  emit changed();
+}
+
+void StructuralController::setPatchAngle(const double patchAngleDegrees) {
+  if (busy_ || !prepared_mesh_) return;
+  try {
+    patches_ = backend_->groupPatches(*prepared_mesh_, patchAngleDegrees);
+    mesh_summary_["patch_angle_degrees"] = patchAngleDegrees;
+    load_patch_ids_.clear();
+    restraint_patch_ids_.clear();
+    draft_["load_reviewed"] = false;
+    draft_["restraint_reviewed"] = false;
+    draft_["boundary_load_correspondence_reviewed"] = false;
+    draft_["boundary_restraint_correspondence_reviewed"] = false;
+    if (!baseline_sample_) draft_["scenario_confirmed"] = false;
+    invalidateRefinementEvidence();
+    compiled_setup_.reset();
+    clearCompletedRun();
+    rebuildPatchPresentation();
+    rebuildPreview();
+    error_.clear();
+  } catch (const std::exception &error) {
+    error_ = QString::fromUtf8(error.what());
+  }
+  emit changed();
+}
+
+void StructuralController::setActiveSurfacePatch(const int patchId) {
+  if (!prepared_mesh_) return;
+  clear_geometry(highlight_geometry_);
+  active_surface_patch_.clear();
+  active_patch_id_.reset();
+  if (patchId <= 0) {
     emit changed();
     return;
   }
-  try {
-    std::ifstream input(std::filesystem::path(local.toStdWString()), std::ios::binary);
-    if (!input) throw std::runtime_error("The selected mesh could not be opened.");
-    const std::string bytes{std::istreambuf_iterator<char>(input),
-                            std::istreambuf_iterator<char>()};
-    mesh_ = ps::parse_gmsh_abaqus_mesh(bytes, coordinateScaleToM);
-    boundary_ = ps::extract_boundary_faces(mesh_);
-    patches_ = ps::group_boundary_faces(boundary_, patchAngleDegrees);
-    double exteriorArea = 0.0;
-    for (const auto &face : boundary_) exteriorArea += face.area_m2;
-    mesh_summary_ = {{"nodes", static_cast<qlonglong>(mesh_.nodes.size())},
-                     {"elements", static_cast<qlonglong>(mesh_.elements.size())},
-                     {"exterior_faces", static_cast<qlonglong>(boundary_.size())},
-                     {"surface_patches", static_cast<qlonglong>(patches_.size())},
-                     {"patch_angle_degrees", patchAngleDegrees},
-                     {"exterior_area_m2", exteriorArea},
-                     {"coordinate_scale_to_m", coordinateScaleToM}};
-    for (const auto &patch : patches_) {
-      surface_patches_.append(QVariantMap{
-          {"id", patch.id},
-          {"face_count", static_cast<qlonglong>(patch.face_node_ids.size())},
-          {"node_count", static_cast<qlonglong>(patch.node_ids.size())},
-          {"area_m2", patch.area_m2},
-          {"centroid_x_m", patch.area_weighted_centroid_m[0]},
-          {"centroid_y_m", patch.area_weighted_centroid_m[1]},
-          {"centroid_z_m", patch.area_weighted_centroid_m[2]},
-          {"normal_x", patch.representative_unit_normal[0]},
-          {"normal_y", patch.representative_unit_normal[1]},
-          {"normal_z", patch.representative_unit_normal[2]}});
-    }
-    status_ = "setup_blocked";
-    rebuildPreview();
-  } catch (const std::exception &exception) {
-    error_ = QString::fromUtf8(exception.what());
-    status_ = "mesh_failed";
+  const auto found = std::ranges::find(patches_, patchId, &ps::SurfacePatch::id);
+  if (found == patches_.end()) {
+    error_ = "The selected structural surface patch does not exist.";
+    emit changed();
+    return;
   }
+  highlight_geometry_ = new StructuralMeshGeometry(
+      prepared_mesh_->mesh, prepared_mesh_->boundary_faces,
+      found->face_node_ids, this);
+  active_patch_id_ = patchId;
+  active_surface_patch_ = patch_map(*found);
+  error_.clear();
   emit changed();
 }
 
 void StructuralController::setPatchSelected(const int patchId,
                                             const QString &role,
                                             const bool selected) {
-  if (busy_) {
-    error_ = "Wait for the active structural execution before changing its setup.";
-    emit changed();
-    return;
-  }
-  if (std::ranges::none_of(patches_, [&](const auto &patch) {
-        return patch.id == patchId;
-      })) {
+  if (busy_) return;
+  if (std::ranges::none_of(patches_,
+                           [&](const auto &patch) { return patch.id == patchId; })) {
     error_ = "The selected structural surface patch does not exist.";
     emit changed();
     return;
   }
-  auto *target = role == "load" ? &load_patch_ids_
-               : role == "restraint" ? &restraint_patch_ids_ : nullptr;
+  auto *target = role == "load"          ? &load_patch_ids_
+                 : role == "restraint" ? &restraint_patch_ids_
+                                        : nullptr;
   if (!target) {
     error_ = "Structural patch role must be load or restraint.";
     emit changed();
     return;
   }
-  if (selected) target->push_back(patchId);
-  else target->erase(std::remove(target->begin(), target->end(), patchId), target->end());
-  *target = sortedUnique(std::move(*target));
+  if (selected)
+    target->push_back(patchId);
+  else
+    target->erase(std::remove(target->begin(), target->end(), patchId),
+                  target->end());
+  *target = sorted_unique(std::move(*target));
+  draft_[role == "load" ? "load_reviewed" : "restraint_reviewed"] = false;
+  draft_[role == "load" ? "boundary_load_correspondence_reviewed"
+                          : "boundary_restraint_correspondence_reviewed"] =
+      false;
+  if (!baseline_sample_) draft_["scenario_confirmed"] = false;
+  invalidateRefinementEvidence();
+  compiled_setup_.reset();
+  clearCompletedRun();
   error_.clear();
   rebuildPreview();
   emit changed();
 }
 
-void StructuralController::reviewSetup(const QVariantMap &draft) {
-  if (busy_) {
-    error_ = "Wait for the active structural execution before changing its setup.";
+bool StructuralController::loadMaterialEvidence(const QUrl &source) {
+  if (busy_) return false;
+  try {
+    if (!source.isLocalFile())
+      throw std::invalid_argument("material evidence must be a local file");
+    const auto path = source.toLocalFile();
+    const auto bytes = read_regular_file(path, maximumMaterialEvidenceBytes);
+    const auto hash = QString::fromStdString(
+        prometheus::integrity::sha256_bytes(bytes));
+    material_candidates_ = decode_material_candidates(bytes, hash);
+    material_evidence_path_ = QFileInfo(path).absoluteFilePath();
+    material_evidence_sha256_ = hash;
+    error_.clear();
+    emit changed();
+    return true;
+  } catch (const std::exception &error) {
+    error_ = QString::fromUtf8(error.what());
+    emit changed();
+    return false;
+  }
+}
+
+void StructuralController::selectMaterialCandidate(
+    const QString &candidateId, const QString &applicability) {
+  if (busy_) return;
+  if (baseline_sample_) {
+    error_ = "Discard the coarse baseline before changing shared material inputs.";
     emit changed();
     return;
   }
+  const auto normalizedApplicability =
+      applicability == "known" || applicability == "assumed"
+          ? applicability
+          : QStringLiteral("unresolved");
+  for (const auto &value : material_candidates_) {
+    const auto candidate = value.toMap();
+    if (candidate.value("candidate_id").toString() != candidateId) continue;
+    draft_["material_designation"] = candidate.value("designation");
+    draft_["material_temper"] = candidate.value("temper");
+    draft_["material_product_form"] = candidate.value("product_form");
+    draft_["material_source_sha256"] = material_evidence_sha256_;
+    draft_["material_applicability"] = normalizedApplicability;
+    draft_["youngs_modulus_pa"] = candidate.value("youngs_modulus_pa");
+    draft_["poisson_ratio"] = candidate.value("poisson_ratio");
+    draft_["material_reviewed"] = false;
+    draft_["scenario_confirmed"] = false;
+    invalidateRefinementEvidence();
+    compiled_setup_.reset();
+    clearCompletedRun();
+    rebuildPreview();
+    error_.clear();
+    emit changed();
+    return;
+  }
+  error_ = "The selected material candidate is unavailable.";
+  emit changed();
+}
+
+void StructuralController::reviewSetup(const QVariantMap &draft) {
+  if (busy_) return;
   draft_ = draft;
-  last_run_.clear();
-  findings_.clear();
-  if (result_geometry_) result_geometry_->deleteLater();
-  result_geometry_ = nullptr;
-  result_view_.clear();
+  QString criterionError;
+  if (!baseline_sample_) {
+    refinement_criterion_.reset();
+    try {
+      const auto maximumChange =
+          draft_.value("refinement_maximum_change_fraction").toDouble();
+      refinement_criterion_ = ps::compile_structural_refinement_criterion(
+          ps::global_structural_observable_specs(maximumChange));
+    } catch (const std::exception &error) {
+      criterionError = QString::fromUtf8(error.what());
+    }
+  } else {
+    const auto &coarse = baseline_sample_->setup().reviewed_setup;
+    draft_["analysis_id"] = QString::fromStdString(coarse.analysis_id);
+    draft_["component_name"] = QString::fromStdString(coarse.component_name);
+    draft_["geometry_sha256"] =
+        QString::fromStdString(coarse.geometry_sha256);
+    draft_["material_designation"] =
+        QString::fromStdString(coarse.material.designation);
+    draft_["material_source_sha256"] =
+        QString::fromStdString(coarse.material.source_sha256);
+    draft_["material_applicability"] =
+        QString::fromStdString(coarse.material.applicability);
+    draft_["material_temper"] =
+        QString::fromStdString(coarse.material.temper);
+    draft_["material_product_form"] =
+        QString::fromStdString(coarse.material.product_form);
+    draft_["youngs_modulus_pa"] = coarse.material.youngs_modulus_pa;
+    draft_["poisson_ratio"] = coarse.material.poisson_ratio;
+    draft_["material_reviewed"] = coarse.material.reviewed;
+    draft_["force_x_n"] = coarse.load.total_force_n[0];
+    draft_["force_y_n"] = coarse.load.total_force_n[1];
+    draft_["force_z_n"] = coarse.load.total_force_n[2];
+    const auto *displacement = requirement_for(
+        coarse.requirements, ps::RequirementQuantity::displacement);
+    const auto *vonMises = requirement_for(
+        coarse.requirements, ps::RequirementQuantity::von_mises_stress);
+    const auto *shared = displacement != nullptr ? displacement : vonMises;
+    draft_["displacement_limit_m"] =
+        displacement == nullptr ? 0.0 : displacement->limit_value;
+    draft_["von_mises_limit_pa"] =
+        vonMises == nullptr ? 0.0 : vonMises->limit_value;
+    draft_["requirement_rationale"] = shared == nullptr
+        ? QString{}
+        : QString::fromStdString(shared->source_or_exploratory_rationale);
+    draft_["requirement_applicability"] = shared == nullptr
+        ? QString{}
+        : QString::fromStdString(shared->applicability);
+    draft_["requirement_criticality"] = shared == nullptr
+        ? QStringLiteral("advisory")
+        : criticality_label(shared->criticality);
+    draft_["displacement_limit_basis"] = displacement == nullptr
+        ? QString{}
+        : QString::fromStdString(displacement->limit_basis);
+    draft_["von_mises_limit_basis"] = vonMises == nullptr
+        ? QString{}
+        : QString::fromStdString(vonMises->limit_basis);
+    draft_["requirement_reviewed"] = shared != nullptr &&
+        std::ranges::all_of(coarse.requirements,
+                            &ps::ReviewedRequirement::reviewed);
+    const auto uncovered = std::ranges::find(
+        coarse.requirements, ps::RequirementQuantity::other,
+        &ps::ReviewedRequirement::quantity);
+    draft_["other_requirement_description"] = uncovered == coarse.requirements.end()
+        ? QString{}
+        : QString::fromStdString(uncovered->other_quantity_description);
+    draft_["other_requirement_unit"] = uncovered == coarse.requirements.end()
+        ? QString{}
+        : QString::fromStdString(uncovered->unit);
+    draft_["other_requirement_limit_value"] =
+        uncovered == coarse.requirements.end() ? 0.0 : uncovered->limit_value;
+    draft_["scenario_description"] =
+        QString::fromStdString(coarse.scenario_description);
+    draft_["scenario_confirmed"] = coarse.scenario_confirmed;
+    draft_["refinement_maximum_change_fraction"] =
+        baseline_sample_->criterion().maximum_change_fraction();
+  }
+  invalidateRefinementEvidence();
+  compiled_setup_.reset();
+  clearCompletedRun();
+  error_ = criterionError;
   rebuildPreview();
   persistRequirementBindingEdges();
   persistMaterialBindingEdge();
@@ -889,6 +974,39 @@ void StructuralController::reviewSetup(const QVariantMap &draft) {
   persistRestraintBindingEdge();
   rebuildReviewedInputHistory();
   emit changed();
+}
+
+void StructuralController::applyCompiledPreview(
+    const ps::StructuralSetup &setup) {
+  if (!compiled_setup_) return;
+  const auto &request = compiled_setup_->request;
+  std::array<double, 3> resultant{};
+  for (const auto &force : request.nodal_forces)
+    for (std::size_t axis = 0; axis < resultant.size(); ++axis)
+      resultant[axis] += force.force_n[axis];
+  request_preview_ = {
+      {"analysis_id", QString::fromStdString(request.analysis_id)},
+      {"component_name", QString::fromStdString(request.component_name)},
+      {"nodes", static_cast<qlonglong>(request.nodes.size())},
+      {"elements", static_cast<qlonglong>(request.elements.size())},
+      {"fixed_nodes",
+       static_cast<qlonglong>(request.fully_fixed_node_ids.size())},
+      {"loaded_nodes", static_cast<qlonglong>(request.nodal_forces.size())},
+      {"load_faces",
+       static_cast<qlonglong>(setup.load.selection.face_node_ids.size())},
+      {"restraint_faces",
+       static_cast<qlonglong>(setup.restraint.selection.face_node_ids.size())},
+      {"selected_load_area_m2", setup.load.selection.area_m2},
+      {"selected_restraint_area_m2", setup.restraint.selection.area_m2},
+      {"resultant_force_x_n", resultant[0]},
+      {"resultant_force_y_n", resultant[1]},
+      {"resultant_force_z_n", resultant[2]},
+      {"mesh_sha256", QString::fromStdString(request.mesh_sha256)},
+      {"geometry_sha256", QString::fromStdString(request.geometry_sha256)},
+      {"minimum_mean_ratio", request.observed_minimum_mean_ratio},
+      {"minimum_mean_ratio_threshold", request.minimum_mean_ratio_threshold}};
+  can_run_ = true;
+  status_ = "ready_for_execution";
 }
 
 void StructuralController::persistRequirementBindingEdges() {
@@ -902,13 +1020,13 @@ void StructuralController::persistRequirementBindingEdges() {
   // explicit "review this setup" action, not from rebuildPreview() itself,
   // which also runs from patch-selection toggles, mesh loads, and history
   // restores -- none of which are a deliberate requirement review.
-  if (!can_run_ || !compiled_request_ || project_ == nullptr ||
+  if (!can_run_ || !compiled_setup_ || project_ == nullptr ||
       !project_->project().has_value() || project_->saveAsRequired() ||
       !project_->executionStoreAvailable()) {
     return;
   }
-  const auto geometry = compiled_request_->geometry_sha256;
-  const auto analysisId = compiled_request_->analysis_id;
+  const auto geometry = compiled_setup_->request.geometry_sha256;
+  const auto analysisId = compiled_setup_->request.analysis_id;
   // reviewSetup resubmits the whole reviewed-requirement set on every
   // "Validate and preview" click, not just the fields the user actually
   // changed -- unlike a joint or CAD binding, which is confirmed one
@@ -926,7 +1044,7 @@ void StructuralController::persistRequirementBindingEdges() {
       superseded.insert(*binding.supersedes_binding_revision);
     }
   }
-  for (const auto &requirement : compiled_requirements_) {
+  for (const auto &requirement : compiled_setup_->reviewed_setup.requirements) {
     const auto quantity = std::string(ps::to_string(requirement.quantity));
     const auto comparator = std::string(ps::to_string(requirement.comparator));
     const auto criticality = std::string(ps::to_string(requirement.criticality));
@@ -971,13 +1089,12 @@ void StructuralController::persistMaterialBindingEdge() {
   // persistRequirementBindingEdges, for the reviewed material that is
   // exactly one value per geometry (like a package binding), not a list.
   // Same best-effort, silent, and dedup-against-the-active-binding contract.
-  if (!can_run_ || !compiled_request_ || !compiled_material_ ||
-      project_ == nullptr || !project_->project().has_value() ||
+  if (!can_run_ || !compiled_setup_ || project_ == nullptr || !project_->project().has_value() ||
       project_->saveAsRequired() || !project_->executionStoreAvailable()) {
     return;
   }
-  const auto geometry = compiled_request_->geometry_sha256;
-  const auto analysisId = compiled_request_->analysis_id;
+  const auto geometry = compiled_setup_->request.geometry_sha256;
+  const auto analysisId = compiled_setup_->request.analysis_id;
   const prometheus::run_store::MaterialBinding *active = nullptr;
   const auto &bindings = project_->project()->execution.material_bindings;
   std::set<std::uint64_t> superseded;
@@ -995,20 +1112,20 @@ void StructuralController::persistMaterialBindingEdge() {
     }
   }
   if (active != nullptr && active->analysis_id == analysisId &&
-      active->designation == compiled_material_->designation &&
-      active->source_sha256 == compiled_material_->source_sha256 &&
-      active->applicability == compiled_material_->applicability &&
-      active->youngs_modulus_pa == compiled_material_->youngs_modulus_pa &&
-      active->poisson_ratio == compiled_material_->poisson_ratio) {
+      active->designation == compiled_setup_->reviewed_setup.material.designation &&
+      active->source_sha256 == compiled_setup_->reviewed_setup.material.source_sha256 &&
+      active->applicability == compiled_setup_->reviewed_setup.material.applicability &&
+      active->youngs_modulus_pa == compiled_setup_->reviewed_setup.material.youngs_modulus_pa &&
+      active->poisson_ratio == compiled_setup_->reviewed_setup.material.poisson_ratio) {
     return;
   }
   const auto installed = prometheus::run_store::install_material_binding(
       project_->projectPath(),
       prometheus::run_store::MaterialBindingInput{
-          geometry, analysisId, compiled_material_->designation,
-          compiled_material_->source_sha256, compiled_material_->applicability,
-          compiled_material_->youngs_modulus_pa,
-          compiled_material_->poisson_ratio});
+          geometry, analysisId, compiled_setup_->reviewed_setup.material.designation,
+          compiled_setup_->reviewed_setup.material.source_sha256, compiled_setup_->reviewed_setup.material.applicability,
+          compiled_setup_->reviewed_setup.material.youngs_modulus_pa,
+          compiled_setup_->reviewed_setup.material.poisson_ratio});
   if (installed.has_value()) {
     project_->acceptProject(installed.value());
   }
@@ -1020,14 +1137,13 @@ void StructuralController::persistLoadBindingEdge() {
   // topology the reviewed load selection resolved to, not a transient
   // visual patch id. Same best-effort, silent, dedup-against-the-active-
   // binding contract.
-  if (!can_run_ || !compiled_request_ || !compiled_load_ ||
-      project_ == nullptr || !project_->project().has_value() ||
+  if (!can_run_ || !compiled_setup_ || project_ == nullptr || !project_->project().has_value() ||
       project_->saveAsRequired() || !project_->executionStoreAvailable()) {
     return;
   }
-  const auto geometry = compiled_request_->geometry_sha256;
-  const auto analysisId = compiled_request_->analysis_id;
-  const auto &selection = compiled_load_->selection;
+  const auto geometry = compiled_setup_->request.geometry_sha256;
+  const auto analysisId = compiled_setup_->request.analysis_id;
+  const auto &selection = compiled_setup_->reviewed_setup.load.selection;
   const prometheus::run_store::LoadBinding *active = nullptr;
   const auto &bindings = project_->project()->execution.load_bindings;
   std::set<std::uint64_t> superseded;
@@ -1049,9 +1165,9 @@ void StructuralController::persistLoadBindingEdge() {
       active->face_node_ids == selection.face_node_ids &&
       active->node_ids == selection.node_ids &&
       active->area_m2 == selection.area_m2 &&
-      active->force_x_n == compiled_load_->total_force_n[0] &&
-      active->force_y_n == compiled_load_->total_force_n[1] &&
-      active->force_z_n == compiled_load_->total_force_n[2]) {
+      active->force_x_n == compiled_setup_->reviewed_setup.load.total_force_n[0] &&
+      active->force_y_n == compiled_setup_->reviewed_setup.load.total_force_n[1] &&
+      active->force_z_n == compiled_setup_->reviewed_setup.load.total_force_n[2]) {
     return;
   }
   const auto installed = prometheus::run_store::install_load_binding(
@@ -1059,8 +1175,8 @@ void StructuralController::persistLoadBindingEdge() {
       prometheus::run_store::SurfaceSelectionBindingInput{
           geometry, analysisId, selection.label, selection.face_node_ids,
           selection.node_ids, selection.area_m2},
-      compiled_load_->total_force_n[0], compiled_load_->total_force_n[1],
-      compiled_load_->total_force_n[2]);
+      compiled_setup_->reviewed_setup.load.total_force_n[0], compiled_setup_->reviewed_setup.load.total_force_n[1],
+      compiled_setup_->reviewed_setup.load.total_force_n[2]);
   if (installed.has_value()) {
     project_->acceptProject(installed.value());
   }
@@ -1069,14 +1185,13 @@ void StructuralController::persistLoadBindingEdge() {
 void StructuralController::persistRestraintBindingEdge() {
   // Phase 6 checkpoint 5: the RestraintBinding analogue of
   // persistLoadBindingEdge.
-  if (!can_run_ || !compiled_request_ || !compiled_restraint_ ||
-      project_ == nullptr || !project_->project().has_value() ||
+  if (!can_run_ || !compiled_setup_ || project_ == nullptr || !project_->project().has_value() ||
       project_->saveAsRequired() || !project_->executionStoreAvailable()) {
     return;
   }
-  const auto geometry = compiled_request_->geometry_sha256;
-  const auto analysisId = compiled_request_->analysis_id;
-  const auto &selection = compiled_restraint_->selection;
+  const auto geometry = compiled_setup_->request.geometry_sha256;
+  const auto analysisId = compiled_setup_->request.analysis_id;
+  const auto &selection = compiled_setup_->reviewed_setup.restraint.selection;
   const prometheus::run_store::RestraintBinding *active = nullptr;
   const auto &bindings = project_->project()->execution.restraint_bindings;
   std::set<std::uint64_t> superseded;
@@ -1193,59 +1308,77 @@ void StructuralController::rebuildReviewedInputHistory() {
   }
 }
 
+
 void StructuralController::rebuildPreview() {
   blockers_.clear();
   request_preview_.clear();
   can_run_ = false;
-  compiled_request_.reset();
-  compiled_requirements_.clear();
-  compiled_material_.reset();
-  compiled_load_.reset();
-  compiled_restraint_.reset();
-  compiled_setup_evidence_.clear();
+  compiled_setup_.reset();
   uncovered_requirements_.clear();
-  if (mesh_.nodes.empty() || patches_.empty()) {
+  if (!prepared_mesh_ || patches_.empty()) {
     blockers_.append(QVariantMap{{"code", "mesh_required"},
                                  {"message", "Load a structural volume mesh first."}});
     status_ = "mesh_required";
     return;
   }
   std::vector<ps::ReviewedRequirement> requirements;
-  {
-    const auto applicability =
-        draft_.value("requirement_applicability").toString().toStdString();
-    const auto criticality =
-        parseCriticality(draft_.value("requirement_criticality").toString());
-    const auto rationale =
-        draft_.value("requirement_rationale").toString().toStdString();
-    const auto reviewed = draft_.value("requirement_reviewed").toBool();
-    if (const auto limit = positiveOptional(draft_, "displacement_limit_m"))
-      requirements.push_back({ps::RequirementQuantity::displacement, "",
-                              ps::RequirementComparator::less_or_equal, *limit,
-                              "m", applicability, criticality, rationale, reviewed});
-    if (const auto limit = positiveOptional(draft_, "von_mises_limit_pa"))
-      requirements.push_back({ps::RequirementQuantity::von_mises_stress, "",
-                              ps::RequirementComparator::less_or_equal, *limit,
-                              "Pa", applicability, criticality, rationale, reviewed});
-    const auto otherDescription =
-        draft_.value("other_requirement_description").toString().toStdString();
-    if (!otherDescription.empty())
-      requirements.push_back(
-          {ps::RequirementQuantity::other, otherDescription,
-           ps::RequirementComparator::less_or_equal,
-           draft_.value("other_requirement_limit_value").toDouble(),
-           draft_.value("other_requirement_unit").toString().toStdString(),
-           applicability, criticality, rationale, reviewed});
-  }
+  const auto applicability =
+      draft_.value("requirement_applicability").toString().toStdString();
+  const auto criticality =
+      parse_criticality(draft_.value("requirement_criticality").toString());
+  const auto rationale =
+      draft_.value("requirement_rationale").toString().toStdString();
+  const auto reviewed = draft_.value("requirement_reviewed").toBool();
+  if (const auto limit = positive_optional(draft_, "displacement_limit_m"))
+    requirements.push_back(
+        {.quantity = ps::RequirementQuantity::displacement,
+         .comparator = ps::RequirementComparator::less_or_equal,
+         .limit_value = *limit,
+         .unit = "m",
+         .applicability = applicability,
+         .criticality = criticality,
+         .source_or_exploratory_rationale = rationale,
+         .reviewed = reviewed,
+         .limit_basis = draft_.value("displacement_limit_basis")
+                            .toString().toStdString()});
+  if (const auto limit = positive_optional(draft_, "von_mises_limit_pa"))
+    requirements.push_back(
+        {.quantity = ps::RequirementQuantity::von_mises_stress,
+         .comparator = ps::RequirementComparator::less_or_equal,
+         .limit_value = *limit,
+         .unit = "Pa",
+         .applicability = applicability,
+         .criticality = criticality,
+         .source_or_exploratory_rationale = rationale,
+         .reviewed = reviewed,
+         .limit_basis = draft_.value("von_mises_limit_basis")
+                            .toString().toStdString()});
+  const auto otherDescription =
+      draft_.value("other_requirement_description").toString().toStdString();
+  if (!otherDescription.empty())
+    requirements.push_back(
+        {.quantity = ps::RequirementQuantity::other,
+         .other_quantity_description = otherDescription,
+         .comparator = ps::RequirementComparator::less_or_equal,
+         .limit_value =
+             draft_.value("other_requirement_limit_value").toDouble(),
+         .unit = draft_.value("other_requirement_unit").toString().toStdString(),
+         .applicability = applicability,
+         .criticality = criticality,
+         .source_or_exploratory_rationale = rationale,
+         .reviewed = reviewed,
+         .limit_basis = rationale});
   for (const auto &requirement : requirements) {
     if (requirement.quantity != ps::RequirementQuantity::other) continue;
     uncovered_requirements_.append(QVariantMap{
-        {"description", QString::fromStdString(requirement.other_quantity_description)},
+        {"description",
+         QString::fromStdString(requirement.other_quantity_description)},
         {"unit", QString::fromStdString(requirement.unit)},
         {"limit_value", requirement.limit_value},
         {"applicability", QString::fromStdString(requirement.applicability)},
-        {"criticality", criticalityLabel(requirement.criticality)},
-        {"rationale", QString::fromStdString(requirement.source_or_exploratory_rationale)},
+        {"criticality", criticality_label(requirement.criticality)},
+        {"rationale", QString::fromStdString(
+                          requirement.source_or_exploratory_rationale)},
         {"reviewed", requirement.reviewed}});
   }
   ps::BoundarySelection load;
@@ -1253,81 +1386,143 @@ void StructuralController::rebuildPreview() {
   try {
     load = ps::resolve_boundary_selection("reviewed load surface", patches_,
                                           load_patch_ids_);
-  } catch (const std::exception &exception) {
+  } catch (const std::exception &error) {
     blockers_.append(QVariantMap{{"code", "load_selection_invalid"},
-                                 {"message", QString::fromUtf8(exception.what())}});
+                                 {"message", QString::fromUtf8(error.what())}});
   }
   try {
-    restraint = ps::resolve_boundary_selection("reviewed fixed surface", patches_,
-                                               restraint_patch_ids_);
-  } catch (const std::exception &exception) {
+    restraint = ps::resolve_boundary_selection(
+        "reviewed fixed surface", patches_, restraint_patch_ids_);
+  } catch (const std::exception &error) {
     blockers_.append(QVariantMap{{"code", "restraint_selection_invalid"},
-                                 {"message", QString::fromUtf8(exception.what())}});
+                                 {"message", QString::fromUtf8(error.what())}});
   }
   ps::StructuralSetup setup{
       .analysis_id = draft_.value("analysis_id").toString().toStdString(),
       .component_name = draft_.value("component_name").toString().toStdString(),
-      .geometry_sha256 = draft_.value("geometry_sha256").toString().toStdString(),
-      .mesh = mesh_,
-      .boundary_faces = boundary_,
-      .material = {draft_.value("material_designation").toString().toStdString(),
-                   draft_.value("material_source_sha256").toString().toStdString(),
-                   draft_.value("material_applicability").toString().toStdString(),
-                   draft_.value("youngs_modulus_pa").toDouble(),
-                   draft_.value("poisson_ratio").toDouble(),
-                   draft_.value("material_reviewed").toBool()},
-      .load = {std::move(load),
-               {draft_.value("force_x_n").toDouble(),
-                draft_.value("force_y_n").toDouble(),
-                draft_.value("force_z_n").toDouble()},
-               draft_.value("load_reviewed").toBool()},
-      .restraint = {std::move(restraint),
-                    draft_.value("restraint_reviewed").toBool()},
-      .requirements = requirements,
-      .mesh_controls = {draft_.value("mesh_minimum_size_m").toDouble(),
-                        draft_.value("mesh_maximum_size_m").toDouble(),
-                        draft_.value("mesher_identity").toString().toStdString(),
-                        draft_.value("mesh_controls_reviewed").toBool()},
-      .scenario_description = draft_.value("scenario_description").toString().toStdString(),
-      .scenario_confirmed = draft_.value("scenario_confirmed").toBool()};
-  setup.selection_patch_angle_degrees =
-      mesh_summary_.value("patch_angle_degrees", 15.0).toDouble();
+      .geometry_sha256 =
+          draft_.value("geometry_sha256").toString().toStdString(),
+      .mesh = prepared_mesh_->mesh,
+      .boundary_faces = prepared_mesh_->boundary_faces,
+      .material =
+          {.designation =
+               draft_.value("material_designation").toString().toStdString(),
+           .source_sha256 =
+               draft_.value("material_source_sha256").toString().toStdString(),
+           .applicability =
+               draft_.value("material_applicability").toString().toStdString(),
+           .youngs_modulus_pa = draft_.value("youngs_modulus_pa").toDouble(),
+           .poisson_ratio = draft_.value("poisson_ratio").toDouble(),
+           .reviewed = draft_.value("material_reviewed").toBool(),
+           .temper = draft_.value("material_temper").toString().toStdString(),
+           .product_form =
+               draft_.value("material_product_form").toString().toStdString()},
+      .load = {.selection = std::move(load),
+               .total_force_n =
+                   {draft_.value("force_x_n").toDouble(),
+                    draft_.value("force_y_n").toDouble(),
+                    draft_.value("force_z_n").toDouble()},
+               .reviewed = draft_.value("load_reviewed").toBool()},
+      .restraint = {.selection = std::move(restraint),
+                    .reviewed =
+                        draft_.value("restraint_reviewed").toBool()},
+      .requirements = std::move(requirements),
+      .mesh_controls =
+          {.minimum_size_m = draft_.value("mesh_minimum_size_m").toDouble(),
+           .maximum_size_m = draft_.value("mesh_maximum_size_m").toDouble(),
+           .mesher_identity =
+               draft_.value("mesher_identity").toString().toStdString(),
+           .reviewed = draft_.value("mesh_controls_reviewed").toBool(),
+           .mesh_sha256 = prepared_mesh_->identity.source_sha256,
+           .coordinate_scale_to_m =
+               prepared_mesh_->identity.coordinate_scale_to_m,
+           .target_size_m = draft_.value("mesh_target_size_m").toDouble(),
+           .minimum_mean_ratio_threshold =
+               draft_.value("minimum_mean_ratio_threshold").toDouble(),
+           .observed_minimum_mean_ratio =
+               prepared_mesh_->diagnostics.minimum_mean_ratio},
+      .scenario_description =
+          draft_.value("scenario_description").toString().toStdString(),
+      .scenario_confirmed = draft_.value("scenario_confirmed").toBool(),
+      .selection_patch_angle_degrees =
+          mesh_summary_.value("patch_angle_degrees", 15.0).toDouble()};
+  if (baseline_sample_) {
+    const auto &coarse = baseline_sample_->setup().reviewed_setup;
+    setup.analysis_id = coarse.analysis_id;
+    setup.component_name = coarse.component_name;
+    setup.geometry_sha256 = coarse.geometry_sha256;
+    setup.material = coarse.material;
+    setup.load.total_force_n = coarse.load.total_force_n;
+    setup.requirements = coarse.requirements;
+    setup.scenario_description = coarse.scenario_description;
+    setup.scenario_confirmed = coarse.scenario_confirmed;
+  }
+  if (!refinement_criterion_)
+    blockers_.append(QVariantMap{
+        {"code", "refinement_criterion_invalid"},
+        {"message",
+         "Declare a finite mesh-refinement maximum change in (0, 1] before the coarse solve."}});
+  if (project_ && project_->project() &&
+      setup.geometry_sha256 != project_->project()->assembly_artifact_hash)
+    blockers_.append(QVariantMap{
+        {"code", "structural_geometry_binding_mismatch"},
+        {"message",
+         "Reviewed structural geometry must match the loaded project assembly identity."}});
   for (const auto &issue : ps::validate_setup(setup))
-    blockers_.append(QVariantMap{{"code", QString::fromStdString(issue.code)},
-                                 {"message", QString::fromStdString(issue.message)}});
-  QVariantList uniqueBlockers;
-  std::set<QString> blockerCodes;
+    blockers_.append(QVariantMap{
+        {"code", QString::fromStdString(issue.code)},
+        {"message", QString::fromStdString(issue.message)}});
+  QVariantList unique;
+  QSet<QString> codes;
   for (const auto &value : blockers_) {
     const auto blocker = value.toMap();
-    if (blockerCodes.insert(blocker.value("code").toString()).second)
-      uniqueBlockers.append(blocker);
+    if (!codes.contains(blocker.value("code").toString())) {
+      codes.insert(blocker.value("code").toString());
+      unique.append(blocker);
+    }
   }
-  blockers_ = std::move(uniqueBlockers);
+  blockers_ = std::move(unique);
   if (!blockers_.isEmpty()) {
     status_ = "setup_blocked";
     return;
   }
   try {
-    const auto request = ps::compile_structural_request(setup);
-    compiled_request_ = request;
-    compiled_requirements_ = requirements;
-    compiled_material_ = setup.material;
-    compiled_load_ = setup.load;
-    compiled_restraint_ = setup.restraint;
-    compiled_setup_evidence_ = ps::serialize_structural_setup_evidence(setup);
-    request_preview_ = {{"analysis_id", QString::fromStdString(request.analysis_id)},
-                        {"component_name", QString::fromStdString(request.component_name)},
-                        {"nodes", static_cast<qlonglong>(request.nodes.size())},
-                        {"elements", static_cast<qlonglong>(request.elements.size())},
-                        {"fixed_nodes", static_cast<qlonglong>(request.fully_fixed_node_ids.size())},
-                        {"loaded_nodes", static_cast<qlonglong>(request.nodal_forces.size())},
-                        {"load_faces", static_cast<qlonglong>(setup.load.selection.face_node_ids.size())},
-                        {"restraint_faces", static_cast<qlonglong>(setup.restraint.selection.face_node_ids.size())}};
-    can_run_ = true;
-    status_ = "ready_for_execution";
-  } catch (const std::exception &exception) {
+    compiled_setup_ = backend_->compileSetup(setup);
+    if (baseline_sample_) {
+      const auto &coarse = baseline_sample_->setup().reviewed_setup;
+      if (setup.mesh_controls.mesh_sha256 ==
+              coarse.mesh_controls.mesh_sha256 ||
+          setup.mesh.elements.size() <= coarse.mesh.elements.size() ||
+          setup.mesh_controls.target_size_m >=
+              coarse.mesh_controls.target_size_m) {
+        blockers_.append(QVariantMap{
+            {"code", "refinement_mesh_not_finer"},
+            {"message",
+             "The fine role requires a distinct mesh with more elements and a smaller reviewed target size."}});
+      }
+      const auto loadCorrespondence =
+          draft_.value("boundary_load_correspondence_reviewed").toBool();
+      const auto restraintCorrespondence =
+          draft_.value("boundary_restraint_correspondence_reviewed").toBool();
+      boundary_correspondence_ =
+          ps::review_structural_boundary_correspondence(
+              baseline_sample_->setup(), *compiled_setup_,
+              loadCorrespondence, restraintCorrespondence);
+      if (!loadCorrespondence || !restraintCorrespondence)
+        blockers_.append(QVariantMap{
+            {"code", "refinement_boundary_review_required"},
+            {"message",
+             "Confirm that the fine load and restraint regions correspond to the retained coarse regions."}});
+      if (!blockers_.isEmpty()) {
+        can_run_ = false;
+        status_ = "setup_blocked";
+        return;
+      }
+    }
+    applyCompiledPreview(setup);
+  } catch (const std::exception &error) {
     blockers_.append(QVariantMap{{"code", "request_invalid"},
-                                 {"message", QString::fromUtf8(exception.what())}});
+                                 {"message", QString::fromUtf8(error.what())}});
     status_ = "setup_blocked";
   }
 }
@@ -1335,16 +1530,22 @@ void StructuralController::rebuildPreview() {
 void StructuralController::runAnalysis(const QUrl &calculixExecutable,
                                        const QUrl &outputRoot) {
   if (busy_) return;
-  if (!can_run_ || !compiled_request_) {
+  if (!can_run_ || !compiled_setup_ || !refinement_criterion_) {
     error_ = "The reviewed structural setup is not ready for execution.";
     emit changed();
     return;
   }
-  const QString executablePath = calculixExecutable.toLocalFile();
-  const QString rootPath = outputRoot.toLocalFile();
-  if (executablePath.isEmpty() || !QFileInfo::exists(executablePath) ||
-      rootPath.isEmpty()) {
+  if (!calculixExecutable.isLocalFile() || !outputRoot.isLocalFile()) {
     error_ = "Select a local CalculiX executable and output directory.";
+    emit changed();
+    return;
+  }
+  const auto executablePath = calculixExecutable.toLocalFile();
+  const auto rootPath = outputRoot.toLocalFile();
+  const QFileInfo executable(executablePath);
+  if (!executable.exists() || !executable.isFile() ||
+      executable.isSymbolicLink()) {
+    error_ = "Select a regular local CalculiX executable.";
     emit changed();
     return;
   }
@@ -1354,230 +1555,813 @@ void StructuralController::runAnalysis(const QUrl &calculixExecutable,
     emit changed();
     return;
   }
-  const QString runName = "structural-" +
-      QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
-      QUuid::createUuid().toString(QUuid::Id128).left(8);
-  if (!root.mkdir(runName)) {
-    error_ = "A unique structural run directory could not be created.";
-    emit changed();
-    return;
+  const bool fine = baseline_sample_ != nullptr;
+  QString runDirectory;
+  QString jobName;
+  if (fine) {
+    if (!boundary_correspondence_) {
+      error_ = "Review fine boundary correspondence before execution.";
+      emit changed();
+      return;
+    }
+    runDirectory = qt_path(baseline_sample_->options().working_directory);
+    if (!QDir(runDirectory).exists()) {
+      error_ = "The retained refinement study directory is unavailable.";
+      emit changed();
+      return;
+    }
+    jobName = "prometheus_structural_fine_" +
+              QUuid::createUuid().toString(QUuid::Id128).left(8);
+  } else {
+    const QString runName =
+        "structural-refinement-" +
+        QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmss-zzz-") +
+        QUuid::createUuid().toString(QUuid::Id128).left(8);
+    if (!root.mkdir(runName)) {
+      error_ = "A unique structural refinement directory could not be created.";
+      emit changed();
+      return;
+    }
+    runDirectory = root.filePath(runName);
+    jobName = "prometheus_structural_coarse";
   }
-  const QString runDirectory = root.filePath(runName);
-  constexpr auto jobName = "prometheus_structural_run";
-  std::ofstream deck(std::filesystem::path(runDirectory.toStdWString()) /
-                         (std::string(jobName) + ".inp"),
-                     std::ios::binary);
-  deck << ps::generate_calculix_deck(*compiled_request_);
-  deck.close();
-  if (!deck) {
-    error_ = "The exact structural solver deck could not be written.";
-    emit changed();
-    return;
-  }
-  const auto request = *compiled_request_;
-  const auto setupEvidence = compiled_setup_evidence_;
+  const auto options = ps::SolverRunOptions{
+      native_path(executablePath), native_path(runDirectory),
+      jobName.toStdString(), std::chrono::minutes(5)};
+  const auto setup = *compiled_setup_;
+  const auto criterion = *refinement_criterion_;
+  const auto baseline = baseline_sample_;
+  const auto correspondence = boundary_correspondence_;
+  const auto backend = backend_;
+  clearCompletedRun();
+  if (fine) boundary_correspondence_ = correspondence;
   error_.clear();
-  last_run_.clear();
-  findings_.clear();
   busy_ = true;
-  status_ = "executing";
+  status_ = fine ? "executing_fine" : "executing_coarse";
   emit changed();
-
-  auto *watcher = new QFutureWatcher<DesktopRunResult>(this);
-  connect(watcher, &QFutureWatcher<DesktopRunResult>::finished, this,
+  auto *watcher = new QFutureWatcher<DesktopSampleCompletion>(this);
+  connect(watcher, &QFutureWatcher<DesktopSampleCompletion>::finished, this,
           [this, watcher] {
-    const auto completed = watcher->result();
+    auto completed = watcher->result();
     watcher->deleteLater();
     busy_ = false;
-    last_run_ = {{"status", runStatus(completed.run.status)},
-                 {"exit_code", completed.run.exit_code},
-                 {"elapsed_ms", static_cast<qlonglong>(completed.run.elapsed.count())},
-                 {"detail", QString::fromStdString(completed.run.detail)},
-                 {"stdout", QString::fromStdString(completed.run.standard_output)},
-                 {"stderr", QString::fromStdString(completed.run.standard_error)},
-                 {"output_directory", completed.output_directory},
-                 {"archived", completed.archive.has_value()},
-                 {"declared_obligations", completed.evaluation.declared_obligations},
-                 {"evaluated_obligations", completed.evaluation.evaluated_obligations},
-                 {"limitation", QString::fromStdString(completed.evaluation.limitation)}};
-    if (completed.archive) {
-      last_run_["archive_manifest"] = QString::fromStdWString(
-          completed.archive->manifest_path.wstring());
-      last_run_["archive_sha256"] =
-          QString::fromStdString(completed.archive->manifest_sha256);
-    } else if (!completed.archive_error.empty()) {
-      last_run_["archive_error"] =
-          QString::fromStdString(completed.archive_error);
+    const auto &run = completed.sample.run();
+    last_run_ = {
+        {"status", run_status(run.status)},
+        {"exit_code", run.exit_code},
+        {"elapsed_ms", static_cast<qlonglong>(run.elapsed.count())},
+        {"detail", QString::fromStdString(run.detail)},
+        {"stdout", QString::fromStdString(run.standard_output)},
+        {"stderr", QString::fromStdString(run.standard_error)},
+        {"output_directory", completed.output_directory},
+        {"archived", false},
+        {"declared_obligations", 0},
+        {"evaluated_obligations", 0}};
+    if (!completed.sample.error.empty())
+      last_run_["error"] = QString::fromStdString(completed.sample.error);
+
+    if (completed.refinement) {
+      completed_refinement_ = std::move(*completed.refinement);
+      const auto &evaluation = completed_refinement_->evaluation;
+      last_run_["declared_obligations"] = evaluation.declared_obligations;
+      last_run_["evaluated_obligations"] = evaluation.evaluated_obligations;
+      last_run_["limitation"] = QString::fromStdString(evaluation.limitation);
+      if (completed_refinement_->comparison) {
+        refinement_comparison_ =
+            comparison_map(*completed_refinement_->comparison);
+      }
+      if (completed_refinement_->archive) {
+        last_run_["archived"] = true;
+        const auto &archive = *completed_refinement_->archive;
+        last_run_["archive_manifest"] = qt_path(archive.manifest_path);
+        last_run_["archive_sha256"] =
+            QString::fromStdString(archive.manifest_sha256);
+        last_run_["archive_schema_version"] =
+            QString::fromStdString(archive.schema_version);
+        last_run_["validated_result_identity"] =
+            QString::fromStdString(archive.validated_result_identity);
+        last_run_["coarse_result_identity"] =
+            QString::fromStdString(archive.coarse_result_identity);
+      } else if (!completed_refinement_->archive_error.empty()) {
+        last_run_["archive_error"] =
+            QString::fromStdString(completed_refinement_->archive_error);
+      }
+      if (!completed_refinement_->issues.empty()) {
+        QVariantList issues;
+        for (const auto &issue : completed_refinement_->issues)
+          issues.append(QVariantMap{
+              {"code", QString::fromStdString(issue.code)},
+              {"message", QString::fromStdString(issue.message)}});
+        last_run_["refinement_issues"] = issues;
+      }
+      findings_.clear();
+      for (const auto &finding : evaluation.findings)
+        append_finding(findings_, finding);
+      if (completed.sample.sample)
+        for (const auto &unknown : evaluation.unknowns)
+          append_unknown(findings_, unknown,
+                         completed.sample.sample->setup().request);
+      const auto executionState =
+          run.status != ps::SolverRunStatus::completed
+              ? decision::ExecutionState::failed
+              : (!evaluation.unknowns.empty() ||
+                 !uncovered_requirements_.isEmpty() ||
+                 !completed_refinement_->comparison ||
+                 completed_refinement_->comparison->status() !=
+                     ps::StructuralRefinementStatus::accepted)
+                    ? decision::ExecutionState::completed_with_blocked_work
+                    : decision::ExecutionState::completed;
+      const auto subject = completed.sample.sample
+          ? completed.sample.sample->setup().request.geometry_sha256
+          : std::string{};
+      append_assessment(last_run_, evaluation,
+                        uncovered_requirements_.size(), executionState,
+                        subject);
     }
-    if (completed.run.metrics) {
-      const auto &displacements = completed.run.metrics->displacements;
+    if (run.validated_result && run.validated_result->metrics && prepared_mesh_) {
+      const auto &validated = *run.validated_result;
+      const auto &metrics = *validated.metrics;
       const auto maximumDisplacement = std::ranges::max_element(
-          displacements, {}, &ps::NodalDisplacement::magnitude_m);
-      const auto &stresses = completed.run.metrics->stresses;
+          validated.normalized.displacements, {},
+          &ps::NodalDisplacement::magnitude_m);
       const auto maximumStress = std::ranges::max_element(
-          stresses, {}, &ps::ElementStress::von_mises_pa);
-      last_run_["maximum_displacement_m"] =
-          completed.run.metrics->maximum_displacement_m;
-      last_run_["maximum_von_mises_pa"] =
-          completed.run.metrics->maximum_von_mises_pa;
-      last_run_["displacement_rows"] = static_cast<qlonglong>(displacements.size());
-      last_run_["stress_rows"] = static_cast<qlonglong>(stresses.size());
-      if (maximumDisplacement != displacements.end()) {
-        last_run_["maximum_displacement_node_id"] = maximumDisplacement->node_id;
+          validated.normalized.stresses, {}, &ps::ElementStress::von_mises_pa);
+      last_run_["maximum_displacement_m"] = metrics.maximum_displacement_m;
+      last_run_["maximum_von_mises_pa"] = metrics.maximum_von_mises_pa;
+      last_run_["displacement_rows"] =
+          static_cast<qlonglong>(validated.normalized.displacements.size());
+      last_run_["stress_rows"] =
+          static_cast<qlonglong>(validated.normalized.stresses.size());
+      if (maximumDisplacement != validated.normalized.displacements.end()) {
+        last_run_["maximum_displacement_node_id"] =
+            maximumDisplacement->node_id;
         last_run_["maximum_displacement_x_m"] = maximumDisplacement->x_m;
         last_run_["maximum_displacement_y_m"] = maximumDisplacement->y_m;
         last_run_["maximum_displacement_z_m"] = maximumDisplacement->z_m;
       }
-      if (maximumStress != stresses.end()) {
+      if (maximumStress != validated.normalized.stresses.end()) {
         last_run_["maximum_stress_element_id"] = maximumStress->element_id;
-        last_run_["maximum_stress_integration_point"] = maximumStress->integration_point;
+        last_run_["maximum_stress_integration_point"] =
+            maximumStress->integration_point;
       }
-      double minimumX = std::numeric_limits<double>::max();
-      double minimumY = std::numeric_limits<double>::max();
-      double minimumZ = std::numeric_limits<double>::max();
-      double maximumX = std::numeric_limits<double>::lowest();
-      double maximumY = std::numeric_limits<double>::lowest();
-      double maximumZ = std::numeric_limits<double>::lowest();
-      for (const auto &node : mesh_.nodes) {
-        minimumX = std::min(minimumX, node.position_m[0]);
-        minimumY = std::min(minimumY, node.position_m[1]);
-        minimumZ = std::min(minimumZ, node.position_m[2]);
-        maximumX = std::max(maximumX, node.position_m[0]);
-        maximumY = std::max(maximumY, node.position_m[1]);
-        maximumZ = std::max(maximumZ, node.position_m[2]);
-      }
-      const auto diagonal = std::hypot(maximumX - minimumX,
-                                       maximumY - minimumY,
-                                       maximumZ - minimumZ);
-      const auto deformationScale = completed.run.metrics->maximum_displacement_m > 0.0
-          ? std::clamp(0.1 * diagonal /
-                           completed.run.metrics->maximum_displacement_m,
-                       1.0, 1.0e6)
-          : 1.0;
-      if (result_geometry_) result_geometry_->deleteLater();
+      const auto extents = mesh_extents(prepared_mesh_->mesh);
+      const auto scale = metrics.maximum_displacement_m > 0.0
+                             ? std::clamp(0.1 * extents.diagonal /
+                                              metrics.maximum_displacement_m,
+                                          1.0, 1.0e6)
+                             : 1.0;
+      clear_geometry(result_geometry_);
       result_geometry_ = new StructuralResultGeometry(
-          mesh_, boundary_, *completed.run.metrics, deformationScale, this);
-      const auto radiusMm = std::max(1.0, 0.55 * diagonal * 1000.0);
+          prepared_mesh_->mesh, prepared_mesh_->boundary_faces,
+          validated.normalized, metrics, scale, this);
       result_view_ = {
-          {"center_x_mm", 500.0 * (minimumX + maximumX)},
-          {"center_y_mm", 500.0 * (minimumY + maximumY)},
-          {"center_z_mm", 500.0 * (minimumZ + maximumZ)},
-          {"radius_mm", radiusMm},
-          {"deformation_scale", deformationScale},
+          {"center_x_mm", 500.0 * (extents.minimum_x + extents.maximum_x)},
+          {"center_y_mm", 500.0 * (extents.minimum_y + extents.maximum_y)},
+          {"center_z_mm", 500.0 * (extents.minimum_z + extents.maximum_z)},
+          {"radius_mm", std::max(1.0, 0.55 * extents.diagonal * 1000.0)},
+          {"deformation_scale", scale},
           {"color_min_pa", 0.0},
-          {"color_max_pa", completed.run.metrics->maximum_von_mises_pa}};
+          {"color_max_pa", metrics.maximum_von_mises_pa}};
     }
-    for (const auto &finding : completed.evaluation.findings) {
-      findings_.append(QVariantMap{
-          {"obligation", QString::fromStdString(finding.obligation)},
-          {"disposition", dispositionLabel(finding.disposition)},
-          {"measured", finding.measured_value},
-          {"limit", finding.limit_value},
-          {"margin", finding.margin_to_limit},
-          {"unit", QString::fromStdString(finding.unit)},
-          {"scope", QString::fromStdString(finding.scope)}});
-    }
-    if (compiled_request_) {
-      decision::Counts counts;
-      for (const auto &finding : completed.evaluation.findings) {
-        switch (finding.disposition) {
-        case ps::StructuralFindingDisposition::no_violation_detected_within_scope:
-          ++counts.satisfied_within_scope; break;
-        case ps::StructuralFindingDisposition::violated:
-          ++counts.violated; break;
-        case ps::StructuralFindingDisposition::cannot_answer:
-          ++counts.not_evaluated; break;
-        }
-      }
-      counts.not_applicable =
-          static_cast<std::uint64_t>(uncovered_requirements_.size());
-      const auto executionState = completed.run.status != ps::SolverRunStatus::completed
-          ? decision::ExecutionState::failed
-          : uncovered_requirements_.isEmpty()
-                ? decision::ExecutionState::completed
-                : decision::ExecutionState::completed_with_blocked_work;
-      const auto total = counts.satisfied_within_scope + counts.violated +
-          counts.indeterminate + counts.not_applicable + counts.not_evaluated;
-      if (total > 0) {
-        const auto summary = decision::summarize(
-            counts, executionState, total, compiled_request_->geometry_sha256);
-        last_run_["assessment"] = QVariantMap{
-            {"verdict", verdictLabel(summary.verdict)},
-            {"coverage", coverageLabel(summary.coverage)},
-            {"execution_state", executionStateLabel(summary.execution_state)}};
+    if (run.status != ps::SolverRunStatus::completed || !completed.sample.sample) {
+      status_ = "execution_failed";
+      refinement_stage_ = baseline_sample_ ? "fine" : "coarse";
+    } else if (!completed.fine) {
+      baseline_sample_ = completed.sample.sample;
+      refinement_criterion_ = baseline_sample_->criterion();
+      baseline_run_ = last_run_;
+      baseline_run_["nodes"] = static_cast<qlonglong>(
+          baseline_sample_->setup().reviewed_setup.mesh.nodes.size());
+      baseline_run_["elements"] = static_cast<qlonglong>(
+          baseline_sample_->setup().reviewed_setup.mesh.elements.size());
+      baseline_run_["selected_load_area_m2"] =
+          baseline_sample_->setup().reviewed_setup.load.selection.area_m2;
+      baseline_run_["selected_restraint_area_m2"] =
+          baseline_sample_->setup().reviewed_setup.restraint.selection.area_m2;
+      refinement_stage_ = "fine";
+      status_ = "execution_completed_evaluation_pending";
+      compiled_setup_.reset();
+      can_run_ = false;
+    } else if (!completed_refinement_ ||
+               !completed_refinement_->comparison) {
+      refinement_stage_ = "fine";
+      status_ = "comparison_failed";
+    } else {
+      refinement_stage_ = "completed";
+      can_run_ = false;
+      if (!completed_refinement_->archive) {
+        status_ = "comparison_archive_failed";
+      } else {
+        status_ = completed_refinement_->comparison->status() ==
+                          ps::StructuralRefinementStatus::accepted
+                      ? "comparison_accepted"
+                      : "comparison_indeterminate";
       }
     }
-    status_ = completed.run.status == ps::SolverRunStatus::completed
-        ? "execution_completed" : "execution_failed";
     emit changed();
     emit runFinished();
   });
   watcher->setFuture(QtConcurrent::run(
-      [request, setupEvidence, executablePath, runDirectory]() -> DesktopRunResult {
-        auto run = ps::run_calculix({
-            std::filesystem::path(executablePath.toStdWString()),
-            std::filesystem::path(runDirectory.toStdWString()),
-            "prometheus_structural_run", std::chrono::minutes(5)});
-        if (run.status == ps::SolverRunStatus::completed && run.metrics) {
-          const auto binding =
-              ps::validate_calculix_result_binding(request, *run.metrics);
-          if (!binding.empty()) {
-            run.status = ps::SolverRunStatus::result_invalid;
-            run.detail = binding.front().code + ": " + binding.front().message;
-            run.metrics.reset();
-          }
-        }
-        const auto evaluation = ps::compile_structural_findings(request, run);
-        std::optional<ps::StructuralArchive> archive;
-        std::string archiveError;
-        if (run.status == ps::SolverRunStatus::completed) {
-          try {
-            archive = ps::write_structural_archive(
-                std::filesystem::path(runDirectory.toStdWString()),
-                "prometheus_structural_run", executablePath.toStdString(),
-                setupEvidence, request, run, evaluation);
-          } catch (const std::exception &error) {
-            archiveError = error.what();
-          }
-        }
-        return {run, evaluation, runDirectory, std::move(archive),
-                std::move(archiveError)};
+      [backend, options, setup, criterion, baseline, correspondence,
+       runDirectory, fine]() mutable -> DesktopSampleCompletion {
+        auto sample = backend->executeSample(
+            options, setup,
+            fine ? ps::StructuralSampleRole::fine
+                 : ps::StructuralSampleRole::coarse,
+            criterion);
+        std::optional<DesktopStructuralRefinementResult> refinement;
+        if (fine && sample.sample)
+          refinement = backend->finalizeRefinement(
+              baseline, sample.sample, correspondence.value());
+        return {std::move(sample), std::move(refinement), runDirectory, fine};
       }));
 }
 
-void StructuralController::reset() {
-  if (busy_) {
-    error_ = "Wait for the active structural execution before resetting its setup.";
+void StructuralController::commitLastRun() {
+  if (busy_) return;
+  if (!project_ || !project_->project() ||
+      project_->currentProjectPath().isEmpty()) {
+    error_ = "Open or save a Prometheus project before committing this run.";
     emit changed();
     return;
   }
+  if (!completed_refinement_ || !completed_refinement_->archive) {
+    error_ = "A completed active structural refinement archive is required.";
+    emit changed();
+    return;
+  }
+  const auto trustedArchive = *completed_refinement_->archive;
+  if (last_run_.value("archive_manifest").toString() !=
+      qt_path(trustedArchive.manifest_path)) {
+    error_ = "The active archive handle no longer matches the displayed run.";
+    emit changed();
+    return;
+  }
+  const auto projectPath = project_->projectPath();
+  const auto assemblyHash = project_->project()->assembly_artifact_hash;
+  busy_ = true;
+  status_ = "publishing_structural_archive";
+  error_.clear();
+  emit changed();
+  auto *watcher = new QFutureWatcher<DesktopStructuralCommitResult>(this);
+  connect(watcher, &QFutureWatcher<DesktopStructuralCommitResult>::finished,
+          this, [this, watcher] {
+    const auto completed = watcher->result();
+    watcher->deleteLater();
+    busy_ = false;
+    if (!completed.project) {
+      error_ = QString::fromStdString(completed.error);
+      last_run_["project_anchored"] = false;
+      status_ = "structural_archive_publication_failed";
+    } else {
+      project_->acceptProject(*completed.project);
+      last_run_["project_anchored"] = true;
+      last_run_["project_artifacts_embedded"] = true;
+      last_run_["project_manifest_hash"] =
+          QString::fromStdString(completed.manifest_hash);
+      last_run_["project_already_committed"] = completed.already_committed;
+      status_ = "structural_archive_published";
+      reloadProject();
+    }
+    emit changed();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [trustedArchive, projectPath, assemblyHash] {
+        auto objects = run_store::build_structural_archive_objects(
+            trustedArchive.manifest_path, assemblyHash,
+            trustedArchive.manifest_sha256);
+        if (!objects.has_value())
+          return DesktopStructuralCommitResult{
+              std::nullopt, false, {}, objects.diagnostic().code + ": " +
+                                           objects.diagnostic().message};
+        const auto manifestHash =
+            objects.value().project_manifest.reference.object_hash;
+        auto published = run_store::publish_structural_archive(
+            projectPath, objects.value());
+        if (!published.has_value())
+          return DesktopStructuralCommitResult{
+              std::nullopt, false, {}, published.diagnostic().code + ": " +
+                                           published.diagnostic().message};
+        return DesktopStructuralCommitResult{
+            published.value().project, published.value().already_committed,
+            manifestHash, {}};
+      }));
+}
+
+void StructuralController::reloadProject() {
+  stored_runs_.clear();
+  rebuildReviewedInputHistory();
+  if (!project_ || !project_->project()) {
+    emit changed();
+    return;
+  }
+  for (const auto &reference : project_->project()->execution.committed_runs) {
+    if (reference.schema_id == run_store::structural_manifest_schema_id_v1 ||
+        reference.schema_id == run_store::structural_manifest_schema_id_v2) {
+      stored_runs_.append(QVariantMap{
+          {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
+          {"status", "legacy_manifest_only"},
+          {"restorable", false}});
+      continue;
+    }
+    if (reference.schema_id !=
+            run_store::structural_project_run_schema_id_v1 &&
+        reference.schema_id !=
+            run_store::structural_project_run_schema_id_v2)
+      continue;
+    QVariantMap display{
+        {"project_manifest_hash", QString::fromStdString(reference.object_hash)},
+        {"status", "embedded"},
+        {"restorable", true}};
+    const auto projectManifest =
+        run_store::read_object(project_->projectPath(), reference);
+    if (!projectManifest.has_value()) {
+      display["status"] = "unavailable";
+      display["restorable"] = false;
+      display["error"] =
+          QString::fromStdString(projectManifest.diagnostic().message);
+      stored_runs_.append(display);
+      continue;
+    }
+    QJsonParseError parseError;
+    const auto projectDocument = QJsonDocument::fromJson(
+        QByteArray::fromStdString(projectManifest.value()), &parseError);
+    const auto archiveReference =
+        projectDocument.isObject()
+            ? stored_reference(projectDocument.object()
+                                   .value("archive_manifest")
+                                   .toObject())
+            : std::nullopt;
+    if (parseError.error != QJsonParseError::NoError || !archiveReference) {
+      display["status"] = "unavailable";
+      display["restorable"] = false;
+      display["error"] = "Embedded structural project manifest is invalid.";
+      stored_runs_.append(display);
+      continue;
+    }
+    const auto boundAssembly =
+        projectDocument.object().value("assembly_artifact_hash").toString();
+    const auto sourceCurrent =
+        boundAssembly.toStdString() ==
+        project_->project()->assembly_artifact_hash;
+    display["assembly_artifact_hash"] = boundAssembly;
+    display["source_current"] = sourceCurrent;
+    if (!sourceCurrent) display["status"] = "stale_source_changed";
+    const auto archive =
+        run_store::read_object(project_->projectPath(), *archiveReference);
+    if (archive.has_value()) {
+      const auto root = QJsonDocument::fromJson(
+                            QByteArray::fromStdString(archive.value()))
+                            .object();
+      display["analysis_id"] = root.value("analysis_id").toString();
+      display["component_name"] = root.value("component_name").toString();
+      const auto schemaVersion =
+          root.value("schema_version").toString();
+      const auto metrics =
+          schemaVersion == "3.0.0" || schemaVersion == "4.0.0"
+              ? root.value("samples")
+                    .toObject()
+                    .value("fine")
+                    .toObject()
+                    .value("metrics")
+                    .toObject()
+              : root.value("metrics").toObject();
+      display["maximum_displacement_m"] =
+          metrics.value("maximum_displacement_m").toDouble();
+      display["maximum_von_mises_pa"] =
+          metrics.value("maximum_von_mises_pa").toDouble();
+    }
+    stored_runs_.append(display);
+  }
+  emit changed();
+}
+
+void StructuralController::restoreStoredRun(const int index,
+                                            const QUrl &outputRoot) {
+  if (busy_ || !project_ || !project_->project() || index < 0 ||
+      index >= stored_runs_.size())
+    return;
+  const auto selected = stored_runs_.at(index).toMap();
+  if (!selected.value("restorable").toBool() || !outputRoot.isLocalFile()) {
+    error_ = "Select a restorable run and a local output folder.";
+    emit changed();
+    return;
+  }
+  const auto rootPath = outputRoot.toLocalFile();
+  QDir root(rootPath);
+  if (!root.exists() && !QDir().mkpath(rootPath)) {
+    error_ = "The structural restore directory could not be created.";
+    emit changed();
+    return;
+  }
+  const auto hash =
+      selected.value("project_manifest_hash").toString().toStdString();
+  const auto reference = std::ranges::find_if(
+      project_->project()->execution.committed_runs,
+      [&](const auto &candidate) { return candidate.object_hash == hash; });
+  if (reference == project_->project()->execution.committed_runs.end()) {
+    error_ = "The selected structural history reference is unavailable.";
+    emit changed();
+    return;
+  }
+  const auto destination =
+      root.filePath("restored-structural-" +
+                    QDateTime::currentDateTimeUtc().toString(
+                        "yyyyMMdd-HHmmss-zzz-") +
+                    QUuid::createUuid().toString(QUuid::Id128).left(8));
+  const auto projectPath = project_->projectPath();
+  const auto stored = *reference;
+  const auto sourceCurrent = selected.value("source_current", true).toBool();
+  busy_ = true;
+  status_ = "restoring_structural_archive";
+  error_.clear();
+  emit changed();
+  auto *watcher = new QFutureWatcher<DesktopStructuralRestoreResult>(this);
+  connect(watcher, &QFutureWatcher<DesktopStructuralRestoreResult>::finished,
+          this, [this, watcher, sourceCurrent] {
+    auto restored = watcher->result();
+    watcher->deleteLater();
+    busy_ = false;
+    if (!restored.error.empty() || !restored.verification.valid ||
+        !restored.verification.metrics || !restored.verification.normalized ||
+        !restored.verification.reviewed_setup ||
+        !restored.verification.compiled_setup ||
+        !restored.verification.evaluation) {
+      error_ = QString::fromStdString(
+          restored.error.empty() ? "restored structural evidence is incomplete"
+                                 : restored.error);
+      status_ = "structural_archive_restore_failed";
+      emit changed();
+      return;
+    }
+    const auto reviewed = *restored.verification.reviewed_setup;
+    prepared_mesh_ = ps::PreparedMesh{
+        .mesh = reviewed.mesh,
+        .boundary_faces = reviewed.boundary_faces,
+        .diagnostics =
+            {.connected_components = 1U,
+             .minimum_mean_ratio =
+                 reviewed.mesh_controls.observed_minimum_mean_ratio,
+             .maximum_mean_ratio =
+                 reviewed.mesh_controls.observed_minimum_mean_ratio},
+        .identity =
+            {.source_sha256 = reviewed.mesh_controls.mesh_sha256,
+             .coordinate_scale_to_m =
+                 reviewed.mesh_controls.coordinate_scale_to_m,
+             .parser_version = "restored-verified-v2",
+             .validation_version = "restored-verified-v2"}};
+    patches_ = backend_->groupPatches(*prepared_mesh_,
+                                      reviewed.selection_patch_angle_degrees);
+    mesh_summary_["patch_angle_degrees"] =
+        reviewed.selection_patch_angle_degrees;
+    clear_geometry(mesh_geometry_);
+    mesh_geometry_ = new StructuralMeshGeometry(
+        prepared_mesh_->mesh, prepared_mesh_->boundary_faces, {}, this);
+    rebuildPatchPresentation();
+    const auto patch_ids_for = [&](const ps::BoundarySelection &selection) {
+      std::set<std::array<int, 3>> selectedFaces;
+      for (auto face : selection.face_node_ids)
+        selectedFaces.insert(canonical_face(face));
+      std::vector<int> result;
+      std::size_t covered = 0U;
+      for (const auto &patch : patches_) {
+        const bool contained = std::ranges::all_of(
+            patch.face_node_ids, [&](auto face) {
+              return selectedFaces.contains(canonical_face(face));
+            });
+        if (contained) {
+          result.push_back(patch.id);
+          covered += patch.face_node_ids.size();
+        }
+      }
+      return covered == selectedFaces.size() ? result : std::vector<int>{};
+    };
+    load_patch_ids_ = patch_ids_for(reviewed.load.selection);
+    restraint_patch_ids_ = patch_ids_for(reviewed.restraint.selection);
+    if (load_patch_ids_.empty() || restraint_patch_ids_.empty()) {
+      error_ = "Stored reviewed surfaces do not map to restored patches.";
+      status_ = "structural_archive_restore_failed";
+      emit changed();
+      return;
+    }
+    const auto *displacement = requirement_for(
+        reviewed.requirements, ps::RequirementQuantity::displacement);
+    const auto *vonMises = requirement_for(
+        reviewed.requirements, ps::RequirementQuantity::von_mises_stress);
+    const auto *shared = displacement != nullptr ? displacement : vonMises;
+    const auto uncovered = std::ranges::find(
+        reviewed.requirements, ps::RequirementQuantity::other,
+        &ps::ReviewedRequirement::quantity);
+    draft_ = {
+        {"restored", true},
+        {"analysis_id", QString::fromStdString(reviewed.analysis_id)},
+        {"component_name", QString::fromStdString(reviewed.component_name)},
+        {"geometry_sha256",
+         QString::fromStdString(reviewed.geometry_sha256)},
+        {"material_designation",
+         QString::fromStdString(reviewed.material.designation)},
+        {"material_temper", QString::fromStdString(reviewed.material.temper)},
+        {"material_product_form",
+         QString::fromStdString(reviewed.material.product_form)},
+        {"material_source_sha256",
+         QString::fromStdString(reviewed.material.source_sha256)},
+        {"material_applicability",
+         QString::fromStdString(reviewed.material.applicability)},
+        {"youngs_modulus_pa", reviewed.material.youngs_modulus_pa},
+        {"poisson_ratio", reviewed.material.poisson_ratio},
+        {"material_reviewed", reviewed.material.reviewed},
+        {"force_x_n", reviewed.load.total_force_n[0]},
+        {"force_y_n", reviewed.load.total_force_n[1]},
+        {"force_z_n", reviewed.load.total_force_n[2]},
+        {"load_reviewed", reviewed.load.reviewed},
+        {"restraint_reviewed", reviewed.restraint.reviewed},
+        {"displacement_limit_m",
+         displacement == nullptr ? 0.0 : displacement->limit_value},
+        {"von_mises_limit_pa",
+         vonMises == nullptr ? 0.0 : vonMises->limit_value},
+        {"requirement_rationale", shared == nullptr
+             ? QString{}
+             : QString::fromStdString(
+                   shared->source_or_exploratory_rationale)},
+        {"requirement_applicability", shared == nullptr
+             ? QString{}
+             : QString::fromStdString(shared->applicability)},
+        {"requirement_criticality", shared == nullptr
+             ? QStringLiteral("advisory")
+             : criticality_label(shared->criticality)},
+        {"displacement_limit_basis", displacement == nullptr
+             ? QString{}
+             : QString::fromStdString(displacement->limit_basis)},
+        {"von_mises_limit_basis", vonMises == nullptr
+             ? QString{}
+             : QString::fromStdString(vonMises->limit_basis)},
+        {"requirement_reviewed", shared != nullptr &&
+             std::ranges::all_of(reviewed.requirements,
+                                 &ps::ReviewedRequirement::reviewed)},
+        {"other_requirement_description",
+         uncovered == reviewed.requirements.end()
+             ? QString{}
+             : QString::fromStdString(
+                   uncovered->other_quantity_description)},
+        {"other_requirement_unit",
+         uncovered == reviewed.requirements.end()
+             ? QString{}
+             : QString::fromStdString(uncovered->unit)},
+        {"other_requirement_limit_value",
+         uncovered == reviewed.requirements.end() ? 0.0
+                                                   : uncovered->limit_value},
+        {"mesh_minimum_size_m", reviewed.mesh_controls.minimum_size_m},
+        {"mesh_maximum_size_m", reviewed.mesh_controls.maximum_size_m},
+        {"mesh_target_size_m", reviewed.mesh_controls.target_size_m},
+        {"minimum_mean_ratio_threshold",
+         reviewed.mesh_controls.minimum_mean_ratio_threshold},
+        {"mesher_identity",
+         QString::fromStdString(reviewed.mesh_controls.mesher_identity)},
+        {"mesh_controls_reviewed", reviewed.mesh_controls.reviewed},
+        {"scenario_description",
+         QString::fromStdString(reviewed.scenario_description)},
+        {"scenario_confirmed", reviewed.scenario_confirmed}};
+    uncovered_requirements_.clear();
+    for (const auto &requirement : reviewed.requirements) {
+      if (requirement.quantity != ps::RequirementQuantity::other) continue;
+      uncovered_requirements_.append(QVariantMap{
+          {"description",
+           QString::fromStdString(requirement.other_quantity_description)},
+          {"unit", QString::fromStdString(requirement.unit)},
+          {"limit_value", requirement.limit_value},
+          {"applicability",
+           QString::fromStdString(requirement.applicability)},
+          {"criticality", criticality_label(requirement.criticality)},
+          {"rationale", QString::fromStdString(
+                            requirement.source_or_exploratory_rationale)},
+          {"reviewed", requirement.reviewed}});
+    }
+    rebuildReviewedInputHistory();
+    const auto &evaluation = *restored.verification.evaluation;
+    baseline_sample_.reset();
+    baseline_run_.clear();
+    refinement_criterion_.reset();
+    boundary_correspondence_.reset();
+    completed_refinement_.reset();
+    refinement_comparison_.clear();
+    refinement_stage_ = "coarse";
+    if (restored.verification.refinement) {
+      const auto &pair = *restored.verification.refinement;
+      const auto &coarse = pair.coarse();
+      baseline_sample_ = ps::compile_completed_structural_sample(
+          ps::StructuralSampleRole::coarse, coarse.criterion(),
+          coarse.options(), coarse.setup(), coarse.run());
+      refinement_criterion_ = coarse.criterion();
+      boundary_correspondence_ = pair.boundary_correspondence();
+      refinement_comparison_ = comparison_map(pair);
+      refinement_stage_ = "completed";
+      draft_["refinement_maximum_change_fraction"] =
+          coarse.criterion().maximum_change_fraction();
+      draft_["boundary_load_correspondence_reviewed"] =
+          pair.boundary_correspondence().load_region_confirmed();
+      draft_["boundary_restraint_correspondence_reviewed"] =
+          pair.boundary_correspondence().restraint_region_confirmed();
+      const auto &coarseRun = coarse.run();
+      baseline_run_ = {
+          {"status", run_status(coarseRun.status)},
+          {"exit_code", coarseRun.exit_code},
+          {"elapsed_ms", static_cast<qlonglong>(coarseRun.elapsed.count())},
+          {"output_directory", qt_path(coarse.options().working_directory)},
+          {"archived", false},
+          {"evaluated_obligations", 0},
+          {"nodes", static_cast<qlonglong>(
+                        coarse.setup().reviewed_setup.mesh.nodes.size())},
+          {"elements", static_cast<qlonglong>(
+                           coarse.setup().reviewed_setup.mesh.elements.size())},
+          {"selected_load_area_m2",
+           coarse.setup().reviewed_setup.load.selection.area_m2},
+          {"selected_restraint_area_m2",
+           coarse.setup().reviewed_setup.restraint.selection.area_m2}};
+      if (coarseRun.validated_result &&
+          coarseRun.validated_result->metrics) {
+        baseline_run_["maximum_displacement_m"] =
+            coarseRun.validated_result->metrics->maximum_displacement_m;
+        baseline_run_["maximum_von_mises_pa"] =
+            coarseRun.validated_result->metrics->maximum_von_mises_pa;
+      }
+      DesktopStructuralRefinementResult restoredRefinement;
+      restoredRefinement.comparison = restored.verification.refinement;
+      restoredRefinement.evaluation = evaluation;
+      completed_refinement_ = std::move(restoredRefinement);
+    }
+    compiled_setup_ = *restored.verification.compiled_setup;
+    blockers_.clear();
+    request_preview_.clear();
+    applyCompiledPreview(reviewed);
+    can_run_ = false;
+    if (!sourceCurrent) {
+      compiled_setup_.reset();
+      can_run_ = false;
+      blockers_.append(QVariantMap{
+          {"code", "source_artifact_changed"},
+          {"message", "The project assembly identity changed after this run. Historical evidence remains viewable, but rerun requires review."}});
+    }
+    const auto &metrics = *restored.verification.metrics;
+    const auto &normalized = *restored.verification.normalized;
+    const auto extents = mesh_extents(prepared_mesh_->mesh);
+    const auto scale = metrics.maximum_displacement_m > 0.0
+                           ? std::clamp(0.1 * extents.diagonal /
+                                            metrics.maximum_displacement_m,
+                                        1.0, 1.0e6)
+                           : 1.0;
+    clear_geometry(result_geometry_);
+    result_geometry_ = new StructuralResultGeometry(
+        prepared_mesh_->mesh, prepared_mesh_->boundary_faces, normalized,
+        metrics, scale, this);
+    result_view_ = {
+        {"center_x_mm", 500.0 * (extents.minimum_x + extents.maximum_x)},
+        {"center_y_mm", 500.0 * (extents.minimum_y + extents.maximum_y)},
+        {"center_z_mm", 500.0 * (extents.minimum_z + extents.maximum_z)},
+        {"radius_mm", std::max(1.0, 0.55 * extents.diagonal * 1000.0)},
+        {"deformation_scale", scale},
+        {"color_min_pa", 0.0},
+        {"color_max_pa", metrics.maximum_von_mises_pa}};
+    findings_.clear();
+    for (const auto &finding : evaluation.findings)
+      append_finding(findings_, finding);
+    for (const auto &unknown : evaluation.unknowns)
+      append_unknown(findings_, unknown,
+                     restored.verification.compiled_setup->request);
+    const auto maximumDisplacement = std::ranges::max_element(
+        normalized.displacements, {}, &ps::NodalDisplacement::magnitude_m);
+    const auto maximumStress = std::ranges::max_element(
+        normalized.stresses, {}, &ps::ElementStress::von_mises_pa);
+    last_run_ = {
+        {"status", "restored_verified"},
+        {"archive_manifest", restored.manifest_path},
+        {"output_directory", restored.output_directory},
+        {"archived", true},
+        {"archive_schema_version",
+         QString::fromStdString(restored.verification.schema_version)},
+        {"validated_result_identity",
+         QString::fromStdString(
+             restored.verification.validated_result_identity)},
+        {"coarse_result_identity",
+         QString::fromStdString(restored.verification.refinement
+                                    ? restored.verification.refinement
+                                          ->coarse()
+                                          .run()
+                                          .validated_result->identity
+                                    : std::string{})},
+        {"project_anchored", true},
+        {"project_artifacts_embedded", true},
+        {"maximum_displacement_m", metrics.maximum_displacement_m},
+        {"maximum_von_mises_pa", metrics.maximum_von_mises_pa},
+        {"displacement_rows",
+         static_cast<qlonglong>(normalized.displacements.size())},
+        {"stress_rows", static_cast<qlonglong>(normalized.stresses.size())},
+        {"declared_obligations", evaluation.declared_obligations},
+        {"evaluated_obligations", evaluation.evaluated_obligations},
+        {"limitation", QString::fromStdString(evaluation.limitation)}};
+    const auto restoredState =
+        (!evaluation.unknowns.empty() || !uncovered_requirements_.isEmpty() ||
+         !restored.verification.refinement ||
+         restored.verification.refinement->status() !=
+             ps::StructuralRefinementStatus::accepted)
+            ? decision::ExecutionState::completed_with_blocked_work
+            : decision::ExecutionState::completed;
+    append_assessment(last_run_, evaluation, uncovered_requirements_.size(),
+                      restoredState, reviewed.geometry_sha256);
+    if (maximumDisplacement != normalized.displacements.end()) {
+      last_run_["maximum_displacement_node_id"] =
+          maximumDisplacement->node_id;
+      last_run_["maximum_displacement_x_m"] = maximumDisplacement->x_m;
+      last_run_["maximum_displacement_y_m"] = maximumDisplacement->y_m;
+      last_run_["maximum_displacement_z_m"] = maximumDisplacement->z_m;
+    }
+    if (maximumStress != normalized.stresses.end()) {
+      last_run_["maximum_stress_element_id"] = maximumStress->element_id;
+      last_run_["maximum_stress_integration_point"] =
+          maximumStress->integration_point;
+    }
+    restored_verification_ = std::move(restored.verification);
+    status_ = sourceCurrent ? "structural_archive_restored"
+                            : "structural_archive_restored_stale";
+    error_.clear();
+    emit changed();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [projectPath, stored, destination]() -> DesktopStructuralRestoreResult {
+        try {
+          const auto restored = run_store::reconstruct_structural_archive(
+              projectPath, stored, native_path(destination));
+          if (!restored.has_value())
+            return {.output_directory = destination,
+                    .error = restored.diagnostic().code + ": " +
+                             restored.diagnostic().message};
+          auto verification = ps::verify_structural_archive(restored.value());
+          if (!verification.valid)
+            return {.output_directory = destination,
+                    .error = verification.code + ": " +
+                             verification.detail};
+          return {.verification = std::move(verification),
+                  .manifest_path = qt_path(restored.value()),
+                  .output_directory = destination};
+        } catch (const std::exception &error) {
+          return {.output_directory = destination, .error = error.what()};
+        }
+      }));
+}
+
+void StructuralController::discardRefinementBaseline() {
+  if (busy_) return;
+  baseline_sample_.reset();
+  baseline_run_.clear();
+  refinement_criterion_.reset();
+  boundary_correspondence_.reset();
+  completed_refinement_.reset();
+  refinement_comparison_.clear();
+  refinement_stage_ = "coarse";
+  compiled_setup_.reset();
+  can_run_ = false;
+  draft_.remove("refinement_maximum_change_fraction");
+  draft_.remove("boundary_load_correspondence_reviewed");
+  draft_.remove("boundary_restraint_correspondence_reviewed");
+  clearCompletedRun();
+  error_.clear();
+  rebuildPreview();
+  emit changed();
+}
+
+void StructuralController::reset() {
+  if (busy_) return;
   status_ = "mesh_required";
   error_.clear();
   mesh_summary_.clear();
   surface_patches_.clear();
+  active_surface_patch_.clear();
   draft_.clear();
+  material_candidates_.clear();
+  material_evidence_path_.clear();
+  material_evidence_sha256_.clear();
   blockers_.clear();
   request_preview_.clear();
   can_run_ = false;
-  busy_ = false;
   last_run_.clear();
   findings_.clear();
-  compiled_request_.reset();
-  compiled_requirements_.clear();
-  compiled_material_.reset();
-  compiled_load_.reset();
-  compiled_restraint_.reset();
-  compiled_setup_evidence_.clear();
-  uncovered_requirements_.clear();
-  reviewed_input_history_.clear();
-  if (result_geometry_) result_geometry_->deleteLater();
-  result_geometry_ = nullptr;
-  result_view_.clear();
-  mesh_ = {};
-  boundary_.clear();
+  prepared_mesh_.reset();
   patches_.clear();
+  compiled_setup_.reset();
+  refinement_stage_ = "coarse";
+  baseline_run_.clear();
+  refinement_comparison_.clear();
+  refinement_criterion_.reset();
+  baseline_sample_.reset();
+  boundary_correspondence_.reset();
+  completed_refinement_.reset();
+  restored_verification_.reset();
   load_patch_ids_.clear();
   restraint_patch_ids_.clear();
+  active_patch_id_.reset();
+  clear_geometry(mesh_geometry_);
+  clear_geometry(highlight_geometry_);
+  clear_geometry(result_geometry_);
+  result_view_.clear();
   rebuildPreview();
   emit changed();
 }

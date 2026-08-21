@@ -1,5 +1,7 @@
 # Milestone status
 
+For the reconciled current implementation, see the [Prometheus master project status](master-project-status.md), last audited 2026-08-18. The milestone record below preserves the narrower evidence available when each gate closed.
+
 The earlier numbered milestones record how the rough electromechanical vertical was built. They are implementation checkpoints, not evidence that the general Prometheus product exists or that a physical design is correct. The capability-gated [master roadmap](program/00-master-roadmap.md) now governs forward work.
 
 ## Current truth boundary
@@ -77,3 +79,10 @@ materially different project trials, include at least one outside user, rank
 observed import/semantic/UX failures, and select one real component and bounded
 structural question. Universal intake, semantic reconstruction, general
 planning, and broader solver work remain later roadmap gates.
+
+The automated JPL Rover portion became reproducible on 2026-08-15. The pinned
+967-file archive now has a root-independent inventory identity, strict expected
+classification counts, safe staged replacement, and two successful cached
+macOS verification runs. This proves deterministic accounting and an honest
+ambiguous-assembly decision only. Program 01D remains active until the genuine
+outside-user session is conducted and recorded.

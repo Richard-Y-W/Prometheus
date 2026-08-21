@@ -1,312 +1,357 @@
 # Phase 3 structural workflow status
 
-Status: active. Phase 2's outside-user session is deferred but remains open as
-documented in the README; it has not been counted as completed evidence.
+Status: active. Prometheus has one bounded linear-static structural workflow,
+but it has not validated the selected YUBI bracket. Phase 2's outside-user
+folder-screening session also remains open; neither item is counted as complete
+evidence.
+
+## Consolidated authority
+
+The product path is:
+
+```text
+project evidence
+  -> manually supplied coarse tetrahedral mesh and reviewed surfaces
+  -> locked refinement criterion and immutable coarse setup
+  -> isolated CalculiX process -> validated coarse result
+  -> retained immutable baseline
+  -> manually supplied fine mesh and independently reviewed surfaces
+  -> copied and locked shared physics plus reviewed boundary correspondence
+  -> isolated CalculiX process -> validated fine result
+  -> verified two-result comparison
+  -> scoped findings or an honest indeterminate evaluation
+  -> two-sample archive v3 and project publication
+```
+
+There is one desktop controller (`StructuralController`), one setup panel
+(`StructuralSetupPanel.qml`), one solver-evidence compiler
+(`compile_calculix_result()`), and one finding compiler. The retired parallel
+controller, case exporter/verifier, smoke verifier, finding model, and surface
+setup implementation have been removed. A source-tree CTest gate fails if any
+retired file or active registration returns.
+
+The UI collects and presents choices; it does not calculate structural values.
+The authoritative Qt-free `prometheus_structural` library prepares the mesh,
+groups patches, compiles the reviewed setup, runs CalculiX, validates raw
+evidence, and compiles findings.
+
+### Single-computation invariant
+
+For one active coarse/fine session, the desktop performs each expensive stage
+once for the immutable input that owns it:
+
+- each supplied mesh is parsed and validated once;
+- each exterior boundary and mesh-quality record is measured once;
+- each mesh's patches are grouped once for its selected angle;
+- each reviewed setup and deterministic deck is compiled once;
+- CalculiX executes once for the coarse sample and once for the fine sample;
+- each raw solver output set is parsed and validated once; and
+- the pair comparison and findings compile once after the fine result exists.
+
+Repeated property reads, QML repaints, result viewing, and material-candidate
+browsing do not invoke those stages. Archive creation and publication consume
+the existing pair, findings, and manifest; they do not rerun either solve or
+recompile findings. Editing an input invalidates only the affected stage and
+its downstream state. A fine-mesh or fine-surface edit retains the immutable
+coarse baseline. Changing shared material, load, requirements, scenario, or
+other shared physics requires an explicit baseline reset and a new coarse run.
+
+Integrity hashing is intentionally separate from this engineering-stage
+invariant. Mutable solver files are rehash-verified when they cross into an
+archive or project object store. Structural publication now hashes and chunks
+each artifact in one streaming read rather than reading the whole artifact once
+to hash it and again to chunk it.
+
+Reopening or importing persisted bytes is a new trust-boundary operation. V3
+replay deliberately reconstructs both setup/result packages and returns one
+typed pair snapshot. Restoration then regroups the visual patches for display
+but does not execute a solver. Counting-backend desktop tests enforce these
+stage counts directly.
 
 ## Selected real slice
 
 The selected component is Toyota YUBI `BRACKET_GRIPPER` at upstream revision
-`e8334ff04945ccf56c0576a56f6fab74b63daaa2`, exact STEP SHA-256
+`e8334ff04945ccf56c0576a56f6fab74b63daaa2`. Its exact STEP SHA-256 is
 `4a6fba05b237b725be2ca4e5ba7f7617674b4bcae4164ff32e88d9e75275017a`.
-The BOM calls it machined `A2024` and describes it as the gripper-to-UR5e
-attachment. That text is candidate identity, not reviewed material properties.
+The BOM identifies the material only as `A2024` and describes the component as
+the gripper-to-UR5e attachment. That is candidate identity, not a reviewed
+temper, product form, elastic model, strength allowable, or material
+certificate.
 
-Prepare the exact blocked slice with:
+Prepare the deliberately blocked slice with:
 
 ```powershell
 .\scripts\prepare-yubi-structural-slice.ps1
 ```
 
-The generated manifest deliberately leaves material/temper, elastic
-properties, load, restraint faces, requirements, mesh controls, and scenario
-confirmation unreviewed. The application must not turn this folder into a
-structural pass.
+The generated manifest leaves material applicability, loads, restraints,
+requirements, mesh controls, and scenario confirmation unresolved. Prometheus
+must not turn that folder into a structural pass.
 
-## Checkpoint 1: structural request and solver smoke
+## Implemented structural boundary
 
-Implemented:
+### Mesh preparation and selectable surfaces
 
-- Qt-free typed nodes, first-order tetrahedra, nodal forces, full-node
-  restraints, material values, reviewed requirements, and review gates;
-- validation for exact geometry identity, unsupported schema, non-finite or
-  invalid material values, missing mesh references, zero-volume tetrahedra,
-  missing loads, fewer than three non-collinear fixed nodes, missing limits,
-  and unconfirmed review state;
-- deterministic SI CalculiX input generation using `C3D4` and an explicitly
-  pinned `SPOOLES` equation solver;
-- deterministic parsing of raw `.dat` displacement and stress rows into
-  maximum displacement and von Mises stress;
-- missing output sections fail instead of becoming zero-valued results.
+Prometheus accepts the supported Gmsh/Abaqus first-order tetrahedral subset,
+applies an explicit coordinate scale, and retains source surface labels only as
+non-authoritative navigation aids. It rejects duplicate or invalid identities,
+non-finite coordinates, zero-volume or inverted tetrahedra, disconnected volume
+regions, non-manifold boundaries, invalid source triangles, and mesh quality
+below the reviewed threshold.
 
-Installed development backends:
+Exterior triangles are derived from volume tetrahedra rather than trusted from
+optional mesher surface exports. Every face retains its exact node identity,
+owner element, outward normal, centroid, and SI area. Deterministic geometric
+patches help the user select faces, but no patch is inferred to be a bolt,
+contact, load, or restraint.
 
-- CalculiX `2.23` from `mingw-w64-ucrt-x86_64-calculix-ccx`;
-- Gmsh `4.15.2` from `mingw-w64-ucrt-x86_64-gmsh`.
+When a user reviews a patch selection, transient patch IDs resolve into sorted
+exact face and node identities plus total area. A reviewed total surface force
+is distributed by triangle area to consistent first-order nodal forces. Tests
+require the compiled nodal vectors to reproduce the reviewed resultant exactly
+and reject duplicate, overlapping, missing, or stale selections.
 
-The initial PaStiX default crashed with Windows access violation `0xC0000005`.
-Prometheus therefore pins SPOOLES; the same smoke deck completed successfully.
-This is backend compatibility evidence, not validation of the YUBI bracket.
+The recorded local YUBI mesh contains 2,451 nodes, 7,566 `C3D4` volume
+elements, and 4,616 exterior triangles. At the desktop's 15-degree grouping
+angle it produces 263 geometric patches. Those counts are topology evidence,
+not an engineering interpretation or convergence result.
 
-Successful smoke artifacts:
+### Reviewed setup compiler
 
-| Artifact | SHA-256 |
-| --- | --- |
-| CalculiX input | `e8d0d9a76022c5df81ef4b986162fd6ac89214d3523afcc2c15911f1bbc40495` |
-| Raw `.dat` | `da87ea3100779139f78576f86101edd811d530a0152f1f624c202fdc9514bfb2` |
-| Raw `.frd` | `582cc2bfd1de886a8a38a014c5d947a71740e34064b635199c21bc4267b6c8cb` |
+`StructuralSetup` retains the meaning and provenance that cannot safely be
+reduced to solver numbers:
 
-The smoke result was `2.228571e-8 m` maximum displacement. Its single
-integration-point stress state compiled to `3428.571 Pa` von Mises. These
-values prove parser/execution wiring only; no independent benchmark tolerance
-has been claimed yet.
+- exact geometry and mesh identities, scale, sizing, quality, mesher, and
+  review state;
+- material designation, temper, product form, source identity, applicability,
+  Young's modulus, Poisson ratio, and review state;
+- exact loaded and fixed faces, total force vector, and review state;
+- displacement and/or von Mises limits with a reviewed source or explicitly
+  exploratory basis; and
+- a non-empty scenario description and final confirmation.
 
-Run the reproducible smoke with:
+The compiler rejects unsafe text, malformed SHA-256 values, zero resultant
+force, duplicate force identities, load/restraint overlap, stale topology,
+unreviewed fields, inconsistent mesh provenance, and missing limit rationale.
+Only a valid setup becomes one `CompiledStructuralSetup` containing the typed
+request, canonical setup evidence, deterministic CalculiX deck, and a
+content-derived identity.
+
+The checked-in 2024 aluminum evidence file contains three bounded candidates:
+the YUBI BOM designation-only record, a Kaiser T4/T351 sheet/coil/plate modulus
+record, and a MIL-HDBK-5J T351 plate reference. None identifies the delivered
+bracket. Candidate selection never implies applicability, and no candidate
+supplies an implicit strength limit.
+
+### Isolated execution and validated evidence
+
+The shell-free process adapter receives a `CompiledStructuralSetup`, a solver
+executable, an empty working directory, a safe job name, and a timeout. It
+captures standard output and error, process exit, elapsed time, executable
+SHA-256, solver version, and exact deck, DAT, FRD, and STA identities.
+
+Completed status requires all of the following:
+
+- successful launch and exit code zero;
+- no timeout or pre-existing raw-output collision;
+- nonempty required DAT, FRD, and STA artifacts;
+- a CalculiX completion marker and no fatal-error marker;
+- a completed final STA step at the requested time;
+- deck bytes identical to the compiled setup;
+- finite displacement and stress rows; and
+- exact node and element result coverage with no missing, duplicate, or foreign
+  identities.
+
+Failure, timeout, missing output, incomplete convergence, or invalid coverage
+produces no completed metrics and no pass or violation finding.
+
+The fixed smoke command uses `prometheus_run_calculix_job --axial-smoke`. That
+tool constructs a reviewed, compiled axial benchmark in C++ and passes it to the
+same runner used by the desktop. It does not accept arbitrary raw deck bytes.
+The PowerShell wrapper does not invoke `ccx` directly or run a second verifier;
+it fails unless the runner prints `status=completed evidence=validated`.
+`prometheus_export_structural_smoke` separately emits the same deterministic
+fixture's canonical setup, deck, and compiled identity for inspection.
+
+### Findings and refinement
+
+A completed result alone is insufficient for a finding. Before the coarse
+solve, the engineer locks a finite maximum-change criterion. Prometheus then
+requires two complete, identity-bound samples with the same reviewed material,
+load, requirements, scenario, solver backend, and criterion. The fine mesh must
+have a distinct source identity, more volume elements, and a smaller reviewed
+target size.
+
+The fine stage copies and locks the coarse sample's shared physics. Load and
+restraint surfaces remain mesh-specific: the engineer selects them again on the
+fine mesh and confirms that both selections represent the same physical regions
+as the baseline. That correspondence is a reviewed assumption because arbitrary
+external meshes do not provide stable CAD-face identities.
+
+Only `VerifiedStructuralRefinement`, whose changes and status are derived from
+the two validated results, can enter the finding compiler. QML and generic maps
+cannot submit acceptance flags, result identities, or calculated deltas. The
+compiler evaluates only the displacement and/or von Mises obligations present
+in the reviewed request. A value strictly below its limit is
+`no_violation_detected_within_scope`; equality or exceedance is `violated`.
+A valid pair above the locked threshold is archived as
+`comparison_indeterminate` with zero evaluated obligations and no pass or
+violation findings.
+
+Every finding retains the measured value, limit, margin, unit, evidence
+identities, assumptions, and bounded isotropic linear-elastic `C3D4` scope. The
+limitation explicitly excludes fatigue, buckling, contact, fasteners,
+nonlinearity, safety certification, and project-wide correctness. Unit and
+process-fixture tests exercise accepted, above-threshold, known-pass,
+known-fail, equality, stale-output, timeout, malformed-output, lineage, mesh
+ordering, boundary-review, backend, and coverage failures.
+
+## Validation gates
+
+The repository retains three distinct kinds of evidence:
+
+1. Checked-in parser fixtures exercise exact DAT/STA/stream parsing and coverage
+   without claiming that a solver ran.
+2. Deterministic C++ axial and cantilever factories provide independent
+   closed-form references and predeclared tolerances.
+3. Windows scripts run the external CalculiX executable through the production
+   runner and replay the resulting archive offline.
+
+The axial reference is `u = F L / (A E)` and `sigma = F / A` for a
+`1 m x 0.1 m x 0.1 m`, Poisson-ratio-zero bar under `1000 N`. The cantilever
+reference is Euler-Bernoulli `u = F L^3 / (3 E I)` with root stress
+`sigma = 6 F L / (b h^2)`. These equations are independent checks of the
+external adapter, not evidence about YUBI.
+
+Earlier Windows development runs recorded CalculiX 2.23 completing the
+one-tetrahedron wiring smoke and the analytic benchmark cases. Those values are
+historical evidence for the pre-reconciliation path. They are not substituted
+for a run of the strengthened current scripts.
+
+Run the current external gates on the supported Windows environment with:
 
 ```powershell
 .\scripts\run-calculix-smoke.ps1
+.\scripts\run-structural-validation.ps1
 ```
 
-## Checkpoint 2: real bracket meshing
+The validation command first runs the focused known-pass/known-fail polarity
+fixture. It then runs coarse and fine forms of the compiled axial benchmark,
+derives their displacement and stress changes, writes one two-sample v3 archive,
+and verifies both raw result packages plus the derived comparison offline. The
+cantilever refinement gate uses the same typed pair API and v3 writer. Neither
+archive creation nor active publication repeats a solve or finding compilation.
+The checked-in Gmsh tension-bar geometry and expectations remain historical
+validation inputs; the retired parallel case exporter/verifier no longer
+executes them. A post-reconciliation Windows run must be recorded before
+claiming these current external gates passed.
 
-The exact bracket has now completed the meshing-only portion of checkpoint 2:
+## Desktop workflow
 
-- Gmsh command uses explicit 1–3 mm characteristic lengths;
-- generated local mesh SHA-256:
-  `020dd2649c8a0ce1bc2e486b5c20c2a5aa9d91d7f5579990f6a61eb022533944`;
-- 2,451 nodes and 7,566 final `C3D4` volume elements;
-- explicit `0.001` coordinate scale converts the source millimetres to SI;
-- imported SI bounds: `[-0.0175, -0.042, 0]` to
-  `[0.035, 0.042, 0.008]` metres;
-- Gmsh line and surface elements are excluded from the structural volume mesh.
+The structural panel exposes an explicit coarse stage, retained-baseline stage,
+fine stage, and completed-comparison stage. The engineer manually loads a
+supported coarse mesh, reviews its surfaces and shared physics, and locks the
+criterion before starting the asynchronous baseline solve. A completed coarse
+sample displays field coverage and extrema as
+`execution_completed_evaluation_pending`; it has no scoped findings.
 
-The local mesh hash includes Gmsh's absolute output-path heading and is not a
-portable semantic identity. The source geometry hash, Gmsh version/arguments,
-explicit scale, and later canonical node/element bytes must define the
-reproducible mesh identity. Run this checkpoint with:
+The fine stage accepts a second manually supplied mesh. Shared physics is shown
+read-only from the baseline, while fine load/restraint surfaces and mesh
+controls are reviewed independently. The panel displays both selected areas and
+requires explicit load-region and restraint-region correspondence confirmation.
+After the fine solve, the controller derives and displays displacement, stress,
+and maximum changes. Accepted and above-threshold pairs both remain replayable;
+only the accepted pair emits scoped findings.
 
-```powershell
-.\scripts\mesh-yubi-structural-slice.ps1
-```
+Fine-only edits retain the coarse baseline and invalidate only the fine sample
+and downstream comparison. Shared-physics edits require **Discard baseline and
+start over**. The deformed exterior stress view uses an explicit deformation
+scale and color range; it is not physical-scale motion, continuous collision
+proof, or a safety claim.
 
-Meshing success does not authorize solver execution or demonstrate mesh
-convergence.
+## Archives, replay, and project publication
 
-## Checkpoint 3: reviewable exterior boundary
+New structural writes use archive schema v3. Each manifest closes over fourteen
+artifacts: reviewed setup, deck, DAT, FRD, STA, standard output, and standard
+error for both coarse and fine samples. It also binds the locked criterion,
+reviewed boundary correspondence, two backend/execution records, derived
+comparison, coverage, findings, and limitation. Accepted and valid
+above-threshold pairs can both be archived; the latter contains zero findings.
+The writer consumes already validated objects and does not rerun either solver,
+reparse active output, or compile findings again.
 
-The structural mesh adapter now derives the exterior triangular boundary from
-the volume tetrahedra without trusting Gmsh's auxiliary surface elements. It:
+Offline v3 verification treats persisted bytes as untrusted. It rehashes all
+fourteen artifacts, reconstructs both reviewed setups and raw result packages,
+reruns the pair compiler, and requires the regenerated comparison, coverage,
+and findings to match the manifest. This trust-boundary replay is distinct from
+active-session calculation.
 
-- removes faces shared by exactly two tetrahedra;
-- rejects faces shared by more than two tetrahedra as non-manifold;
-- orients every retained face normal away from its owning tetrahedron;
-- reports deterministic node IDs, centroid, unit normal, and area in SI units;
-- rejects missing nodes, duplicate IDs, repeated tetrahedron nodes, zero-area
-  faces, and zero-volume orientation cases.
+V1 and v2 remain legacy read contracts. V1 retains its narrower historical
+claim. V2 reconstructs its one stored active result and reproduces its original
+scoped finding claim through an isolated compatibility routine, but it cannot
+produce `VerifiedStructuralRefinement` or enter the new finding compiler. New
+desktop runs never write v1 or v2.
 
-For the exact local YUBI bracket mesh recorded above, the enhanced probe reports
-4,616 exterior triangular faces with total exterior area `0.0090477 m^2`. This
-is mesh topology evidence only. Prometheus has not inferred bolt faces, load
-faces, restraint faces, material, or a structural scenario from those faces.
+A verified archive can be relocated and embedded in a Prometheus project as a
+closed content-addressed artifact graph. V3 embedding retains all fourteen
+sample artifacts. Reopen reconstructs and verifies both results, restores the
+editable reviewed setup and visualization, and compares the archive's bound
+assembly identity with the current project. Evidence bound to a changed source
+remains viewable but is marked stale and cannot be rerun without renewed
+geometry and surface review. Review, packaging, and final graph validation each
+reject a structural geometry identity that differs from the project assembly.
 
-## Checkpoint 4: selectable patches and durable boundary selections
+Automatic coarse/fine generation is not implemented. A later mesher can plug
+into the existing prepared-mesh boundary, but it must preserve the same two-run
+comparison, solver authority, provenance, replay, and review rules.
 
-Exterior triangles can now be grouped into deterministic connected visual
-patches using an explicit maximum neighboring-normal angle. The exact bracket
-produces 437 patches at 5 degrees, 291 at 10 degrees, 263 at 15 degrees, 247 at
-20 degrees, and 127 at 30 degrees. This sensitivity is intentional evidence
-that patch IDs are transient selection aids rather than durable engineering
-identities.
+## Phase 5 boundary
 
-When the user reviews a selection, Prometheus resolves patch IDs into sorted
-exact face-node triples, sorted node IDs, and total SI area. Duplicate,
-overlapping, missing, or invalid patches fail closed. A reviewed total surface
-force can be converted into consistent first-order triangular nodal forces;
-the exact selected topology and total force remain the authoritative inputs.
-The conversion is deterministic and tests require the resulting nodal vectors
-to sum to the reviewed total vector.
-
-No patch is automatically classified as a fastener, contact, load, or
-restraint surface. Those meanings still require explicit review.
-
-## Checkpoint 5: reviewed setup compiler
-
-A separate Qt-free setup contract now retains the meaning and provenance that
-must not be reduced to solver numbers prematurely:
-
-- material designation, exact source SHA-256, applicability statement,
-  Young's modulus, Poisson ratio, and review state;
-- exact load and fully fixed restraint boundary selections plus the reviewed
-  total load vector;
-- displacement and/or von Mises limits with a source or explicit exploratory
-  rationale;
-- minimum and maximum SI mesh sizes, mesher identity, and review state;
-- a non-empty scenario description and explicit final confirmation.
-
-The setup compiler rejects unreviewed fields, invalid provenance, missing or
-changed boundary topology, stale selection areas/node sets, overlapping load
-and fixed faces, invalid mesh controls, and absent requirement rationale. Only
-then does it create the narrow numerical `StructuralRequest`. No YUBI material,
-load, restraint, or requirement has been supplied or inferred by this work.
-
-## Checkpoint 6: isolated CalculiX process authority
-
-The Qt-free structural library now owns a shell-free CalculiX process adapter
-with explicit executable, working directory, safe job identity, and timeout.
-It captures stdout and stderr independently, records elapsed time and exit code,
-terminates timed-out work, and distinguishes launch failure, timeout, nonzero
-exit, missing required output, invalid result data, and completed execution.
-Completed status requires `.dat`, `.frd`, and `.sta` files plus successfully
-parsed displacement and stress rows.
-
-Cross-platform executable-boundary tests exercise successful output parsing,
-nonzero exit, missing output, and forced timeout. The ordinary smoke script now
-uses this production runner rather than invoking `ccx` directly. CalculiX 2.23
-completed the existing SPOOLES smoke through the new runner in 1,249 ms and
-returned the unchanged `2.228571e-8 m` displacement and `3428.571 Pa` von Mises
-metrics. This remains execution wiring evidence, not bracket validation.
-
-## Checkpoint 7: scoped structural findings
-
-Completed metrics can now be compiled against only the displacement and/or von
-Mises obligations declared by the reviewed request. Each finding records the
-measured value, limit, signed margin, unit, and the bounded isotropic
-linear-elastic C3D4 scope. Values at or below a limit are described as
-`no_violation_detected_within_scope`; values above it are `violated`.
-
-A failed, timed-out, missing-output, or invalid-result execution evaluates zero
-obligations and creates no pass or violation findings. Tests exercise the same
-completed metrics against loose known-pass limits and tighter known-fail limits,
-and preserve an explicit limitation excluding safety, fatigue, buckling,
-contact, fasteners, nonlinear behavior, and project-wide correctness.
-
-## Checkpoint 8: analytic benchmarks and mesh refinement
-
-Two independent closed-form references now gate the CalculiX adapter:
-
-- A `1 m x 0.1 m x 0.1 m`, Poisson-ratio-zero axial bar under `1000 N`
-  uses `u = F L / (A E)` and `sigma = F / A`. CalculiX 2.23 returned the exact
-  expected `5.0e-7 m` displacement and `100000 Pa` von Mises stress (stress
-  relative error below `7e-15`).
-- A `1 m x 0.1 m x 0.1 m` cantilever under `1000 N` uses Euler-Bernoulli
-  `u = F L^3 / (3 E I)` and root stress `sigma = 6 F L / (b h^2)`, giving
-  `0.0002 m` and `6.0e6 Pa` references.
-
-The coarse `20 x 3 x 3` C3D4 cantilever mesh underpredicted displacement by
-37.41% and stress by 37.76%, so it is explicitly inadequate for this benchmark.
-The refined `40 x 6 x 6` mesh reduced those errors to 13.47% and 15.17%, within
-the declared 15% displacement and 25% stress tolerances. The automated gate
-requires both errors to decrease and the refined case to meet tolerance.
-
-Run both reproducibly with:
-
-```powershell
-.\scripts\run-structural-benchmarks.ps1
-```
-
-The solver runner also now rejects a directory containing pre-existing raw
-outputs, preventing stale `.dat`, `.frd`, or `.sta` bytes from becoming a new
-completed run.
-
-## Checkpoint 9: desktop structural setup review
-
-The Windows desktop now has a dedicated structural setup panel backed by a Qt
-adapter over the authoritative Qt-free structural library. It can load an
-isolated Gmsh/Abaqus C3D4 mesh, display mesh/boundary statistics, list
-deterministic geometric patches with area and representative normal, assign
-load and fully-fixed roles, collect reviewed material/load/restraint/
-requirement/mesh/scenario fields, and display deduplicated authoritative
-blocker codes or a compiled request preview.
-
-The real YUBI mesh renders as 2,451 nodes, 7,566 tetrahedra, 4,616 exterior
-faces, and 263 patches at the panel's conservative 15-degree default. The panel
-does not infer surface meaning and does not expose execution merely because a
-mesh loaded. A controller test proves that a complete reviewed tetra setup
-becomes ready and that removing material review blocks it again. Execution and
-durable project storage remain the next separate boundaries.
-
-## Checkpoint 10: asynchronous desktop execution and findings
-
-The structural panel can now launch a validated request through the isolated
-CalculiX adapter without blocking the UI. Each attempt creates a unique output
-directory, writes the exact generated deck, retains raw solver files and both
-captured streams, and reports elapsed time, exit classification, metrics,
-coverage, limitations, and scoped displacement/stress findings. The UI labels
-these artifacts as local and not yet committed to the Prometheus project.
-
-The desktop controller test executes a real child-process fixture
-asynchronously, evaluates both declared obligations, and receives two scoped
-findings. Editing any reviewed setup field clears the displayed run and
-findings, preventing stale results from surviving a changed scenario. The
-panel exposes no project-wide pass and repeats that a scoped non-violation is
-not safety or real-scenario validation.
-
-## Checkpoint 11: exact structural archive and offline replay
-
-Every completed desktop run now writes a canonical structural archive alongside
-the raw solver files. It preserves the complete reviewed setup, generated input
-deck, `.dat`, `.frd`, and `.sta` output, captured standard streams, exact byte
-lengths and SHA-256 identities, parsed metrics, declared limits, finding
-coverage, and scoped findings. The reviewed setup retains exact load and
-restraint face/node identities rather than only their labels.
-
-The standalone `prometheus_replay_structural_run` verifier needs neither Qt nor
-CalculiX. It rejects non-canonical manifests, unsafe artifact paths, missing or
-changed bytes, setup/archive identity mismatches, metrics that cannot be
-reproduced from the raw DAT file, and findings that cannot be recompiled from
-those metrics and archived limits. The desktop controller test proves a valid
-archive replays and that changing the retained DAT bytes invalidates it.
-
-This is local self-consistency evidence until the user explicitly anchors the
-archive manifest hash through the Phase 4 Prometheus project transaction. The
-anchor detects replacement relative to project history, but raw artifact
-embedding remains open. It is not a signature, certification record, or
-validation of the real bracket scenario.
-
-## Checkpoint 12: spatial field parsing and extrema presentation
-
-The DAT parser now retains every nodal displacement vector and every element
-integration-point stress tensor with its derived von Mises value. The desktop
-reports the exact node carrying maximum displacement, its three displacement
-components, the exact element/integration point carrying maximum von Mises
-stress, and the number of parsed rows in each field. This makes the displayed
-maximum traceable to spatial solver output rather than an unlocated scalar.
-
-The raw fields remain preserved in the archive and are replayed from DAT.
-
-The first Phase 4 transport boundary is now available through
-`prometheus_export_structural_archive`. It accepts only a fully verified source
-archive, copies its exact manifest and seven retained artifacts through a new
-sibling temporary directory, verifies the relocated copy, and publishes it by
-atomic directory rename. Existing destinations are never overwritten. This
-makes an individual run relocatable without weakening its identity, but it is
-not yet the complete portable Prometheus project bundle required by Phase 4.
-
-## Checkpoint 13: deformed stress visualization
-
-Completed bound fields now generate an exterior-triangle Quick3D result mesh.
-Nodal displacement vectors deform the reviewed mesh with an explicitly shown
-automatic scale factor; each exterior face receives the maximum von Mises value
-of its owning tetrahedron and a blue-to-red color ramp with numeric endpoints.
-The desktop provides mouse orbit and wheel zoom and continues to show exact
-node/element extrema, field-row coverage, findings, and limitations beside the
-view.
-
-Before any field is rendered or archived, displacement node IDs must exactly
-cover the submitted mesh nodes and stress element IDs must exactly cover its
-elements; duplicates, omissions, or foreign identities classify the run as
-`result_invalid`. New archives retain the reviewed node and element identity
-sets so offline replay repeats this binding check. The visual is a deformed
-linear-static result, not physical-scale motion, surface stress interpolation,
-continuous collision proof, or a safety claim.
-
-All technically implementable Phase 3 workflow steps are now present. The exit
-gate remains open because the selected real bracket still needs human-reviewed
-scenario inputs and independent real-component comparison evidence; synthetic
-fixtures and analytic benchmark geometry cannot honestly substitute for that.
+Phase 5 can publish manually entered component evidence packages, but the
+structural workflow does not consume those packages yet. Loading the standalone
+2024 aluminum candidate file is a bounded review aid, not a component-package
+binding. A future adapter must explicitly bind a published component revision
+and its reviewed properties into `StructuralSetup`; no such bridge is claimed
+here.
 
 ## Remaining Phase 3 evidence
 
-1. Obtain reviewed real-component material, load, restraint, requirement, and
-   mesh-convergence evidence for the selected YUBI bracket.
-2. Run the independent real-component comparison and retain the external
-   evidence needed to close the Phase 3 exit gate.
+1. Rerun and record the strengthened external smoke, analytic, refinement, and
+   offline-replay gates on the supported Windows CalculiX environment.
+2. Have the user review the YUBI bracket's actual temper, product form,
+   applicability, elastic properties, load faces and vector, restraint faces,
+   requirements, mesh controls, and scenario.
+3. Manually supply and review coarse and fine YUBI meshes, including explicit
+   physical-region correspondence and an acceptable locked-threshold study.
+4. Execute the reviewed bracket and retain a physically independent
+   real-component comparison.
+5. Complete the outstanding outside-user folder-screening session.
+
+Until those items are complete, Prometheus has a bounded, fail-closed
+structural workflow—not a validated YUBI result and not proof that an arbitrary
+engineering project works.
+
+## Reconciliation release gate — 2026-08-16
+
+The manual coarse/fine release checkpoint produced this local evidence:
+
+- all 405 backend tests passed and one PostgreSQL-only case skipped under the
+  default SQLite environment;
+- all 70 migration suites passed against an isolated UTF-8 PostgreSQL 17.10
+  database;
+- all 16 headless CTests passed;
+- 28 of 29 desktop CTests passed inside the managed sandbox, whose socket
+  policy prevented the remaining HTTP fixture from opening a loopback listener;
+- that exact loopback test passed 1 of 1 outside the socket sandbox;
+- the integrity regression first reached an unsafe allocation path, then passed
+  after chunk sizes outside `std::streamsize` were rejected before allocation;
+- source-authority, two-sample replay, structural-controller, QML-authority,
+  run-store, rover-fixture, and preset-parse gates passed; and
+- an inline review found no Critical or Important issue in reachable
+  publication, private comparison construction, two-result replay, legacy
+  isolation, fine-only invalidation, or exact stage counts.
+
+This checkpoint did not run Windows. A second independent reviewer has not
+assessed the final inline diff. The post-reconciliation Windows CalculiX run,
+reviewed YUBI scenario, independent component comparison, and outside-user
+session remain open.

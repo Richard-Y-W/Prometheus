@@ -1,0 +1,71 @@
+{
+  "$schema": "urn:prometheus:structural-validation-expectations:0.1.0",
+  "acceptance": {
+    "central_band_x_over_length": [
+      0.4,
+      0.6
+    ],
+    "fine_loaded_face_displacement_relative_error_maximum": 0.05,
+    "fine_volume_weighted_central_axial_stress_relative_error_maximum": 0.05,
+    "medium_to_fine_loaded_face_displacement_change_maximum": 0.02,
+    "medium_to_fine_loaded_face_displacement_change_denominator": "absolute fine value",
+    "minimum_mean_ratio_threshold": 0.05
+  },
+  "analysis_id": "analytic-tension-bar-linear-static-v1",
+  "analytic": {
+    "loaded_face_axial_displacement_m": 0.0000014285714286,
+    "volume_weighted_central_axial_stress_pa": 100000
+  },
+  "component_name": "Prometheus analytic tension bar",
+  "force": {
+    "direction": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "magnitude_n": 1000
+  },
+  "geometry": {
+    "cross_section_area_m2": 0.01,
+    "height_m": 0.1,
+    "length_m": 1.0,
+    "path": "tension-bar.geo",
+    "sha256": "sha256:6f9cc53e05e8783a63f723db45ffbbbab9c4abbfa3a608bfa63b40908b1367ed",
+    "width_m": 0.1
+  },
+  "material": {
+    "applicability": "assumed",
+    "designation": "synthetic isotropic benchmark material",
+    "poisson_ratio": 0.3,
+    "product_form": "analytic prismatic bar",
+    "temper": "not applicable",
+    "youngs_modulus_pa": 70000000000
+  },
+  "mesh_cases": {
+    "coarse": {
+      "target_size_m": 0.1
+    },
+    "fine": {
+      "target_size_m": 0.025
+    },
+    "medium": {
+      "target_size_m": 0.05
+    }
+  },
+  "requirements": {
+    "known_fail": {
+      "displacement_limit_basis": "Predeclared analytic regression limit; equality and exceedance fail.",
+      "displacement_limit_m": 0.0000012,
+      "expected_status": "fail"
+    },
+    "known_pass": {
+      "displacement_limit_basis": "Predeclared analytic regression limit; observed displacement must be strictly below it.",
+      "displacement_limit_m": 0.0000016,
+      "expected_status": "pass"
+    }
+  },
+  "surface_groups": {
+    "load": "LOADED",
+    "restraint": "FIXED"
+  }
+}

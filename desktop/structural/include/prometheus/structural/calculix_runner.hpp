@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prometheus/structural/calculix_result.hpp"
+#include "prometheus/structural/structural_setup.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -26,7 +27,7 @@ struct SolverRunResult final {
   std::string standard_output;
   std::string standard_error;
   std::string detail;
-  std::optional<CalculixMetrics> metrics;
+  std::optional<CompiledCalculixResult> validated_result;
 };
 
 struct SolverRunOptions final {
@@ -36,6 +37,7 @@ struct SolverRunOptions final {
   std::chrono::milliseconds timeout{std::chrono::minutes(5)};
 };
 
-[[nodiscard]] SolverRunResult run_calculix(const SolverRunOptions &options);
+[[nodiscard]] SolverRunResult run_calculix(
+    const SolverRunOptions &options, const CompiledStructuralSetup &setup);
 
 } // namespace prometheus::structural

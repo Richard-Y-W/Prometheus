@@ -1,7 +1,8 @@
 # Program 01D multi-project evidence
 
-Status: active. Technical runs exist for all three project shapes; the outside
-user session required by the gate is still outstanding.
+Status: active. Technical runs exist for all three project shapes, and the JPL
+Rover intake is now a pinned deterministic regression. The outside-user
+session required by the gate is still outstanding.
 
 ## Trial matrix
 
@@ -9,7 +10,17 @@ user session required by the gate is still outstanding.
 | --- | --- | --- | --- |
 | [YUBI gripper](../../trials/yubi-gripper-windows-screening.md) | Clean medium STEP assembly plus BOM/PDF | 5 files; 1 root; 90 leaves; 37,367 triangles | OCCT automatic solid repair can access-violate on real CAD |
 | [OpenArm 2.0](../../trials/openarm-2-dm-j4310.md) | Large deep assembly plus component evidence | 3 files; 607 leaves; 230,433 triangles; 9,013 ms import | One invalid raw topology node must not terminate an otherwise useful import |
-| [JPL Open Source Rover](../../trials/jpl-open-source-rover-mixed-folder.md) | 623 MB mixed mechanical/electrical/docs/code repository | 967 files; 23 STEP candidates; 17,998 ms intake | Correct refusal to guess still needs search/filter UX |
+| [JPL Open Source Rover](../../trials/jpl-open-source-rover-mixed-folder.md) | 623 MB mixed mechanical/electrical/docs/code repository | 967 files; 23 STEP candidates; inventory `sha256:be8aebb1…89191`; 2.8–3.1 s current macOS scans | Pinned repeatable accounting and correct refusal to guess; no system understanding |
+
+## Reproducible Rover evidence
+
+On 2026-08-15, two distinct archive roots produced the same exact inventory
+identity, counts, duplicate total, and empty primary STEP path. Two subsequent
+normal cached verification runs also passed. The preparation gate caught and
+blocked an incorrect recorded license filename/hash before promotion; the
+pinned Git tree established the corrected `LICENSE.txt` identity. This closes
+the automated Rover accounting item only. It does not satisfy the independent
+human session or establish any rover engineering finding.
 
 ## Ranked observed failures and friction
 
@@ -31,6 +42,9 @@ user session required by the gate is still outstanding.
 6. **Missing semantics.** BOMs, manuals, CAD names, external assembly links,
    materials, joints, loads, and requirements are not connected automatically.
    This remains explicit instead of triggering speculative universal parsing.
+7. **Source records can be wrong.** The first reproducible preparation rejected
+   the previously recorded Rover license identity. Source provenance must be
+   checked against the pinned object, not copied forward from a prior note.
 
 ## Selected first structural slice
 
@@ -55,6 +69,16 @@ restraint faces, mesh adequacy, or safety factor. Phase 3 must require those
 inputs and keep the analysis blocked until they are reviewed.
 
 ## Remaining exit evidence
+
+The repository now contains a neutral [participant task](../../trials/outside-user-screening-task-sheet.md),
+blank [factual observation form](../../trials/outside-user-screening-observation-form.md),
+[nonintervention protocol](../../trials/outside-user-screening-facilitator-protocol.md),
+and Windows-first packaging and manifest-verification scripts. The package
+intentionally embeds only the hash of the reviewed Rover expectation, not its
+counts or answer-bearing JSON. The five-case tamper fixture passed under a
+temporary hash-verified PowerShell 7.6.4 runtime on macOS. Windows-native
+execution and the deployable ZIP still require the manual Windows checkpoint,
+followed by a clean-account/VM package check.
 
 One person outside the core development work must run at least one trial
 without live developer intervention. Give them only the normal application and

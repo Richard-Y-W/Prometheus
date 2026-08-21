@@ -1,5 +1,7 @@
 # Prometheus
 
+Current audited implementation status: [Prometheus master project status](docs/master-project-status.md), last audited 2026-08-18. That dated status supersedes older current-capability statements when historical plans or completion records conflict with later work.
+
 Product goal: Prometheus is a local project compiler and solver-orchestration environment for heterogeneous engineering projects. It is intended to inventory project files, reconstruct a reviewable system model, compile requirements and scenarios into proof obligations, run bounded local analyses, and report failures, scoped successes, unknowns, and coverage with reproducible provenance.
 
 Current repository: this codebase is a Windows-first mechanical-project screening prototype with the Program 01A v2 trust boundary and one bounded Program 01B package-driven C++ backend. It can inventory an arbitrary local folder and screen one STEP assembly, but it cannot determine whether an arbitrary engineering project works.
@@ -32,12 +34,14 @@ does not count as evidence and does not close Phase 2.
 
 Package integrity is a byte-identity claim only. A package remains reviewed input and contains no requirement verdict or solver result. Program 01B makes the two synthetic motor packages consumable by one declared backend; it does not turn human acceptance into physical validation or make the older blocked package executable.
 
-No real project structural, thermal, electrical, CFD, or controls solver has
-executed yet. The Phase 3 Qt-free structural module validates reviewed bounded
-linear-static requests, generates deterministic CalculiX input decks, and
-parses raw displacement/stress output. CalculiX 2.23 and Gmsh 4.15.2 are now
-installed locally; a one-tetrahedron solver/parser smoke completed using the
-explicit SPOOLES backend, but it is not YUBI bracket validation.
+No reviewed real-project structural result exists, and no real-project thermal,
+electrical, CFD, or controls solver has executed. The consolidated Phase 3
+workflow prepares supported tetrahedral meshes, requires explicit engineering
+review, compiles one deterministic setup, runs and validates isolated CalculiX
+evidence, gates scoped findings on refinement, and preserves v2 archives for
+offline replay. Historical CalculiX 2.23 smoke and benchmark runs remain
+synthetic adapter evidence; the strengthened Windows gates and the reviewed
+YUBI bracket scenario remain open.
 The repository makes no certification claim and no project-wide correctness
 claim. A failed, missing, nonconverged, or unsupported analysis must remain
 `indeterminate` or `not_evaluated`; it cannot become a pass.

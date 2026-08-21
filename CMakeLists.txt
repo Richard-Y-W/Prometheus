@@ -12,12 +12,20 @@ option(PROMETHEUS_ENABLE_MUJOCO "Enable MuJoCo adapter" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(BUILD_TESTING)
+  add_test(
+    NAME prometheus_structural_single_authority
+    COMMAND ${CMAKE_COMMAND}
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertSingleStructuralAuthority.cmake
+  )
+endif()
 add_subdirectory(desktop/core)
+if(PROMETHEUS_BUILD_INTEGRITY OR PROMETHEUS_BUILD_EXECUTION OR PROMETHEUS_BUILD_RUN_STORE OR PROMETHEUS_BUILD_REPLAY OR PROMETHEUS_BUILD_DESKTOP OR PROMETHEUS_BUILD_STRUCTURAL)
+  add_subdirectory(desktop/integrity)
+endif()
 if(PROMETHEUS_BUILD_STRUCTURAL)
   add_subdirectory(desktop/structural)
-endif()
-if(PROMETHEUS_BUILD_INTEGRITY OR PROMETHEUS_BUILD_EXECUTION OR PROMETHEUS_BUILD_RUN_STORE OR PROMETHEUS_BUILD_REPLAY OR PROMETHEUS_BUILD_DESKTOP)
-  add_subdirectory(desktop/integrity)
 endif()
 if(PROMETHEUS_BUILD_EXECUTION)
   add_subdirectory(desktop/execution)
@@ -37,9 +45,9 @@ if(PROMETHEUS_ENABLE_OCCT)
 endif()
 if(PROMETHEUS_BUILD_DESKTOP)
   if(NOT PROMETHEUS_BUILD_RUN_STORE OR NOT PROMETHEUS_BUILD_EXECUTION OR
-     NOT PROMETHEUS_BUILD_REPLAY)
+     NOT PROMETHEUS_BUILD_REPLAY OR NOT PROMETHEUS_BUILD_STRUCTURAL)
     message(FATAL_ERROR
-      "Desktop execution requires execution, run-store, and replay support"
+      "Desktop requires execution, run-store, replay, and structural support"
     )
   endif()
   find_package(Qt6 6.5 REQUIRED COMPONENTS Quick QuickControls2 Quick3D Concurrent Network)

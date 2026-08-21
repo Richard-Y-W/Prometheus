@@ -593,7 +593,7 @@ Result<std::string> read_previous_project_index_file(
     if (!sidecar.has_value())
       return Result<std::string>::failure(sidecar.diagnostic());
     return read_named_file(
-        sidecar.value(), std::string(previous_project_index_name),
+        sidecar.value().get(), std::string(previous_project_index_name),
         maximum_project_bytes,
         sidecar_path_for_project(project_path) /
             std::string(previous_project_index_name),

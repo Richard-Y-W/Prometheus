@@ -243,16 +243,24 @@ bool reference_matches(const StoredObjectReference &reference,
             reference.schema_version == "1.0.0") ||
            (reference.media_type == execution_project_snapshot_media_type &&
             reference.schema_id == execution_project_snapshot_schema_id &&
-            reference.schema_version == "1.0.0") ||
+           reference.schema_version == "1.0.0") ||
            (reference.media_type == project_inventory_media_type &&
             reference.schema_id == project_inventory_schema_id &&
             reference.schema_version == "1.0.0") ||
            (reference.media_type == structural_manifest_media_type &&
-            reference.schema_id == structural_manifest_schema_id &&
-            reference.schema_version == "1.0.0") ||
+            ((reference.schema_id == structural_manifest_schema_id_v1 &&
+              reference.schema_version == "1.0.0") ||
+             (reference.schema_id == structural_manifest_schema_id_v2 &&
+              reference.schema_version == "2.0.0") ||
+             (reference.schema_id == structural_manifest_schema_id_v3 &&
+              reference.schema_version == "3.0.0") ||
+             (reference.schema_id == structural_manifest_schema_id_v4 &&
+              reference.schema_version == "4.0.0"))) ||
            (reference.media_type == structural_project_run_media_type &&
-            reference.schema_id == structural_project_run_schema_id &&
-            reference.schema_version == "1.0.0");
+            ((reference.schema_id == structural_project_run_schema_id_v1 &&
+              reference.schema_version == "1.0.0") ||
+             (reference.schema_id == structural_project_run_schema_id_v2 &&
+              reference.schema_version == "2.0.0")));
   }
   return false;
 }

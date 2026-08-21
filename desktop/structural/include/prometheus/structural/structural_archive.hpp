@@ -14,6 +14,9 @@ namespace prometheus::structural {
 struct StructuralArchive final {
   std::filesystem::path manifest_path;
   std::string manifest_sha256;
+  std::string schema_version;
+  std::string validated_result_identity;
+  std::string coarse_result_identity;
 };
 
 struct StructuralArchiveVerification final {
@@ -23,16 +26,18 @@ struct StructuralArchiveVerification final {
   std::optional<CalculixMetrics> metrics;
   int declared_obligations{};
   int evaluated_obligations{};
+  std::string schema_version;
+  std::string validated_result_identity;
+  std::optional<CalculixDat> normalized;
+  std::optional<StructuralSetup> reviewed_setup;
+  std::optional<CompiledStructuralSetup> compiled_setup;
+  std::optional<StructuralEvaluation> evaluation;
+  VerifiedStructuralRefinementPtr refinement;
 };
 
-[[nodiscard]] std::string serialize_structural_setup_evidence(
-    const StructuralSetup &setup);
-
-[[nodiscard]] StructuralArchive write_structural_archive(
-    const std::filesystem::path &working_directory, std::string job_name,
-    std::string solver_identity, std::string reviewed_setup_bytes,
-    const StructuralRequest &request,
-    const SolverRunResult &run, const StructuralEvaluation &evaluation);
+[[nodiscard]] StructuralArchive write_structural_refinement_archive(
+    const VerifiedStructuralRefinement &refinement,
+    const StructuralEvaluation &evaluation);
 
 [[nodiscard]] StructuralArchiveVerification verify_structural_archive(
     const std::filesystem::path &manifest_path) noexcept;

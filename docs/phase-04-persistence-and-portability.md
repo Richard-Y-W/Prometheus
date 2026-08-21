@@ -12,24 +12,33 @@ The operation:
 
 - refuses an unverified or corrupt source archive;
 - refuses to overwrite an existing destination;
-- copies only the seven filenames declared by the closed archive contract;
+- copies exactly the files declared by the closed archive contract: seven
+  setup/solver artifacts for legacy v1/v2 or fourteen coarse/fine artifacts for
+  v3;
 - verifies all copied byte lengths, SHA-256 identities, canonical setup and
-  manifest bytes, replayed DAT metrics, and recompiled findings;
+  manifest bytes, replayed result metrics, and recompiled findings; v3 also
+  reconstructs both results and the derived comparison;
 - publishes only after verification through an atomic directory rename; and
 - removes an unpublished temporary directory after failure.
 
-The controller test relocates a completed child-process run and proves the
-manifest identity remains unchanged. This is one evidence-bearing transport
-primitive, not the Phase 4 exit gate.
+The controller test relocates a completed two-sample v3 run and proves the
+manifest identity remains unchanged. Legacy v1/v2 relocation retains the
+original seven-artifact contract; it does not upgrade those archives to a
+two-result claim. This is one evidence-bearing transport primitive, not the
+Phase 4 exit gate.
 
 ## Checkpoint 2: project-anchored structural manifests
 
 The project execution index now accepts a second, explicitly registered
 committed-run contract for structural archives. It does not relabel structural
-evidence as the older motor-analysis manifest. Before anchoring, the desktop
-re-verifies the complete local archive and the transaction store independently
-verifies the canonical manifest object, closed root and artifact set, safe
-unique filenames, declared hashes, and registered media/schema identity.
+evidence as the older motor-analysis manifest. For an active run, the desktop
+binds publication to the manifest SHA-256 returned by the archive writer,
+checks the current manifest bytes and declared artifact identities while
+packaging them, and lets the transaction store independently validate the
+canonical manifest object, closed root and artifact set, safe unique filenames,
+declared hashes, and registered media/schema identity. It does not replay DAT,
+recompile the setup or findings, or rerun the solver merely because the user
+saves the run.
 
 Anchoring installs the immutable manifest in the content-addressed sidecar,
 appends its exact reference and a `structural_run_anchored` event under the
@@ -48,21 +57,27 @@ New structural publications now retain the complete verified run inside the
 project's content-addressed sidecar. Each binary or text artifact is split into
 bounded 700 KiB raw chunks and encoded as canonical immutable JSON objects. A
 closed structural project-run manifest binds the original archive manifest,
-all seven artifact identities, ordered chunk references, offsets, decoded
-lengths, and complete reconstructed SHA-256 identities.
+all declared artifact identities, ordered chunk references, offsets, decoded
+lengths, and complete reconstructed SHA-256 identities. Legacy v1/v2 graphs
+retain seven artifacts; new v3 desktop publications retain fourteen artifacts
+across the coarse and fine samples.
 
 Publication independently decodes and hashes every supplied chunk graph before
-installing it. It then installs the original archive manifest, chunks, and
-project-run manifest under the existing exclusive transaction lock and commits
-only the closed project-run reference to history. Missing, duplicated,
+installing it. Active v3 publication streams integrity hashing and chunking
+without rerunning CalculiX, reparsing active output, recomputing the pair, or
+recompiling findings. It then installs the original archive manifest, chunks,
+and project-run manifest under the existing exclusive transaction lock and
+commits only the closed project-run reference to history. Missing, duplicated,
 unreferenced, reordered, malformed, or forged chunks fail before the project
 index changes. Retrying an interrupted or repeated publication is idempotent.
 
 Reconstruction reads only verified content-addressed objects, rebuilds each
 artifact, checks its exact length and SHA-256 identity, writes through a new
-sibling temporary directory, and publishes by atomic rename. Tests cover a DAT
-artifact spanning multiple chunks, byte-identical reconstruction of every
-file, full structural offline replay after project close/reopen, forged and
+sibling temporary directory, and publishes by atomic rename. Offline v3
+verification then replays both raw result packages and derives the comparison,
+coverage, and findings again because the bytes crossed a trust boundary. Tests
+cover a DAT artifact spanning multiple chunks, byte-identical reconstruction of
+every file, full two-sample replay after project close/reopen, forged and
 missing chunk rejection, changed source rejection, interruption immediately
 before project replacement, and successful recovery by retry.
 
@@ -94,8 +109,17 @@ addition to exact face/node identities. After reconstructing an embedded run,
 the desktop rebuilds the volume boundary and deterministic patches at that
 angle, proves the stored load and restraint faces map completely back to those
 patches, restores every reviewed material, force, restraint, requirement, mesh,
-scenario, and provenance field, recompiles the authoritative request, and
-repopulates the form, findings, extrema, limitations, and result view.
+scenario, and provenance field from the verifier's single typed snapshot, and
+repopulates the form, findings, extrema, limitations, and result view without a
+second setup compilation.
+
+The current reviewed-setup contract is `2.1.0`: it stores an ordered list of
+typed requirements, including requirements this CalculiX capability cannot
+answer. New execution still compiles the supported displacement and stress
+entries into one solver request and runs the solver once. Legacy `2.0.0`
+archives retain their original single-limit JSON shape; replay marks that
+typed snapshot as legacy and reproduces its canonical setup, deck, lineage,
+and compiled identity byte-for-byte instead of silently upgrading evidence.
 
 The restored workflow is runnable only if the ordinary current validators still
 accept it. Missing or changed selections cannot silently become defaults. The

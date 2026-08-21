@@ -4,6 +4,9 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'prepare-yubi-gripper-trial.ps1') | Out-Null
 $source = Join-Path $repo 'out/external-demo/yubi-hw'
 $trial = Join-Path $repo 'out/trials/yubi-bracket-structural'
+$materialEvidenceSource = Join-Path $repo 'fixtures/evidence/aluminum-2024-candidates-v1.json'
+$materialEvidenceDestination = 'aluminum-2024-candidates-v1.json'
+$materialEvidenceSha256 = 'cc0d48a14b9802f43aa599a994b35bbcb02cda4708119bcacbd41b3bf219fbe3'
 
 $files = @(
   [ordered]@{ source='STEP/gripper/BRACKET_GRIPPER.stp'; destination='BRACKET_GRIPPER.stp'; sha256='4a6fba05b237b725be2ca4e5ba7f7617674b4bcae4164ff32e88d9e75275017a' },
@@ -20,6 +23,10 @@ foreach ($file in $files) {
   }
   Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $trial $file.destination) -Force
 }
+if ((Get-FileHash -LiteralPath $materialEvidenceSource -Algorithm SHA256).Hash.ToLowerInvariant() -ne $materialEvidenceSha256) {
+  throw 'YUBI structural material-evidence hash validation failed.'
+}
+Copy-Item -LiteralPath $materialEvidenceSource -Destination (Join-Path $trial $materialEvidenceDestination) -Force
 
 $manifest = [ordered]@{
   schema = 'urn:prometheus:structural-slice-candidate:0.1.0'
@@ -32,6 +39,12 @@ $manifest = [ordered]@{
     geometry_sha256 = '4a6fba05b237b725be2ca4e5ba7f7617674b4bcae4164ff32e88d9e75275017a'
     bom_material_candidate = 'A2024'
   }
+  material_evidence = [ordered]@{
+    path = $materialEvidenceDestination
+    sha256 = $materialEvidenceSha256
+    schema = 'urn:prometheus:material-candidate-evidence:0.1.0'
+  }
+  material_applicability = 'unresolved'
   review = [ordered]@{
     exact_material_and_temper_reviewed = $false
     elastic_properties_reviewed = $false

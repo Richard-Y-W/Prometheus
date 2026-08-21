@@ -1,8 +1,10 @@
 #pragma once
 
 #include "prometheus/structural/calculix_runner.hpp"
+#include "prometheus/structural/structural_refinement.hpp"
 #include "prometheus/structural/types.hpp"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,19 @@ enum class StructuralFindingDisposition {
   cannot_answer
 };
 
+struct StructuralRefinementSummary final {
+  StructuralRefinementStatus status{
+      StructuralRefinementStatus::indeterminate};
+  double displacement_change_fraction{};
+  double stress_change_fraction{};
+  double maximum_change_fraction{};
+  double maximum_allowed_change_fraction{};
+  std::vector<std::string> setup_sha256;
+  std::vector<std::string> result_sha256;
+  std::vector<StructuralObservableComparison> observables;
+  std::vector<StructuralGlobalExtremumDiagnostic> global_extrema;
+};
+
 struct StructuralFinding final {
   std::string obligation;
   StructuralFindingDisposition disposition{};
@@ -22,17 +37,27 @@ struct StructuralFinding final {
   double margin_to_limit{};
   std::string unit;
   std::string scope;
+  std::vector<std::string> evidence_sha256;
+  std::vector<std::string> assumptions;
+};
+
+struct StructuralUnevaluatedObligation final {
+  std::string obligation;
+  std::string code;
+  std::string detail;
 };
 
 struct StructuralEvaluation final {
   SolverRunStatus execution_status{SolverRunStatus::launch_failed};
   std::vector<StructuralFinding> findings;
+  std::optional<StructuralRefinementSummary> comparison;
   int declared_obligations{};
   int evaluated_obligations{};
   std::string limitation;
+  std::vector<StructuralUnevaluatedObligation> unknowns;
 };
 
 [[nodiscard]] StructuralEvaluation compile_structural_findings(
-    const StructuralRequest &request, const SolverRunResult &run);
+    const VerifiedStructuralRefinement &refinement);
 
 } // namespace prometheus::structural

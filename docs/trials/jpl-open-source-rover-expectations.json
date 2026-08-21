@@ -1,0 +1,22 @@
+{
+  "schema": "urn:prometheus:project-intake-expectation:1",
+  "source": {
+    "repository": "https://github.com/nasa-jpl/open-source-rover.git",
+    "revision": "0c4a0d97ba09d028a9ca380ae8e6729ac4b8bef7",
+    "license_path": "LICENSE.txt",
+    "license_sha256": "74227c34e68957a55d4d16091aeca5bcd240ec15883e5dee71f4b25139064413"
+  },
+  "ok": true,
+  "error": "",
+  "root_path": "ignored",
+  "inventory_sha256": "sha256:be8aebb1d1241579eeaa07ca64e582c88b7cf0617ff36c573e581d3e35689191",
+  "total_files": 967,
+  "ready_files": 23,
+  "not_evaluated_files": 58,
+  "unsupported_files": 886,
+  "unreadable_files": 0,
+  "duplicate_copies": 191,
+  "primary_step_path": "",
+  "elapsed_ms": 0,
+  "status": "inventory_sha256_confirmed_from_two_distinct_archive_roots"
+}

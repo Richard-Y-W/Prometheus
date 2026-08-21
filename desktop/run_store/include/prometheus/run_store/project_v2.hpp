@@ -38,12 +38,24 @@ inline constexpr std::size_t maximum_committed_runs = 10000U;
 inline constexpr std::size_t maximum_events = 256U;
 inline constexpr std::string_view structural_manifest_media_type =
     "application/vnd.prometheus.structural-run-archive+json";
-inline constexpr std::string_view structural_manifest_schema_id =
+inline constexpr std::string_view structural_manifest_schema_id_v1 =
     "urn:prometheus:schema:structural-run-archive:1.0.0";
+inline constexpr std::string_view structural_manifest_schema_id_v2 =
+    "urn:prometheus:schema:structural-run-archive:2.0.0";
+inline constexpr std::string_view structural_manifest_schema_id_v3 =
+    "urn:prometheus:schema:structural-run-archive:3.0.0";
+inline constexpr std::string_view structural_manifest_schema_id_v4 =
+    "urn:prometheus:schema:structural-run-archive:4.0.0";
+inline constexpr std::string_view structural_manifest_schema_id =
+    structural_manifest_schema_id_v1;
 inline constexpr std::string_view structural_project_run_media_type =
     "application/vnd.prometheus.structural-project-run+json";
-inline constexpr std::string_view structural_project_run_schema_id =
+inline constexpr std::string_view structural_project_run_schema_id_v1 =
     "urn:prometheus:schema:structural-project-run:1.0.0";
+inline constexpr std::string_view structural_project_run_schema_id_v2 =
+    "urn:prometheus:schema:structural-project-run:2.0.0";
+inline constexpr std::string_view structural_project_run_schema_id =
+    structural_project_run_schema_id_v1;
 inline constexpr std::string_view structural_artifact_chunk_media_type =
     "application/vnd.prometheus.structural-artifact-chunk+json";
 inline constexpr std::string_view structural_artifact_chunk_schema_id =

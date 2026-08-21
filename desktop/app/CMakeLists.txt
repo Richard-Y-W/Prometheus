@@ -1,6 +1,18 @@
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
-add_library(prometheus_desktop_support STATIC cad_controller.cpp cad_controller.hpp project_controller.cpp project_controller.hpp project_intake.cpp project_intake.hpp execution_controller.cpp execution_controller.hpp execution_component_variant.cpp execution_component_variant.hpp component_binding_controller.cpp component_binding_controller.hpp service_controller.cpp service_controller.hpp exact_package_download.cpp exact_package_download.hpp review_payload.cpp review_payload.hpp engineering_controller.cpp engineering_controller.hpp structural_controller.cpp structural_controller.hpp)
+add_library(prometheus_desktop_support STATIC
+  cad_controller.cpp cad_controller.hpp
+  project_controller.cpp project_controller.hpp
+  project_intake.cpp project_intake.hpp
+  execution_controller.cpp execution_controller.hpp
+  execution_component_variant.cpp execution_component_variant.hpp
+  component_binding_controller.cpp component_binding_controller.hpp
+  service_controller.cpp service_controller.hpp
+  exact_package_download.cpp exact_package_download.hpp
+  review_payload.cpp review_payload.hpp
+  engineering_controller.cpp engineering_controller.hpp
+  structural_backend.cpp structural_backend.hpp
+  structural_controller.cpp structural_controller.hpp)
 target_include_directories(prometheus_desktop_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
   PRIVATE ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/include)
 target_link_libraries(prometheus_desktop_support PUBLIC Qt6::Quick3D Qt6::Concurrent Qt6::Network prometheus_core prometheus_execution prometheus_integrity prometheus_replay_support prometheus_run_store prometheus_structural)
@@ -48,6 +60,51 @@ if(BUILD_TESTING)
     NAME prometheus_project_intake
     COMMAND prometheus_project_intake_tests
   )
+  add_test(
+    NAME prometheus_project_intake_summary_good
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-good.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  add_test(
+    NAME prometheus_project_intake_summary_bad
+    COMMAND ${CMAKE_COMMAND}
+      -DEXPECTED_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/expected.json
+      -DACTUAL_JSON=${PROJECT_SOURCE_DIR}/fixtures/trials/project-intake-summary/actual-bad.json
+      -P ${PROJECT_SOURCE_DIR}/cmake/AssertProjectIntakeSummary.cmake
+  )
+  set_tests_properties(prometheus_project_intake_summary_bad PROPERTIES
+    WILL_FAIL TRUE
+  )
+  add_test(
+    NAME prometheus_jpl_rover_prepare_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=correct
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-correct
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  add_test(
+    NAME prometheus_jpl_rover_failed_promotion_fixture
+    COMMAND ${CMAKE_COMMAND}
+      -DCASE=wrong_license
+      -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
+      -DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/jpl-rover-fixture-wrong-license
+      -P ${PROJECT_SOURCE_DIR}/cmake/tests/JplRoverTrialFixture.cmake
+  )
+  set_tests_properties(
+    prometheus_jpl_rover_prepare_fixture
+    prometheus_jpl_rover_failed_promotion_fixture
+    PROPERTIES TIMEOUT 60
+  )
+  if(WIN32)
+    add_test(
+      NAME prometheus_outside_user_bundle_fixture
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File ${PROJECT_SOURCE_DIR}/scripts/tests/outside-user-bundle-fixture.ps1
+    )
+  endif()
 
   add_executable(prometheus_engineering_controller_tests
     tests/engineering_controller_tests.cpp
@@ -72,6 +129,7 @@ if(BUILD_TESTING)
     prometheus_desktop_support
   )
   target_compile_definitions(prometheus_structural_controller_tests PRIVATE
+    PROMETHEUS_REPOSITORY_ROOT="${PROJECT_SOURCE_DIR}"
     PROMETHEUS_SOLVER_FIXTURE_PATH="$<TARGET_FILE:prometheus_structural_solver_fixture>"
   )
   add_dependencies(prometheus_structural_controller_tests

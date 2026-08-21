@@ -8,6 +8,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,7 @@ using prometheus::integrity::canonicalize_json_bytes;
 using prometheus::integrity::object_hash;
 using prometheus::integrity::sha256_bytes;
 using prometheus::integrity::sha256_file;
+using prometheus::integrity::sha256_file_chunks;
 using prometheus::integrity::verify_canonical_bytes;
 using prometheus::integrity::verify_execution_component;
 
@@ -214,6 +216,27 @@ void expect_error(Callable &&callable, const std::string &expected_code,
                            expected_code);
 }
 
+template <typename Callable>
+void expect_error_detail(Callable &&callable,
+                         const std::string &expected_code,
+                         const std::string_view expected_detail,
+                         const std::string &context) {
+  try {
+    callable();
+  } catch (const CanonicalJsonError &error) {
+    require(error.code() == expected_code,
+            context + ": expected " + expected_code + ", received " +
+                error.code() + " (" + error.what() + ")");
+    require(std::string_view(error.what()).find(expected_detail) !=
+                std::string_view::npos,
+            context + ": error detail does not contain " +
+                std::string(expected_detail));
+    return;
+  }
+  throw std::runtime_error(context + ": expected CanonicalJsonError " +
+                           expected_code);
+}
+
 void replace_once(std::string &source, const std::string_view before,
                   const std::string_view after) {
   require(before.size() == after.size(),
@@ -342,6 +365,31 @@ void test_raw_sha256_and_file_hashing() {
   }
   require(sha256_file(temporary) == sha256_bytes(all_bytes),
           "file and raw byte hashing agree");
+  std::string visited;
+  std::size_t visits = 0U;
+  const auto streamed = sha256_file_chunks(
+      temporary, 31U, [&](const std::string_view chunk) {
+        ++visits;
+        visited.append(chunk);
+      });
+  require(streamed.sha256 == sha256_bytes(all_bytes) &&
+              streamed.byte_length == all_bytes.size() &&
+              visited == all_bytes && visits == 9U,
+          "one streaming pass exposes exact chunks, byte length, and SHA-256");
+  expect_error(
+      [&] {
+        static_cast<void>(sha256_file_chunks(
+            temporary, 0U, [](const std::string_view) {}));
+      },
+      "invalid_chunk_size", "zero-byte streaming hash chunk");
+  expect_error_detail(
+      [&] {
+        static_cast<void>(sha256_file_chunks(
+            temporary, std::numeric_limits<std::size_t>::max(),
+            [](const std::string_view) {}));
+      },
+      "invalid_chunk_size", "streamsize",
+      "chunk sizes outside the stream interface fail before allocation or read");
 
   auto symlink = temporary;
   symlink += ".symlink";
