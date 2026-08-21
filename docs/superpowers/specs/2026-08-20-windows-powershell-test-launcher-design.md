@@ -1,7 +1,7 @@
 # Windows PowerShell Test Launcher Design
 
 **Date:** 2026-08-20
-**Status:** Approved design; awaiting written-spec review
+**Status:** Approved; implementation pending
 
 ## Problem
 
