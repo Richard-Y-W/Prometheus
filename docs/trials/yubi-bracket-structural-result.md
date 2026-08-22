@@ -140,6 +140,94 @@ That earlier workflow failed during archive replay and is not a successful
 release checkpoint. Run 32503165787 produced the corrected portable result
 identities above and passed both workflow replay and independent local replay.
 
+## Retained evidence localizes the stress sensitivity at attachment holes
+
+This diagnosis reused the reviewed meshes and retained coarse/fine solver
+output. It did not generate another engineering mesh or execute CalculiX
+again.
+
+| Diagnostic | Coarse | Fine |
+| --- | ---: | ---: |
+| Peak element | `12430` | `40946` |
+| Peak von Mises stress | `123153.84050992897 Pa` | `143224.12817969918 Pa` |
+| Peak centroid | `[-0.015020238867, 0.029749039622, 0.0053816618322] m` | `[-0.015088546577, 0.02949549637, 0.0052364362562] m` |
+| Straight segments around the associated 3.3 mm-diameter hole | 6 | 8 |
+| Peak-element mean ratio | approximately `0.9403` | approximately `0.9414` |
+
+Each peak tetrahedron has one complete boundary face on loaded `Surface76`
+and another on cylindrical hole wall `Surface25`. Neither peak contains a
+fixed node or lies on restrained `Surface75`. Both peak centroids lie at the
+same 3.3 mm-diameter hole, centered at approximately `(-13.5, 28.75) mm` in
+the source mesh coordinates.
+
+These retained observations are consistent with a localized, repeatable
+hole-edge hotspot rather than missing mesh topology or a poor peak element.
+They do not distinguish ordinary under-refinement from an
+idealized-boundary concentration or a mathematical singularity. Two meshes are
+insufficient for that distinction, and the physical interpretation also
+depends on how the attachment transfers load.
+
+## The physical attachment is a discrete joint, not a broad-face load path
+
+At the pinned upstream commit, the
+[YUBI BOM](https://github.com/Toyota/yubi-hw/blob/e8334ff04945ccf56c0576a56f6fab74b63daaa2/docs/BOM/YUBI%20Gripper_DYNAMIXEL_BOM.csv)
+identifies `BRACKET_GRIPPER` and `TOOL FLANGE` as machined `A2024` parts and
+`UPPER PLATE` as a printed `PLA_BLACK` part. The BOM also lists cap bolts and
+locating pins for the UR5e attachment. The
+[assembly guide](https://github.com/Toyota/yubi-hw/blob/e8334ff04945ccf56c0576a56f6fab74b63daaa2/docs/AssemblyInstruction/YUBI%20Gripper_DYNAMIXEL_AssemblyGuide.pdf)
+specifies the following sequence:
+
+1. Two locating pins position `BRACKET_GRIPPER` on the rear of `UPPER PLATE`,
+   and four `CB3-8` bolts secure the bracket at `0.63 N·m`.
+2. One locating pin positions `TOOL FLANGE` on the UR5e, and four `CBE6-10`
+   bolts secure the flange at `9.2 N·m`.
+3. The bracket pins align the gripper assembly with the mounted tool flange,
+   and four `CBE3-8` bolts secure that interface at `1.14 N·m`.
+
+The reviewed Prometheus manifest maps `Surface76` to the upper-plate side and
+`Surface75` to the tool-flange side. The current component-only model replaces
+the documented multi-part joint with an area-distributed total force over the
+selected `Surface76` faces and zero displacement at every selected `Surface75`
+node. The source artifacts do not establish those load or restraint
+distributions, perfect transfer across the selected faces, bolt preload,
+friction, contact footprint, pin/bolt load sharing, or the absence of an
+applied moment. They also do not map each STEP hole to a specific fastener or
+pin. The observed peak therefore cannot be assigned to a particular joint
+member from the retained evidence.
+
+The broad-face idealization remains usable as an explicitly hypothetical
+workflow case. It is not sufficient evidence for the local mounting-hole
+stress of the assembled gripper. Refining the same idealization could improve
+numerical agreement while leaving that physical limitation unchanged.
+
+## Decision before another YUBI solve or automatic meshing
+
+No additional YUBI solve is justified solely to reduce the current global
+stress-change fraction. A follow-up study must first state which of two
+questions it asks:
+
+- A bulk surrogate study may retain the broad-face model, but it must
+  predeclare a physically motivated bulk or regional observable and keep the
+  global interface-edge peak visible as a diagnostic. Such a study cannot
+  claim local joint strength.
+- A mounting-joint study must first map holes to bolts and pins, identify
+  mating contact regions, review service forces and moments, and declare
+  preload, friction, load-sharing, material-condition, and allowable-stress
+  assumptions. That is a larger capability decision, not a mesh-size change.
+
+The retained YUBI evidence also constrains a future automatic-mesher contract.
+Candidate meshes need to preserve source surfaces, curves, and sharp-edge
+identity; record hole diameter and circumferential/chord resolution; report
+through-thickness resolution; accept reviewed local sizing regions; and locate
+reported extrema relative to selected boundaries and geometry features. An
+automatic mesher must not select attachment physics or run CalculiX repeatedly
+until an output appears converged.
+
+Prometheus should collect the same manual evidence on two materially different
+components with cleaner reviewed load paths before freezing that contract.
+YUBI remains an indeterminate workflow and interface-modeling result while
+those studies proceed.
+
 ## What this result does not establish
 
 This trial does not identify the manufactured bracket's material condition,
@@ -150,6 +238,7 @@ variation, assembly tolerances, defects, or the behavior of the complete YUBI
 gripper. It is not a safety result and not evidence that the arbitrary YUBI
 project works.
 
-Resolving this specific numerical uncertainty would require a newly reviewed
-finer mesh or another predeclared convergence study; the current evidence does
-not authorize another solver run or a relaxed threshold.
+Resolving the numerical disagreement would require a newly reviewed,
+predeclared follow-up mesh study, but that study alone would not resolve the
+joint-model applicability questions above. The current evidence authorizes
+neither another solver run nor a relaxed threshold.
